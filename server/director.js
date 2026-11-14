@@ -4,8 +4,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 
-// Haiku keeps the live pause short (the person is waiting in the headset).
-const MODEL = process.env.DIRECTOR_MODEL || "claude-haiku-5-5";
+const MODEL = "claude-opus-5-5";
 
 const SYSTEM = `You are the story director for "Living Window", a mixed-reality storytelling
 experience. A person wearing a Meta Quest headset has opened portals on the walls of
@@ -59,9 +58,11 @@ export function createDirector() {
     };
 
     try {
-      const response = await client.messages.parse({
+      const response = await client.beta.messages.parse({
         model: MODEL,
         max_tokens: 4000,
+        betas: ["server-side-fallback-2026-07-01"],
+        fallbacks: "default",
         output_config: { effort: "low", format: zodOutputFormat(Direction) },
         system: SYSTEM,
         messages: [{ role: "user", content: JSON.stringify(payload) }],
