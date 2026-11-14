@@ -22,6 +22,7 @@ const link = createLink(room, {
 link.request({ t: "whoami" }).then((me) => {
   if (["co", "owner", "console"].includes(me.role)) {
     $("#coPanel").hidden = false;
+    if (me.role !== "co") $("#coTitle").textContent = "Add to the story";
     canNarrate = true;
     if (state) render(state);
   }

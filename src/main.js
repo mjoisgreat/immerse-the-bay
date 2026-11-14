@@ -736,13 +736,14 @@ function togglePip() {
   if (pip.visible) return pip.dismiss(), flash("Pip waves goodbye.");
   if (!pip.ready) return flash("Pip is still waking up…");
   const xr = renderer.xr.isPresenting;
-  pip.range = xr ? [1.2, 2.4] : [2.2, 3.2];
-  pip.comeDistance = xr ? 0.8 : 2.0;
+  pip.range = xr ? [1.2, 2.4] : [2.6, 3.4];
+  pip.comeDistance = xr ? 0.8 : 2.4;
   if (xr) pip.summon(1.4);
   else {
     // On a flat screen: further away, and tilt the view down so Pip is in frame.
-    pip.summon(2.4);
-    pitch = -Math.atan2(1.6 - 0.45, 2.4);
+    // Pip 3 m away and a slight downward tilt: Pip's feet and the windows both stay in frame.
+    pip.summon(3.0);
+    pitch = Math.min(pitch, -0.2);
     camera.rotation.set(pitch, yaw, 0, "YXZ");
   }
   pip.say("Hi! I'm Pip. Look at me and talk!", 6000);
@@ -918,8 +919,10 @@ async function setupXR() {
   const cfg = await fetch("/api/config").then((r) => r.json()).catch(() => ({}));
   maxPortals = cfg.maxPortals || maxPortals;
   if (!navigator.xr || !(await navigator.xr.isSessionSupported("immersive-ar").catch(() => false))) {
-    enterBtn.textContent = "Desktop preview (open on Quest for MR)";
-    enterBtn.disabled = true;
+    // No mixed reality here: offer the desktop preview, and say where the real thing runs.
+    enterBtn.textContent = "Explore the preview";
+    enterBtn.onclick = () => ($("#overlay").hidden = true);
+    enterBtn.insertAdjacentHTML("afterend", `<p id="note">To step into mixed reality, open this page in the Meta Quest browser.</p>`);
     return;
   }
   enterBtn.onclick = async () => {

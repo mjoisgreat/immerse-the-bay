@@ -59,10 +59,10 @@
         font: italic clamp(.9rem, 1.3vw, 1.35rem) Georgia, serif; animation: pop .5s ease both; }
       .choice:nth-child(3) { animation-delay: .1s; } .choice:nth-child(4) { animation-delay: .2s; }
       @keyframes pop { from { opacity: 0; transform: translateY(10px) scale(.96); } }
-      #start { position: fixed; right: 1rem; bottom: 1rem; z-index: 9; font: 600 .85rem system-ui; padding: .5rem .9rem; border-radius: 999px;
-        border: 1px solid #ffffff33; background: #0b0d18cc; color: var(--text); cursor: pointer; }
+      #start { font: 600 clamp(.75rem, 1vw, 1rem) system-ui; padding: .35rem .9rem; border-radius: 999px;
+        border: 1px solid #ffffff33; background: #ffffff14; color: var(--text); cursor: pointer; }
       .gate { position: fixed; inset: 0; display: grid; place-items: center; text-align: center; padding: 2rem; }
-      .gate input { font: inherit; padding: .7rem 1rem; border-radius: 12px; border: 1px solid #ffffff33; background: #0b0d18; color: var(--text); }
+      .gate input { min-width: min(18rem, 70vw); font: inherit; padding: .7rem 1rem; border-radius: 12px; border: 1px solid #ffffff33; background: #0b0d18; color: var(--text); }
       .gate button { font: 600 1rem system-ui; padding: .7rem 1.2rem; border-radius: 12px; border: 0; background: var(--warm); color: #1b1206; cursor: pointer; }
       @media (max-width: 760px) { .main { grid-template-columns: 1fr; } aside { display: none; } }
     </style>
@@ -79,7 +79,7 @@
     <div class="stage" id="stage" hidden>
       <header>
         <div class="brand"><h1>Living Window</h1><span id="title"></span></div>
-        <div class="pills"><span class="pill" id="inside" hidden>Storyteller is inside the world</span><span class="pill" id="live">offline</span></div>
+        <div class="pills"><span class="pill" id="inside" hidden>Storyteller is inside the world</span><span class="pill" id="live">offline</span><button id="start" hidden>Full screen</button></div>
       </header>
       <div class="main">
         <div class="screen" id="screen">
@@ -98,7 +98,6 @@
         <div class="choices" id="choices"></div>
       </footer>
     </div>
-    <button id="start" hidden>Full screen</button>
     <script type="module" src="/src/theater.js"></script>
   </body>
 </html>

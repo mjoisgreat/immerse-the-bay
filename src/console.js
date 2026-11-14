@@ -6,10 +6,10 @@ const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 
 const PRESETS = [
-  "A lantern-lit fishing village on a misty mountain lake at dusk, wooden boats, paper lanterns glowing amber",
-  "A giant's overgrown library where the bookshelves are mossy cliffs and paper birds fly between them, warm afternoon light",
-  "A tiny moon base made of tin cans and string lights on a pastel lunar plain, Earth rising on the horizon",
-  "An underwater city of glowing coral towers, schools of silver fish, sunbeams slanting down through blue water",
+  ["Lantern village", "A lantern-lit fishing village on a misty mountain lake at dusk, wooden boats, paper lanterns glowing amber"],
+  ["Giant's library", "A giant's overgrown library where the bookshelves are mossy cliffs and paper birds fly between them, warm afternoon light"],
+  ["Tin-can moon base", "A tiny moon base made of tin cans and string lights on a pastel lunar plain, Earth rising on the horizon"],
+  ["Coral city", "An underwater city of glowing coral towers, schools of silver fish, sunbeams slanting down through blue water"],
 ];
 
 async function whoami(room) {
@@ -80,11 +80,13 @@ function render(s) {
   $("#choices").innerHTML = (s.choices || [])
     .map((c, i) => `<button class="ghost" data-choose="${i}" style="font-style:italic">→ ${esc(c)}</button>`)
     .join("");
-  $("#log").innerHTML = s.log
-    .slice()
-    .reverse()
-    .map((l) => `<li><b>${esc(l.kind)}</b>${esc(l.text)}</li>`)
-    .join("");
+  $("#log").innerHTML = s.log.length
+    ? s.log
+        .slice()
+        .reverse()
+        .map((l) => `<li><b>${esc(l.kind)}</b>${esc(l.text)}</li>`)
+        .join("")
+    : `<li class="muted">Nothing yet. Open a window in the headset and start telling the story.</li>`;
 
   const sug = [...(s.suggestions || [])].sort((a, b) => b.voters.length - a.voters.length || a.at - b.at);
   $("#suggs").className = sug.length ? "" : "empty";
@@ -135,7 +137,7 @@ document.addEventListener("click", (e) => {
       setTimeout(() => (b.textContent = "Copy"), 1200);
     });
   }
-  if (b.dataset.preset) send({ t: "set_seed", seed: PRESETS[b.dataset.preset] });
+  if (b.dataset.preset) send({ t: "set_seed", seed: PRESETS[b.dataset.preset][1] });
 });
 
 $("#say").addEventListener("submit", (e) => {
@@ -177,6 +179,6 @@ $("#reset").addEventListener("click", (e) => {
     b.style.background = "";
   }, 3000);
 });
-$("#presets").innerHTML = PRESETS.map((p, i) => `<button class="ghost" data-preset="${i}">${esc(p.split(",")[0])}</button>`).join("");
+$("#presets").innerHTML = PRESETS.map(([label, seed], i) => `<button class="ghost" data-preset="${i}" title="${esc(seed)}">${esc(label)}</button>`).join("");
 
 start();

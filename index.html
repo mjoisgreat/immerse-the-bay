@@ -15,8 +15,6 @@
       button { font: inherit; font-size: 1.15rem; padding: .8rem 1.6rem; border-radius: 999px; border: 0; cursor: pointer;
         background: linear-gradient(135deg, #ffd08a, #ff9a5a); color: #1b1206; }
       button:disabled { opacity: .55; cursor: default; }
-      #status { position: fixed; left: 50%; bottom: 1rem; transform: translateX(-50%); padding: .5rem 1rem; border-radius: 999px;
-        background: rgba(12, 14, 24, 0.75); font-size: .95rem; max-width: 90vw; text-align: center; }
       #hint { font-size: .85rem; opacity: .6; margin-top: 1rem; }
       #roominfo { margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid #ffb36b33; text-align: left; }
       .kv { display: flex; justify-content: space-between; gap: 1rem; margin: .25rem 0; font-family: system-ui, sans-serif; }
@@ -24,13 +22,22 @@
       .small { font: .85rem/1.5 system-ui, sans-serif; opacity: .8; margin: .75rem 0; }
       a { color: #ffd08a; }
       button.ghost { font-size: .85rem; padding: .45rem 1rem; background: transparent; color: #f3ead8; border: 1px solid #ffb36b55; }
-      .card { max-height: calc(100vh - 2rem); overflow: auto; }
+      .card { max-height: calc(100% - 2rem); overflow: auto; box-sizing: border-box; }
+      #overlay { bottom: 4.5rem; }
       #overlay[hidden], #bar[hidden] { display: none; }
-      #status { bottom: 4.6rem; }
-      #bar { position: fixed; left: 50%; bottom: 1rem; transform: translateX(-50%); display: flex; gap: .5rem; flex-wrap: wrap;
-        justify-content: center; max-width: calc(100vw - 2rem); }
-      #bar button { font: 600 .9rem system-ui, sans-serif; padding: .6rem 1rem; background: rgba(16, 20, 34, .88); color: #fff3e0;
-        border: 1px solid #ffb36b77; user-select: none; -webkit-user-select: none; touch-action: none; }
+      #note { font: .85rem/1.5 system-ui, sans-serif; opacity: .7; margin: .6rem 0 0; }
+      /* Bottom HUD: choices, status and buttons stacked so they never overlap. */
+      #hud { position: fixed; left: 0; right: 0; bottom: 0; display: flex; flex-direction: column; align-items: center; gap: .5rem;
+        padding: 0 .75rem .85rem; pointer-events: none; }
+      #hud > * { pointer-events: auto; max-width: 100%; }
+      #status { padding: .4rem .95rem; border-radius: 999px; background: rgba(12, 14, 24, 0.78); font-size: .92rem; text-align: center;
+        max-width: min(46rem, 100%); }
+      #status:empty { display: none; }
+      #bar { display: flex; gap: .4rem; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding: .15rem; }
+      #bar::-webkit-scrollbar { display: none; }
+      @media (max-width: 900px) { #bar { mask-image: linear-gradient(90deg, #000 85%, transparent); -webkit-mask-image: linear-gradient(90deg, #000 85%, transparent); padding-right: 2rem; } }
+      #bar button { flex: none; font: 600 .85rem system-ui, sans-serif; padding: .55rem .9rem; white-space: nowrap; background: rgba(16, 20, 34, .9);
+        color: #fff3e0; border: 1px solid #ffb36b77; user-select: none; -webkit-user-select: none; touch-action: none; }
       #bar button:hover { border-color: #ffd08a; }
       #bar button.on { background: #ff9a5a; color: #1b1206; }
       #bar button.warn { background: #c8483a; border-color: #ff8a7a; }
@@ -38,12 +45,17 @@
         background: rgba(16, 20, 34, .7); color: #fff3e0; border: 1px solid #ffb36b55; }
       body.clean #bar, body.clean #choices { display: none; }
       body.clean #showbar { display: block; }
-      #choices { position: fixed; left: 50%; bottom: 7.4rem; transform: translateX(-50%); display: flex; gap: .5rem; flex-wrap: wrap;
-        justify-content: center; max-width: calc(100vw - 2rem); }
+      body.clean #hud { padding-bottom: 3.6rem; }
+      #choices { display: flex; gap: .45rem; flex-wrap: wrap; justify-content: center; }
       #choices:empty { display: none; }
-      #choices button { font: italic 1rem Georgia, serif; padding: .55rem 1.1rem; background: rgba(40, 30, 60, .92); color: #fff3e0;
+      #choices button { font: italic .98rem Georgia, serif; padding: .5rem 1rem; background: rgba(40, 30, 60, .92); color: #fff3e0;
         border: 1px solid #ffd08a; }
       #choices button:hover { background: #ff9a5a; color: #1b1206; }
+      @media (max-width: 640px) {
+        .card { padding: 1.25rem; }
+        h1 { font-size: 1.6rem; }
+        #overlay { place-items: start center; }
+      }
     </style>
   </head>
   <body>
@@ -52,13 +64,14 @@
         <h1>Living Window</h1>
         <p>Tell a story out loud, and your room becomes it, live.</p>
         <button id="enter">Enter Living Window</button>
-        <div id="hint">Desktop: click empty space to open a portal, drag to look, hold Space to talk.</div>
+        <div id="hint">Click empty space to open a window · drag to look · hold Space to talk · double-click a window to step inside · H hides the buttons</div>
         <div id="roominfo">Setting up your room…</div>
       </div>
     </div>
-    <div id="status">Ready</div>
-    <div id="choices"></div>
-    <div id="bar" hidden>
+    <div id="hud">
+      <div id="choices"></div>
+      <div id="status"></div>
+      <div id="bar" hidden>
       <button data-act="talk">Hold to talk</button>
       <button data-act="new">New window</button>
       <button data-act="step">Step inside</button>
@@ -67,6 +80,7 @@
       <button data-act="reset">Reset story</button>
       <button data-act="info">Room info</button>
       <button data-act="hide">Hide buttons</button>
+      </div>
     </div>
     <button id="showbar">☰ Buttons</button>
     <script type="module" src="/src/main.js"></script>

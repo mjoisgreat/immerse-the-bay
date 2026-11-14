@@ -49,10 +49,12 @@ export class Companion {
     this.bubbleCanvas = Object.assign(document.createElement("canvas"), { width: 768, height: 256 });
     this.bubbleTex = new THREE.CanvasTexture(this.bubbleCanvas);
     this.bubbleTex.colorSpace = THREE.SRGBColorSpace;
-    this.bubble = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.bubbleTex, transparent: true, depthWrite: false }));
+    this.bubble = new THREE.Sprite(
+      new THREE.SpriteMaterial({ map: this.bubbleTex, transparent: true, depthWrite: false, depthTest: false }),
+    );
     this.bubble.scale.set(0.9, 0.3, 1);
     this.bubble.position.y = HEIGHT + 0.28;
-    this.bubble.renderOrder = 6;
+    this.bubble.renderOrder = 25; // always readable, even in front of a window's caption
     this.bubble.visible = false;
     this.root.add(this.bubble);
 
@@ -178,7 +180,9 @@ export class Companion {
     const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(this.camera.getWorldQuaternion(new THREE.Quaternion()));
     fwd.y = 0;
     fwd.normalize();
-    this.root.position.set(eye.x + fwd.x * distance, 0, eye.z + fwd.z * distance);
+    // A little to your left, so Pip doesn't stand in front of the window you're looking at.
+    const left = new THREE.Vector3(fwd.z, 0, -fwd.x);
+    this.root.position.set(eye.x + fwd.x * distance + left.x * distance * 0.4, 0, eye.z + fwd.z * distance + left.z * distance * 0.4);
     this.root.lookAt(eye.x, 0, eye.z);
     this.root.visible = true;
     this.mode = "idle";
