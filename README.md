@@ -71,7 +71,9 @@ npm run stt            # second terminal: local Whisper speech-to-text on :8790
 ## Pip, your companion
 
 Press **Pip** (panel or desktop bar) and a small robot walks around your real floor, with a soft shadow under it.
-It wanders, stops to look around, and comes over when you ask. **Look at Pip while you talk** (orb, A/X or hand to
+It wanders in front of you, stops to look around, and comes over when you ask. **Pinch Pip, or say "follow me",** and
+it walks beside you wherever you go (a little ahead and to your left, running to catch up, popping back if you leave
+the room); pinch again or say "stay" to stop. **Look at Pip while you talk** (orb, A/X or hand to
 mouth) and your words go to Pip instead of the story: Pip answers out loud from where it stands (Claude for the
 words, OpenAI TTS for the voice) with a matching gesture (wave, nod, shake, thumbs-up, jump, dance), knows the story
 so far, and can make things happen in it ("Pip, make it snow!" becomes a line for the story director). Pip's chats

@@ -396,7 +396,7 @@ function onSelectStart(ctrl) {
     return toolbar.press(ctrl.userData.button, ctrl);
   }
   if (hit?.object.userData.choice !== undefined) return pickChoice(hit.object.userData.choice);
-  if (hit?.object.userData.pip) return pip.gesture("wave"), flash("Look at Pip and talk to chat.");
+  if (hit?.object.userData.pip) return togglePipFollow();
   const portal = hit?.object.userData.portal;
   if (portal) {
     setFocus(portal.id);
@@ -725,6 +725,13 @@ async function chatWithPip(text) {
     pipBusy = false;
   }
 }
+// Pinch / point at Pip to toggle following you around.
+function togglePipFollow() {
+  pip.setFollowing(!pip.following);
+  pip.gesture(pip.following ? "thumbs_up" : "wave");
+  pip.say(pip.following ? "Lead the way! I'm right beside you." : "Okay, I'll wait here!", 4000);
+  flash(pip.following ? "Pip is following you. Pinch Pip again (or say “stay”) to stop." : "Pip will stay here.", 5000);
+}
 function togglePip() {
   if (pip.visible) return pip.dismiss(), flash("Pip waves goodbye.");
   if (!pip.ready) return flash("Pip is still waking up…");
@@ -739,7 +746,7 @@ function togglePip() {
     camera.rotation.set(pitch, yaw, 0, "YXZ");
   }
   pip.say("Hi! I'm Pip. Look at me and talk!", 6000);
-  flash("Meet Pip! Look at Pip while you talk to chat. Say “come here” to call Pip over.", 8000);
+  flash("Meet Pip! Look at Pip while you talk to chat. Pinch Pip, or say “follow me”, and Pip walks with you.", 8000);
 }
 
 // ---------- Buttons (floating panel in the headset, bar at the bottom on desktop) ----------

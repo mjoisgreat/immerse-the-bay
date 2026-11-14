@@ -6,6 +6,7 @@ import * as SkeletonUtils from "three/addons/utils/SkeletonUtils.js";
 // real floor, wanders, comes when called, faces you to listen and talk, and gestures as it speaks.
 const HEIGHT = 0.8; // metres: about thigh high, big enough to read across a room
 const WALK_SPEED = 0.45; // m/s
+const RUN_SPEED = 1.3; // when it has fallen behind
 const GESTURES = { wave: "Wave", yes: "Yes", no: "No", thumbs_up: "ThumbsUp", jump: "Jump", dance: "Dance" };
 
 function blobShadow() {
@@ -67,6 +68,15 @@ export class Companion {
     // How far Pip roams and where it stops when called (wider on a flat screen, so it stays in frame).
     this.range = [1.2, 2.4];
     this.comeDistance = 0.8;
+    this.following = false; // walks beside you wherever you go
+  }
+
+  /** Follow you around (on), or stay where it is (off). */
+  setFollowing(on) {
+    this.following = Boolean(on);
+    this.followUser = false;
+    this.target = null;
+    if (!on) (this.mode = "idle"), (this.idleUntil = performance.now() + 6000);
   }
 
   async load(url = "/models/RobotExpressive.glb") {
@@ -179,6 +189,7 @@ export class Companion {
   dismiss() {
     this.root.visible = false;
     this.followUser = false;
+    this.following = false;
   }
 
   /** Are you looking at Pip (so your words go to Pip instead of the story)? */
@@ -224,8 +235,10 @@ export class Companion {
   react({ gesture, move }) {
     this.listening = false;
     this.setFace("Surprised", 0, 0);
-    if (move === "come") this.followUser = true;
-    if (move === "wander") (this.followUser = false), (this.mode = "idle"), (this.idleUntil = 0);
+    if (move === "follow") this.setFollowing(true);
+    if (move === "come") (this.following = false), (this.followUser = true);
+    if (move === "stay") this.setFollowing(false);
+    if (move === "wander") this.setFollowing(false), (this.idleUntil = 0);
     if (gesture && gesture !== "none") this.gesture(gesture);
   }
 
@@ -257,10 +270,33 @@ export class Companion {
     const toUser = new THREE.Vector3(eye.x - this.root.position.x, 0, eye.z - this.root.position.z);
     const distUser = toUser.length();
 
+    let speed = WALK_SPEED;
     if (this.listening || this.talking) {
       this.mode = "talk";
       this._turnTowards(toUser, dt, 4);
       if (!this.emoting && this.current !== this.actions.Idle) this.play("Idle");
+    } else if (this.following) {
+      // Walk beside you: a little ahead and to your left, so Pip stays in view as you move.
+      const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(this.camera.getWorldQuaternion(new THREE.Quaternion())).setY(0);
+      if (fwd.lengthSq() > 1e-4) fwd.normalize();
+      const left = new THREE.Vector3(fwd.z, 0, -fwd.x); // 90° to the left of where you face
+      const spot = new THREE.Vector3(eye.x, 0, eye.z).addScaledVector(fwd, 0.9).addScaledVector(left, 0.55);
+      const off = spot.distanceTo(this.root.position);
+      if (distUser > 8) {
+        // You walked off (another room?): pop back beside you.
+        this.root.position.copy(spot);
+        this.gesture("jump");
+      } else if (off > (this.mode === "walk" ? 0.15 : 0.5)) {
+        this.target = spot;
+        this.mode = "walk";
+        if (off > 1.6) speed = RUN_SPEED;
+      } else if (this.mode === "walk") {
+        this.mode = "idle";
+        this.target = null;
+      } else if (!this.emoting) {
+        this._turnTowards(toUser, dt, 2); // waiting beside you: glance at you
+        if (this.current !== this.actions.Idle) this.play("Idle");
+      }
     } else if (this.followUser && distUser > this.comeDistance + 0.2) {
       // Come to just in front of you.
       this.target = new THREE.Vector3(eye.x, 0, eye.z).addScaledVector(toUser.clone().normalize(), -this.comeDistance);
@@ -279,7 +315,11 @@ export class Companion {
     if (this.mode === "walk" && this.target && !this.emoting) {
       const to = this.target.clone().sub(this.root.position).setY(0);
       const d = to.length();
-      if (d < 0.08) {
+      if (d < 0.08 && this.following) {
+        this.mode = "idle";
+        this.target = null;
+        this.play("Idle");
+      } else if (d < 0.08) {
         this.mode = "idle";
         this.target = null;
         this.idleUntil = now + 3000 + Math.random() * 5000;
@@ -287,13 +327,13 @@ export class Companion {
         this.followUser = false;
         this.play("Idle");
       } else {
-        this.play("Walking");
-        this._turnTowards(to, dt, 5);
+        this.play(speed > WALK_SPEED ? "Running" : "Walking");
+        this._turnTowards(to, dt, speed > WALK_SPEED ? 8 : 5);
         const facing = new THREE.Vector3(0, 0, 1).applyQuaternion(this.root.quaternion);
-        // Only walk forward once roughly facing the way it's going.
-        if (facing.dot(to.clone().normalize()) > 0.6) this.root.position.addScaledVector(to.normalize(), Math.min(d, WALK_SPEED * dt));
+        // Only move once roughly facing the way it's going.
+        if (facing.dot(to.clone().normalize()) > 0.6) this.root.position.addScaledVector(to.normalize(), Math.min(d, speed * dt));
       }
-    } else if (this.mode !== "walk" && !this.emoting && this.current === this.actions.Walking) this.play("Idle");
+    } else if (this.mode !== "walk" && !this.emoting && (this.current === this.actions.Walking || this.current === this.actions.Running)) this.play("Idle");
 
     // While talking, a little head bob so the words look like they come from Pip.
     if (this.head) {

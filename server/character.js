@@ -27,8 +27,10 @@ What you can do (fields):
 - gesture: the body animation that best fits your reply: "wave" (greeting or goodbye), "yes"
   (agreeing), "no" (disagreeing), "thumbs_up" (praise), "jump" (excited), "dance" (celebrating
   or asked to dance), "think" (pondering), "none".
-- move: "come" if they ask you to come over, follow them or come closer; "wander" if they ask
-  you to go explore, go away or give them space; "stay" otherwise.
+- move: "follow" if they ask you to follow them, come along or walk with them (you then walk
+  beside them wherever they go); "come" if they just ask you to come over or come closer;
+  "stay" if they ask you to stay, wait or stop following; "wander" if they ask you to go
+  explore, go away or give them space; "none" otherwise (keep doing what you're doing).
 - story_line: when they ask you to make something happen in the story world ("Pip, make it
   snow", "can you call the dragon?"), or you both agree on an idea, write that event as one
   short line (at most 20 words) for the story director, phrased as narration. Otherwise null.
@@ -37,7 +39,7 @@ What you can do (fields):
 const Reply = z.object({
   reply: z.string(),
   gesture: z.enum(["wave", "yes", "no", "thumbs_up", "jump", "dance", "think", "none"]),
-  move: z.enum(["come", "wander", "stay"]),
+  move: z.enum(["follow", "come", "stay", "wander", "none"]),
   story_line: z.string().nullable(),
 });
 
@@ -80,11 +82,12 @@ export function createCharacter() {
 }
 
 function fallback(text) {
-  const come = /come|here|follow|closer/i.test(text);
+  const follow = /follow|come along|with me/i.test(text);
+  const come = /come|here|closer/i.test(text);
   return {
-    reply: come ? "Coming! Wait for me!" : "Ooh, tell me more! What happens next in our story?",
-    gesture: come ? "wave" : "think",
-    move: come ? "come" : "stay",
+    reply: follow ? "Right behind you!" : come ? "Coming! Wait for me!" : "Ooh, tell me more! What happens next in our story?",
+    gesture: follow || come ? "wave" : "think",
+    move: follow ? "follow" : come ? "come" : "none",
     story_line: null,
   };
 }
