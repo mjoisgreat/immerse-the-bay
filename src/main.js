@@ -4,7 +4,7 @@ import { XRHandModelFactory } from "three/addons/webxr/XRHandModelFactory.js";
 import { Portal } from "./portal.js";
 import { OrbisStream } from "./orbis.js";
 import { PushToTalk } from "./voice.js";
-import { wsUrl } from "./ws-url.js";
+import { createLink } from "./link.js";
 
 const $ = (s) => document.querySelector(s);
 const statusEl = $("#status");
@@ -108,30 +108,26 @@ const labelFor = (s) =>
 addEventListener("pagehide", () => portals.forEach((p) => p.stream.closeOnUnload()));
 
 // ---------- Server link ----------
-let ws;
-async function connectWs() {
-  ws = new WebSocket(await wsUrl());
-  ws.onopen = () => {
+let link = null;
+function send(m) {
+  link?.send(m);
+}
+createLink({
+  onOpen() {
     send({ t: "hello", role: "renderer" });
     for (const [id, p] of portals) {
       if (p.stream.prompt) send({ t: "portal_sync", id, prompt: p.stream.prompt, status: p.stream.status });
       else send({ t: "portal_added", id });
     }
     if (focusId) send({ t: "focus", id: focusId });
-  };
-  ws.onclose = () => setTimeout(connectWs, 1500);
-  ws.onmessage = (e) => {
-    const m = JSON.parse(e.data);
+  },
+  onMessage(m) {
     if (m.t === "direction") applyDirection(m);
     else if (m.t === "state") {
       if (m.focusId && m.focusId !== focusId && portals.has(m.focusId)) setFocus(m.focusId, false);
     } else if (m.t === "close_portal") closePortal(m.id);
-  };
-}
-function send(m) {
-  if (ws?.readyState === 1) ws.send(JSON.stringify(m));
-}
-connectWs();
+  },
+}).then((l) => (link = l));
 
 function applyDirection({ narration, updates }) {
   for (const u of updates) {

@@ -1,4 +1,4 @@
-import { wsUrl } from "./ws-url.js";
+import { createLink } from "./link.js";
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 
@@ -9,19 +9,16 @@ const PRESETS = [
   "An underwater city of glowing coral towers, schools of silver fish, sunbeams slanting down through blue water",
 ];
 
-let ws;
-async function connect() {
-  ws = new WebSocket(await wsUrl());
-  ws.onopen = () => ($("#conn").textContent = "connected");
-  ws.onclose = () => (($("#conn").textContent = "reconnecting…"), setTimeout(connect, 1500));
-  ws.onmessage = (e) => {
-    const m = JSON.parse(e.data);
+let link = null;
+const send = (m) => link?.send(m);
+createLink({
+  onOpen: () => ($("#conn").textContent = "connected"),
+  onMessage(m) {
     if (m.t === "state") render(m);
     if (m.t === "direction" && m.narration) $("#narration").textContent = m.narration;
-  };
-}
-const send = (m) => ws?.readyState === 1 && ws.send(JSON.stringify(m));
-connect();
+  },
+}).then((l) => (link = l));
+setInterval(() => link && !link.connected && ($("#conn").textContent = "reconnecting…"), 2000);
 
 function render(s) {
   $("#brain").textContent = `director: ${s.director}`;
