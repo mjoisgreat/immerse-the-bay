@@ -96,6 +96,12 @@ of you (without the "hole in the wall" effect, since there's no real wall), step
 live video (the Quad hides while you're inside and comes back when you step out), and Bunny comes along. The splat
 renderer is only downloaded the first time you press the button.
 
+**Moving around the Quad** (only while the world is on, and not inside a window): walk for real, use the **left
+thumbstick** to walk where you're looking, the **right thumbstick** to turn in 30° steps, or **point at the ground and
+pinch** (or pull the trigger) to teleport there (a glowing circle shows where you'll land; pointing straight ahead still
+opens a window). On desktop, **W/A/S/D** or the arrow keys walk. Going back to see-through puts you back in your real
+room, so the windows line up with your walls again.
+
 ## Hand gestures
 
 Everything works with bare hands (Quest hand tracking). Besides pointing and pinching (open, move, tap to touch,

@@ -7,6 +7,7 @@ import { Toolbar } from "./toolbar.js";
 import { HandGestures } from "./gestures.js";
 import { Companion, BunnyRig, RobotRig } from "./companion.js";
 import { Backdrop } from "./backdrop.js";
+import { Locomotion } from "./locomotion.js";
 import { OrbisStream } from "./orbis.js";
 import { PushToTalk } from "./voice.js";
 import { createLink, speechHeaders } from "./link.js";
@@ -436,6 +437,9 @@ function onSelectStart(ctrl) {
   }
   // Inside a world, pointing at it and pulling the trigger touches it.
   if (immersion.inside) return touchWorld(ray.origin.clone(), ray.direction.clone());
+  // In a 3D world, pointing at the ground and pinching (or the trigger) teleports you there.
+  const floor = loco.enabled && loco.floorHit(ray);
+  if (floor) return loco.teleport(floor), buzz(0.3, 30);
   openPortal(ray.origin.clone(), ray.direction.clone());
 }
 
@@ -791,6 +795,21 @@ function toggleBuddy() {
 // ---------- Room background: see-through (your real room) or a 3D world around you ----------
 // The story windows are unaffected; stepping inside a window still shows its live video.
 const backdrop = new Backdrop(scene, renderer, camera);
+const loco = new Locomotion(renderer, camera, scene);
+const aimRay = new THREE.Raycaster();
+// Pointing rays of the controllers/hands, skipping any that point at a button, window or Bunny.
+function locoRays() {
+  if (!loco.enabled) return [];
+  const hitTargets = targets();
+  return [0, 1].map((i) => {
+    const c = renderer.xr.getController(i);
+    if (!c.visible) return null;
+    tmpMat.identity().extractRotation(c.matrixWorld);
+    aimRay.ray.origin.setFromMatrixPosition(c.matrixWorld);
+    aimRay.ray.direction.set(0, 0, -1).applyMatrix4(tmpMat);
+    return aimRay.intersectObjects(hitTargets, false).length ? null : aimRay.ray.clone();
+  });
+}
 async function toggleBackdrop() {
   if (backdrop.on) {
     backdrop.hide();
@@ -799,7 +818,10 @@ async function toggleBackdrop() {
   if (backdrop.loading) return;
   flash("Loading Stanford's Main Quad…", 20000);
   const ok = await backdrop.show("stanford").catch(() => false);
-  flash(ok ? "You're standing in Stanford's Main Quad. Walk around! Press See-through to return to your room." : "Couldn't load the 3D world.", 7000);
+  const how = renderer.xr.isPresenting
+    ? "Walk, use the left thumbstick, or point at the ground and pinch to jump there."
+    : "Use W/A/S/D or the arrow keys to walk around.";
+  flash(ok ? `You're standing in Stanford's Main Quad. ${how} Press See-through to return to your room.` : "Couldn't load the 3D world.", 9000);
 }
 
 // ---------- Buttons (floating panel in the headset, bar at the bottom on desktop) ----------
@@ -968,7 +990,33 @@ addEventListener("keydown", (e) => {
   if (e.code === "Escape") stepOut();
   if (e.code === "KeyH" && !/INPUT|TEXTAREA/.test(e.target.tagName)) setButtonsHidden(!toolbar.collapsed);
 });
-addEventListener("keyup", (e) => e.code === "Space" && stopTalking());
+addEventListener("keyup", (e) => {
+  if (e.code === "Space") stopTalking();
+  keysDown.delete(e.code);
+});
+// W/A/S/D or arrow keys walk around a 3D world background in the desktop preview.
+const keysDown = new Set();
+addEventListener("keydown", (e) => {
+  if (!/INPUT|TEXTAREA/.test(e.target.tagName) && /^(Key[WASD]|Arrow(Up|Down|Left|Right))$/.test(e.code)) {
+    keysDown.add(e.code);
+    if (backdrop.on && e.code.startsWith("Arrow")) e.preventDefault();
+  }
+});
+addEventListener("blur", () => keysDown.clear());
+function desktopWalk(dt) {
+  if (renderer.xr.isPresenting) return;
+  if (!backdrop.on) {
+    // Back in the preview room: return to the starting spot once the world has faded out.
+    if (backdrop.opacity === 0 && (camera.position.x || camera.position.z)) camera.position.set(0, 1.6, 0);
+    return;
+  }
+  const f = (keysDown.has("KeyW") || keysDown.has("ArrowUp") ? 1 : 0) - (keysDown.has("KeyS") || keysDown.has("ArrowDown") ? 1 : 0);
+  const r = (keysDown.has("KeyD") || keysDown.has("ArrowRight") ? 1 : 0) - (keysDown.has("KeyA") || keysDown.has("ArrowLeft") ? 1 : 0);
+  if (!f && !r) return;
+  const fwd = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw));
+  const right = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
+  camera.position.addScaledVector(fwd, f * 2 * dt).addScaledVector(right, r * 2 * dt);
+}
 
 // ---------- Enter mixed reality ----------
 const enterBtn = $("#enter");
@@ -991,11 +1039,13 @@ async function setupXR() {
     });
     renderer.xr.setReferenceSpaceType("local-floor");
     await renderer.xr.setSession(session);
+    loco.start();
     scene.background = null;
     previewRoom.visible = false;
     $("#overlay").hidden = true;
     session.addEventListener("end", () => {
       immersion.reset();
+      loco.stop();
       scene.background = new THREE.Color(0x0b0e16);
       previewRoom.visible = true;
       $("#overlay").hidden = false;
@@ -1017,6 +1067,12 @@ renderer.setAnimationLoop(() => {
   checkWalking();
   immersion.update(t, dt);
   backdrop.update(dt, { inside: immersion.active });
+  // Moving around: only in a 3D world, not inside a window. Back to see-through puts you back
+  // where your real room is, so windows line up with your walls again.
+  loco.enabled = backdrop.on && !immersion.active && renderer.xr.isPresenting;
+  if (!backdrop.on && backdrop.opacity === 0) loco.reset();
+  loco.update(dt, locoRays());
+  desktopWalk(dt);
   scene.background = backdrop.background(renderer.xr.isPresenting ? null : DESKTOP_BG);
   previewRoom.visible = !renderer.xr.isPresenting && !immersion.active && !backdrop.on;
   exitOrb.visible = immersion.inside && renderer.xr.isPresenting && !toolbar.collapsed;
