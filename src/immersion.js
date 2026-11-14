@@ -131,8 +131,7 @@ export class Immersion {
         uniforms: this.uniforms,
         side: THREE.BackSide,
         transparent: true,
-        depthWrite: false,
-        depthTest: false, // paint over the windows' wall masks
+        depthWrite: false, // drawn behind your hands, Pip and the windows (wall masks are hidden while inside)
       }),
     );
     this.dome.renderOrder = -10; // behind every portal and UI element

@@ -99,3 +99,11 @@ test("suggestions and votes", () => {
   reduce(s, { t: "vote", id }, { role: "viewer", voter: "v2" }); // toggles off
   assert.equal(s.suggestions[0].voters.length, 1);
 });
+
+test("Pip's chats are logged for watchers and broadcast", () => {
+  const s = start();
+  const { events } = reduce(s, { t: "pip_said", you: "Hi Pip", pip: "Hello!", rid: "r1" }, owner);
+  assert.deepEqual(events, [{ t: "pip", line: "Hello!" }]);
+  assert.deepEqual(s.log.slice(-2).map((l) => [l.kind, l.text]), [["pip_you", "Hi Pip"], ["speech", "Pip: Hello!"]]);
+  assert.equal(allowed("console", "pip_said"), false);
+});

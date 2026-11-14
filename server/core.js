@@ -22,7 +22,7 @@ export function initialState() {
 }
 
 /** Who may send which message. Roles come from the room's credentials (see api.js). */
-const OWNER_ONLY = new Set(["hello", "portal_sync", "portal_added", "portal_removed", "portal_status", "heartbeat", "immerse", "touch"]);
+const OWNER_ONLY = new Set(["hello", "portal_sync", "portal_added", "portal_removed", "portal_status", "heartbeat", "immerse", "touch", "pip_said"]);
 const CONSOLE = new Set(["focus", "close_portal", "manual_prompt", "set_seed", "set_meta", "use_suggestion", "dismiss_suggestion", "reset_story"]);
 const NARRATE = new Set(["utterance", "choose"]);
 const ANYONE = new Set(["whoami", "suggest", "vote"]);
@@ -106,6 +106,15 @@ export function reduce(s, m, ctx = {}) {
       s.focusId = m.id;
       pushLog(s, "touch", `Reached into window ${m.id}`);
       director = { type: "touch", portal_id: m.id, image: image.slice("data:image/jpeg;base64,".length) };
+      break;
+    }
+    case "pip_said": {
+      // A chat with Pip, kept in the story log so watchers and the theater can follow it.
+      const you = String(m.you || "").trim().slice(0, 300), said = String(m.pip || "").trim().slice(0, 300);
+      if (!said) break;
+      if (you) pushLog(s, "pip_you", you);
+      pushLog(s, "speech", `Pip: ${said}`);
+      events.push({ t: "pip", line: said });
       break;
     }
     case "immerse": {

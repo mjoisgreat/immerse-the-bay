@@ -49,7 +49,7 @@ function render(s) {
     )
     .join("");
 
-  const kinds = { voice: "storyteller", guest: "co-narrator", crowd: "crowd", choice: "chosen", touch: "touch" };
+  const kinds = { voice: "storyteller", guest: "co-narrator", crowd: "crowd", choice: "chosen", touch: "touch", pip_you: "to Pip" };
   const feed = (s.log || []).filter((l) => ["director", "speech", ...Object.keys(kinds)].includes(l.kind));
   $("#feed").innerHTML = feed.length
     ? feed

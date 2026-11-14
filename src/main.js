@@ -5,6 +5,7 @@ import { Portal, PORTAL_SIZE } from "./portal.js";
 import { Immersion } from "./immersion.js";
 import { Toolbar } from "./toolbar.js";
 import { HandGestures } from "./gestures.js";
+import { Companion } from "./companion.js";
 import { OrbisStream } from "./orbis.js";
 import { PushToTalk } from "./voice.js";
 import { createLink, speechHeaders } from "./link.js";
@@ -279,8 +280,11 @@ function applyDirection({ narration, updates, choices, speech }) {
 // ---------- Voice ----------
 const ptt = new PushToTalk();
 let talking = false;
+let talkingToPip = false;
 async function startTalking() {
   if (talking) return;
+  talkingToPip = pip.isLookedAt(); // look at Pip while you talk and your words go to Pip
+  if (talkingToPip) pip.listen();
   try {
     await ptt.begin();
     talking = true;
@@ -299,10 +303,15 @@ async function stopTalking() {
   flash("Thinking…", 20000);
   try {
     const text = await ptt.end(speechHeaders(ROOM));
-    if (!text) return flash("Didn't catch that. Hold the orb and speak.");
+    if (!text) {
+      if (talkingToPip) pip.react({ gesture: "none", move: "stay" });
+      return flash("Didn't catch that. Hold the orb and speak.");
+    }
     flash(`“${text}”`, 4000);
-    send({ t: "utterance", text });
+    if (talkingToPip) chatWithPip(text);
+    else send({ t: "utterance", text });
   } catch (e) {
+    if (talkingToPip) pip.react({ gesture: "none", move: "stay" });
     flash(e.message);
   }
 }
@@ -333,7 +342,8 @@ const handFactory = new XRHandModelFactory();
 function targets() {
   const ui = immersion.inside ? [micOrb, exitOrb] : [micOrb];
   if (renderer.xr.isPresenting) ui.push(...toolbar.targets);
-  return [...ui.filter((o) => o.visible), ...[...portals.values()].filter((p) => p.portal.group.visible).map((p) => p.portal.screen)];
+  if (pip.visible) ui.push(pip.hitbox);
+  return [...ui.filter((o) => o.visible || o === pip.hitbox), ...[...portals.values()].filter((p) => p.portal.group.visible).map((p) => p.portal.screen)];
 }
 
 function rayFrom(obj) {
@@ -379,6 +389,7 @@ function onSelectStart(ctrl) {
     return toolbar.press(ctrl.userData.button, ctrl);
   }
   if (hit?.object.userData.choice !== undefined) return pickChoice(hit.object.userData.choice);
+  if (hit?.object.userData.pip) return pip.gesture("wave"), flash("Look at Pip and talk to chat.");
   const portal = hit?.object.userData.portal;
   if (portal) {
     setFocus(portal.id);
@@ -573,9 +584,12 @@ let voice = null;
 async function playVoice({ speaker, line, voice: style, portal_id }) {
   const target = portals.get(portal_id) || portals.get(focusId);
   target?.portal.setCaption(`${speaker}: “${line}”`, "story");
-  await speak(line, speaker, style, target);
+  // From the character's window, or all around you when you're inside that world.
+  const inside = immersion.inside && target && immersion.portal === target.portal;
+  await speak(line, speaker, style, inside ? null : target?.portal.group);
 }
-async function speak(line, speaker, style, target = null) {
+/** Speaks a line in a character's voice, from `anchor` (an object in the room) or all around you. */
+async function speak(line, speaker, style, anchor = null, { onStart, onEnd } = {}) {
   try {
     const r = await fetch("/api/voice", {
       method: "POST",
@@ -587,15 +601,21 @@ async function speak(line, speaker, style, target = null) {
     if (listener.context.state === "suspended") await listener.context.resume();
     voice?.stop?.();
     voice?.removeFromParent();
-    const inside = immersion.inside && target && immersion.portal === target.portal;
-    voice = target && !inside ? new THREE.PositionalAudio(listener) : new THREE.Audio(listener);
-    if (voice.setRefDistance) voice.setRefDistance(2), (target?.portal.group || scene).add(voice);
+    voice = anchor ? new THREE.PositionalAudio(listener) : new THREE.Audio(listener);
+    if (anchor) voice.setRefDistance(2), anchor.add(voice);
     else scene.add(voice);
     voice.setBuffer(buf);
     voice.setVolume(1.4);
+    const mine = voice;
+    voice.onEnded = () => {
+      mine.isPlaying = false;
+      onEnd?.();
+    };
     voice.play();
+    onStart?.(buf.duration);
   } catch (e) {
     console.warn("[voice]", e.message);
+    onEnd?.();
   }
 }
 
@@ -662,6 +682,46 @@ function guide(step) {
   if (renderer.xr.isPresenting) speak(GUIDE[step], ...NARRATOR);
 }
 
+// ---------- Pip: a companion who walks around your room and talks with you ----------
+const pip = new Companion(scene, camera);
+pip.load().catch((e) => console.warn("[pip] model failed to load", e));
+const PIP_VOICE = "a small, bright, curious robot companion; quick and playful, warm, a little mischievous";
+const pipHistory = [];
+let pipBusy = false;
+async function chatWithPip(text) {
+  if (pipBusy) return flash("Pip is still thinking…");
+  pipBusy = true;
+  pip.listen();
+  flash("Pip is thinking…", 15000);
+  try {
+    const r = await fetch("/api/character", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ room: ROOM, cred: credFor(ROOM), text, history: pipHistory }),
+    });
+    if (!r.ok) throw new Error(`Pip couldn't answer (${r.status})`);
+    const out = await r.json();
+    pipHistory.push({ role: "user", text }, { role: "assistant", text: out.reply });
+    pipHistory.splice(0, Math.max(0, pipHistory.length - 12));
+    pip.react(out);
+    flash(`Pip: “${out.reply}”`, 9000);
+    send({ t: "pip_said", you: text, pip: out.reply });
+    await speak(out.reply, "Pip", PIP_VOICE, pip.root, { onStart: () => pip.speaking(true), onEnd: () => pip.speaking(false) });
+    if (out.story_line && portals.size) send({ t: "utterance", text: out.story_line });
+  } catch (e) {
+    pip.react({ gesture: "no", move: "stay" });
+    flash(e.message);
+  } finally {
+    pipBusy = false;
+  }
+}
+function togglePip() {
+  if (pip.visible) return pip.dismiss(), flash("Pip waves goodbye.");
+  if (!pip.ready) return flash("Pip is still waking up…");
+  pip.summon();
+  flash("Meet Pip! Look at Pip while you talk to chat. Say “come here” to call Pip over.", 8000);
+}
+
 // ---------- Buttons (floating panel in the headset, bar at the bottom on desktop) ----------
 function openInFront() {
   const origin = camera.getWorldPosition(new THREE.Vector3());
@@ -704,6 +764,7 @@ const toolbar = new Toolbar(camera, [
   { id: "new", icon: "＋", label: "New window", press: openInFront },
   { id: "step", icon: "🚪", label: "Step inside", press: toggleStep },
   { id: "close", icon: "✕", label: "Close window", press: closeFocused },
+  { id: "pip", icon: "🤖", label: "Pip", press: togglePip },
   { id: "reset", icon: "↺", label: "Reset story", press: resetPressed },
   { id: "hide", icon: "▾", label: "Hide buttons", press: () => setButtonsHidden(true) },
 ]);
@@ -782,6 +843,7 @@ bar.close.onclick = closeFocused;
 bar.reset.onclick = resetPressed;
 bar.info.onclick = () => ($("#overlay").hidden = !$("#overlay").hidden);
 bar.hide.onclick = () => setButtonsHidden(true);
+bar.pip.onclick = togglePip;
 $("#showbar").onclick = () => setButtonsHidden(false);
 $("#bar").hidden = false; // only clickable once everything is wired up
 
@@ -871,10 +933,12 @@ renderer.setAnimationLoop(() => {
   exitOrb.visible = immersion.inside && renderer.xr.isPresenting && !toolbar.collapsed;
   updateToolbar();
   gestures.update();
+  pip.update(dt);
   updateRipples();
   updateTitle();
   for (const { portal, stream } of portals.values()) {
-    portal.mask.visible = renderer.xr.isPresenting; // the "hole in the wall" only makes sense over passthrough
+    // The "hole in the wall" only makes sense over passthrough, not inside a world.
+    portal.mask.visible = renderer.xr.isPresenting && !immersion.active;
     if (guideStep === 0 && stream.status === "streaming") guide(1);
   }
   if (!renderer.xr.isPresenting) syncButtons();

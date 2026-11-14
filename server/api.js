@@ -2,10 +2,12 @@
 // Each handler takes (store, input) and returns { status, body }.
 import crypto from "node:crypto";
 import { createDirector } from "./director.js";
+import { createCharacter } from "./character.js";
 import { reduce, allowed, askDirector, applyDirection, summary, MAX_PORTALS } from "./core.js";
 import { mintOrbisToken, endOrbisSession, transcribe, speak } from "./services.js";
 
 const director = createDirector();
+const pip = createCharacter();
 const hash = (v) => crypto.createHash("sha256").update(String(v)).digest("hex");
 const ok = (body, status = 200) => ({ status, body });
 const err = (status, error) => ({ status, body: { error } });
@@ -97,6 +99,18 @@ export async function token(store, body) {
 export async function sessionCleanup(body) {
   await endOrbisSession(body?.sessionId, body?.jwt);
   return { status: 204, body: null };
+}
+
+/** Talk with Pip, the walking companion (only the room's headset). */
+export async function character(store, body) {
+  const room = roomOf(body.room);
+  const { role } = await roleOf(store, room, body.cred);
+  if (role !== "owner") return err(403, "owner only");
+  const text = String(body.text || "").trim().slice(0, 400);
+  if (!text) return err(400, "text required");
+  const history = Array.isArray(body.history) ? body.history.slice(-8) : [];
+  const state = await store.getState(room);
+  return ok(await pip.converse({ text, history, story: state.story }));
 }
 
 /** Character voices: only the room's headset may spend speech credits. */
