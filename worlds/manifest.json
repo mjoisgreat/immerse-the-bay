@@ -2,19 +2,19 @@
   "worlds": [
     {
       "id": "stanford",
-      "title": "Stanford University Main Quad at golden hour",
-      "description": "Stanford University Main Quad at golden hour, sandstone arcades with rounded arches and red tile roofs, Memorial Church with its colourful mosaic facade, palm trees, empty paved courtyard, warm low sun",
-      "spz": "/worlds/stanford.spz",
-      "thumb": "/worlds/stanford.jpg",
-      "scale": 2.2203214168548584,
-      "ground": 1.2597026824951172,
-      "marble": "https://marble.worldlabs.ai/world/0ccb1219-6190-46ad-ad55-cc1c07bec5e7",
-      "caption": "The scene is a cinematic portrayal of Stanford University's Main Quad at golden hour, imbued with a warm, inviting tone that highlights the architectural grandeur and natural beauty of the campus. The expansive courtyard is paved with light-colored flagstones, meticulously laid to create a vast, open space that reflects the soft, low sunlight. Surrounding this central area are the iconic sandstone arcades, characterized by their uniform rounded arches and red tile roofs, which cast long, gentle shadows across the ground. These arcades form a continuous, elegant perimeter, providing a sense of enclosure and historical depth. Dominating one end of the quad is Memorial Church, its facade a vibrant tapestry of colorful mosaics that shimmer under the golden light, drawing the eye with intricate details and rich hues. Tall, slender palm trees are strategically interspersed throughout the quad, their fronds silhouetted against the bright sky, adding a touch of Californian landscape to the classical architecture. The courtyard remains empty, emphasizing the serene and majestic atmosphere, allowing the architectural elements and the play of light to take center stage. The sandstone arcades extend along the perimeter of the quad, with Memorial Church positioned at one end, facing the open courtyard. The palm trees are scattered within the courtyard and along the edges of the arcades, providing vertical accents. ",
+      "title": "Stanford University Main Quad, Inner Quad",
+      "description": "Stanford University Main Quad, standing in the centre of the Inner Quad on a clear day, facing Memorial Church with its gold mosaic gable; tan paved courtyard enclosed by sandstone arcades with round arches and red tile roofs, raised circular planting beds with tall palms, empty of people",
       "keywords": [
         "Stanford",
         "Main Quad",
         "Memorial Church"
-      ]
+      ],
+      "spz": "/worlds/stanford.spz",
+      "thumb": "/worlds/stanford.jpg",
+      "scale": 3.1958162784576416,
+      "ground": 1.7969460487365723,
+      "marble": "https://marble.worldlabs.ai/world/211f0578-3ffc-4177-a347-9f31d8bfc88e",
+      "caption": "The scene is a grand university courtyard on a clear, sunny day, rendered in a photorealistic style that captures the serene and monumental atmosphere of the academic setting. The overall tone is one of tranquility and academic grandeur, befitting a historic institution. The vast rectangular courtyard is paved with warm tan-brown stone, extending uniformly in all directions, creating an expansive central space. On all four sides, continuous one-story buff sandstone arcades enclose the courtyard, each featuring numerous round Romanesque arches supported by short columns and topped with red clay tile roofs. Behind these arcades stand two-story sandstone buildings, their facades reflecting the same architectural style. Eight large circular raised planting beds are symmetrically arranged within the courtyard, each filled with mature palm trees, various other trees, and lush shrubs, providing verdant focal points against the stone. Behind the viewer, an arched gateway pierces through the arcade, leading to areas beyond the Inner Quad. To the left of this gateway, and visible rising above the arcade, stands the iconic Hoover Tower, its distinctive silhouette marking the campus skyline. The arcades form a continuous walkway, offering shaded passage around the entire perimeter of the quad. "
     }
   ]
 }
