@@ -68,6 +68,11 @@ jobs:
       - name: Build with Vercel
         if: steps.secrets.outputs.ok == 'true'
         run: npx --yes vercel@latest build --prod --token="$VERCEL_TOKEN"
+      # Branch deploys go up without git details: on the Hobby plan Vercel refuses commits whose author
+      # isn't on the Vercel team (teammates), so the deploy is recorded under the token owner instead.
+      - name: Drop git details for branch deploys
+        if: steps.secrets.outputs.ok == 'true' && github.ref_name != 'main'
+        run: rm -rf .git
       - name: Deploy
         if: steps.secrets.outputs.ok == 'true'
         run: npx --yes vercel@latest deploy --prebuilt --prod --token="$VERCEL_TOKEN"
