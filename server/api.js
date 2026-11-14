@@ -101,7 +101,7 @@ export async function sessionCleanup(body) {
   return { status: 204, body: null };
 }
 
-/** Talk with Pip, the walking companion (only the room's headset). */
+/** Talk with the walking companion, Bunny or Pip (only the room's headset). */
 export async function character(store, body) {
   const room = roomOf(body.room);
   const { role } = await roleOf(store, room, body.cred);
@@ -110,7 +110,8 @@ export async function character(store, body) {
   if (!text) return err(400, "text required");
   const history = Array.isArray(body.history) ? body.history.slice(-8) : [];
   const state = await store.getState(room);
-  return ok(await pip.converse({ text, history, story: state.story }));
+  const character = body.character === "pip" ? "pip" : "bunny";
+  return ok(await pip.converse({ text, history, story: state.story, character }));
 }
 
 /** Character voices: only the room's headset may spend speech credits. */

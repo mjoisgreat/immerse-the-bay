@@ -100,10 +100,10 @@ test("suggestions and votes", () => {
   assert.equal(s.suggestions[0].voters.length, 1);
 });
 
-test("Pip's chats are logged for watchers and broadcast", () => {
+test("companion chats are logged for watchers and broadcast", () => {
   const s = start();
-  const { events } = reduce(s, { t: "pip_said", you: "Hi Pip", pip: "Hello!", rid: "r1" }, owner);
-  assert.deepEqual(events, [{ t: "pip", line: "Hello!" }]);
-  assert.deepEqual(s.log.slice(-2).map((l) => [l.kind, l.text]), [["pip_you", "Hi Pip"], ["speech", "Pip: Hello!"]]);
+  const { events } = reduce(s, { t: "pip_said", name: "Bunny", you: "Hi Bunny", pip: "Hello!", rid: "r1" }, owner);
+  assert.deepEqual(events, [{ t: "pip", name: "Bunny", line: "Hello!" }]);
+  assert.deepEqual(s.log.slice(-2).map((l) => [l.kind, l.text]), [["pip_you", "Hi Bunny"], ["speech", "Bunny: Hello!"]]);
   assert.equal(allowed("console", "pip_said"), false);
 });

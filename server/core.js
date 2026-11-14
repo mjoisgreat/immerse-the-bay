@@ -109,12 +109,13 @@ export function reduce(s, m, ctx = {}) {
       break;
     }
     case "pip_said": {
-      // A chat with Pip, kept in the story log so watchers and the theater can follow it.
+      // A chat with the companion, kept in the story log so watchers and the theater can follow it.
       const you = String(m.you || "").trim().slice(0, 300), said = String(m.pip || "").trim().slice(0, 300);
+      const name = m.name === "Pip" ? "Pip" : "Bunny";
       if (!said) break;
       if (you) pushLog(s, "pip_you", you);
-      pushLog(s, "speech", `Pip: ${said}`);
-      events.push({ t: "pip", line: said });
+      pushLog(s, "speech", `${name}: ${said}`);
+      events.push({ t: "pip", name, line: said });
       break;
     }
     case "immerse": {

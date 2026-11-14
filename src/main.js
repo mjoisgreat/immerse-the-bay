@@ -5,7 +5,7 @@ import { Portal, PORTAL_SIZE } from "./portal.js";
 import { Immersion } from "./immersion.js";
 import { Toolbar } from "./toolbar.js";
 import { HandGestures } from "./gestures.js";
-import { Companion } from "./companion.js";
+import { Companion, BunnyRig, RobotRig } from "./companion.js";
 import { OrbisStream } from "./orbis.js";
 import { PushToTalk } from "./voice.js";
 import { createLink, speechHeaders } from "./link.js";
@@ -29,7 +29,7 @@ scene.add(camera);
 const listener = new THREE.AudioListener();
 camera.add(listener);
 scene.add(new THREE.HemisphereLight(0xffffff, 0x444466, 1.2));
-// Key and rim light so Pip reads clearly against a dim room.
+// Key and rim light so the companion reads clearly against a dim room.
 const keyLight = new THREE.DirectionalLight(0xfff1dc, 1.8);
 keyLight.position.set(1.5, 3, 2);
 scene.add(keyLight);
@@ -287,11 +287,11 @@ function applyDirection({ narration, updates, choices, speech }) {
 // ---------- Voice ----------
 const ptt = new PushToTalk();
 let talking = false;
-let talkingToPip = false;
+let talkingToBuddy = false;
 async function startTalking() {
   if (talking) return;
-  talkingToPip = pip.isLookedAt(); // look at Pip while you talk and your words go to Pip
-  if (talkingToPip) pip.listen();
+  talkingToBuddy = buddy.isLookedAt(); // look at the companion while you talk and your words go to it
+  if (talkingToBuddy) buddy.listen();
   try {
     await ptt.begin();
     talking = true;
@@ -311,14 +311,14 @@ async function stopTalking() {
   try {
     const text = await ptt.end(speechHeaders(ROOM));
     if (!text) {
-      if (talkingToPip) pip.react({ gesture: "none", move: "stay" });
+      if (talkingToBuddy) buddy.react({ gesture: "none", move: "none" });
       return flash("Didn't catch that. Hold the orb and speak.");
     }
     flash(`“${text}”`, 4000);
-    if (talkingToPip) chatWithPip(text);
+    if (talkingToBuddy) chatWithBuddy(text);
     else send({ t: "utterance", text });
   } catch (e) {
-    if (talkingToPip) pip.react({ gesture: "none", move: "stay" });
+    if (talkingToBuddy) buddy.react({ gesture: "none", move: "none" });
     flash(e.message);
   }
 }
@@ -349,8 +349,8 @@ const handFactory = new XRHandModelFactory();
 function targets() {
   const ui = immersion.inside ? [micOrb, exitOrb] : [micOrb];
   if (renderer.xr.isPresenting) ui.push(...toolbar.targets);
-  if (pip.visible) ui.push(pip.hitbox);
-  return [...ui.filter((o) => o.visible || o === pip.hitbox), ...[...portals.values()].filter((p) => p.portal.group.visible).map((p) => p.portal.screen)];
+  if (buddy.visible) ui.push(buddy.hitbox);
+  return [...ui.filter((o) => o.visible || o === buddy.hitbox), ...[...portals.values()].filter((p) => p.portal.group.visible).map((p) => p.portal.screen)];
 }
 
 function rayFrom(obj) {
@@ -396,7 +396,7 @@ function onSelectStart(ctrl) {
     return toolbar.press(ctrl.userData.button, ctrl);
   }
   if (hit?.object.userData.choice !== undefined) return pickChoice(hit.object.userData.choice);
-  if (hit?.object.userData.pip) return togglePipFollow();
+  if (hit?.object.userData.companion) return toggleBuddyFollow();
   const portal = hit?.object.userData.portal;
   if (portal) {
     setFocus(portal.id);
@@ -689,65 +689,75 @@ function guide(step) {
   if (renderer.xr.isPresenting) speak(GUIDE[step], ...NARRATOR);
 }
 
-// ---------- Pip: a companion who walks around your room and talks with you ----------
-const pip = new Companion(scene, camera);
-pip.load().catch((e) => console.warn("[pip] model failed to load", e));
-const PIP_VOICE = "a small, bright, curious robot companion; quick and playful, warm, a little mischievous";
-const pipHistory = [];
-let pipBusy = false;
-async function chatWithPip(text) {
-  if (pipBusy) return flash("Pip is still thinking…");
-  pipBusy = true;
-  pip.listen();
-  pip.say("…", 15000);
-  flash("Pip is thinking…", 15000);
+// ---------- The companion (Bunny, or Pip the robot with ?companion=pip) ----------
+// It hops around your room, follows you, and talks with you when you look at it.
+const USE_PIP = new URLSearchParams(location.search).get("companion") === "pip";
+const BUDDY = USE_PIP
+  ? { id: "pip", name: "Pip", icon: "🤖", voice: "a small, bright, curious robot companion; quick and playful, warm, a little mischievous" }
+  : { id: "bunny", name: "Bunny", icon: "🐰", voice: "a bright, friendly young voice; bubbly, quick and a little cheeky, full of wonder" };
+const buddy = new Companion(scene, camera, { name: BUDDY.name, rig: USE_PIP ? new RobotRig() : new BunnyRig() });
+buddy.load().catch((e) => console.warn("[companion] failed to load", e));
+const buddyHistory = [];
+let buddyBusy = false;
+async function chatWithBuddy(text) {
+  if (buddyBusy) return flash(`${BUDDY.name} is still thinking…`);
+  buddyBusy = true;
+  buddy.listen();
+  buddy.say("…", 15000);
+  flash(`${BUDDY.name} is thinking…`, 15000);
   try {
     const r = await fetch("/api/character", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ room: ROOM, cred: credFor(ROOM), text, history: pipHistory }),
+      body: JSON.stringify({ room: ROOM, cred: credFor(ROOM), text, history: buddyHistory, character: BUDDY.id }),
     });
-    if (!r.ok) throw new Error(`Pip couldn't answer (${r.status})`);
+    if (!r.ok) throw new Error(`${BUDDY.name} couldn't answer (${r.status})`);
     const out = await r.json();
-    pipHistory.push({ role: "user", text }, { role: "assistant", text: out.reply });
-    pipHistory.splice(0, Math.max(0, pipHistory.length - 12));
-    pip.react(out);
-    pip.say(out.reply, 12000);
-    flash(`Pip: “${out.reply}”`, 9000);
-    send({ t: "pip_said", you: text, pip: out.reply });
-    await speak(out.reply, "Pip", PIP_VOICE, pip.root, { onStart: () => pip.speaking(true), onEnd: () => pip.speaking(false) });
+    buddyHistory.push({ role: "user", text }, { role: "assistant", text: out.reply });
+    buddyHistory.splice(0, Math.max(0, buddyHistory.length - 12));
+    buddy.react(out);
+    buddy.say(out.reply, 12000);
+    flash(`${BUDDY.name}: “${out.reply}”`, 9000);
+    send({ t: "pip_said", name: BUDDY.name, you: text, pip: out.reply });
+    await speak(out.reply, BUDDY.name, BUDDY.voice, buddy.root, {
+      onStart: () => buddy.speaking(true),
+      onEnd: () => buddy.speaking(false),
+    });
     if (out.story_line && portals.size) send({ t: "utterance", text: out.story_line });
   } catch (e) {
-    pip.react({ gesture: "no", move: "stay" });
-    pip.say("Hmm, my gears got stuck. Try again?", 5000);
+    buddy.react({ gesture: "no", move: "stay" });
+    buddy.say("Hmm, I lost my train of thought. Try again?", 5000);
     flash(e.message);
   } finally {
-    pipBusy = false;
+    buddyBusy = false;
   }
 }
-// Pinch / point at Pip to toggle following you around.
-function togglePipFollow() {
-  pip.setFollowing(!pip.following);
-  pip.gesture(pip.following ? "thumbs_up" : "wave");
-  pip.say(pip.following ? "Lead the way! I'm right beside you." : "Okay, I'll wait here!", 4000);
-  flash(pip.following ? "Pip is following you. Pinch Pip again (or say “stay”) to stop." : "Pip will stay here.", 5000);
+
+// Pinch / point at the companion to toggle following you around.
+function toggleBuddyFollow() {
+  buddy.setFollowing(!buddy.following);
+  buddy.gesture(buddy.following ? "thumbs_up" : "wave");
+  buddy.say(buddy.following ? "Lead the way! I'm right beside you." : "Okay, I'll wait here!", 4000);
+  flash(
+    buddy.following ? `${BUDDY.name} is following you. Pinch ${BUDDY.name} again (or say “stay”) to stop.` : `${BUDDY.name} will stay here.`,
+    5000,
+  );
 }
-function togglePip() {
-  if (pip.visible) return pip.dismiss(), flash("Pip waves goodbye.");
-  if (!pip.ready) return flash("Pip is still waking up…");
+function toggleBuddy() {
+  if (buddy.visible) return buddy.dismiss(), flash(`${BUDDY.name} waves goodbye.`);
+  if (!buddy.ready) return flash(`${BUDDY.name} is still waking up…`);
   const xr = renderer.xr.isPresenting;
-  pip.range = xr ? [1.2, 2.4] : [2.6, 3.4];
-  pip.comeDistance = xr ? 0.8 : 2.4;
-  if (xr) pip.summon(1.4);
+  buddy.range = xr ? [1.2, 2.4] : [2.6, 3.4];
+  buddy.comeDistance = xr ? 0.8 : 2.4;
+  if (xr) buddy.summon(1.4);
   else {
-    // On a flat screen: further away, and tilt the view down so Pip is in frame.
-    // Pip 3 m away and a slight downward tilt: Pip's feet and the windows both stay in frame.
-    pip.summon(3.0);
+    // On a flat screen: 3 m away and a slight downward tilt, so it and the windows stay in frame.
+    buddy.summon(3.0);
     pitch = Math.min(pitch, -0.2);
     camera.rotation.set(pitch, yaw, 0, "YXZ");
   }
-  pip.say("Hi! I'm Pip. Look at me and talk!", 6000);
-  flash("Meet Pip! Look at Pip while you talk to chat. Pinch Pip, or say “follow me”, and Pip walks with you.", 8000);
+  buddy.say(`Hi! I'm ${BUDDY.name}. Look at me and talk!`, 6000);
+  flash(`Meet ${BUDDY.name}! Look at ${BUDDY.name} while you talk to chat. Pinch, or say “follow me”, and ${BUDDY.name} comes with you.`, 8000);
 }
 
 // ---------- Buttons (floating panel in the headset, bar at the bottom on desktop) ----------
@@ -792,7 +802,7 @@ const toolbar = new Toolbar(camera, [
   { id: "new", icon: "＋", label: "New window", press: openInFront },
   { id: "step", icon: "🚪", label: "Step inside", press: toggleStep },
   { id: "close", icon: "✕", label: "Close window", press: closeFocused },
-  { id: "pip", icon: "🤖", label: "Pip", press: togglePip },
+  { id: "buddy", icon: BUDDY.icon, label: BUDDY.name, press: toggleBuddy },
   { id: "reset", icon: "↺", label: "Reset story", press: resetPressed },
   { id: "hide", icon: "▾", label: "Hide buttons", press: () => setButtonsHidden(true) },
 ]);
@@ -871,7 +881,8 @@ bar.close.onclick = closeFocused;
 bar.reset.onclick = resetPressed;
 bar.info.onclick = () => ($("#overlay").hidden = !$("#overlay").hidden);
 bar.hide.onclick = () => setButtonsHidden(true);
-bar.pip.onclick = togglePip;
+bar.buddy.onclick = toggleBuddy;
+bar.buddy.textContent = BUDDY.name;
 $("#showbar").onclick = () => setButtonsHidden(false);
 $("#bar").hidden = false; // only clickable once everything is wired up
 
@@ -963,7 +974,7 @@ renderer.setAnimationLoop(() => {
   exitOrb.visible = immersion.inside && renderer.xr.isPresenting && !toolbar.collapsed;
   updateToolbar();
   gestures.update();
-  pip.update(dt);
+  buddy.update(dt);
   updateRipples();
   updateTitle();
   for (const { portal, stream } of portals.values()) {

@@ -1,19 +1,35 @@
-// Pip: a small companion who walks around the storyteller's room and talks with them.
-// Pip knows the story so far, answers out loud (short lines), picks a body gesture,
-// and can turn a request ("Pip, make it snow!") into a line for the story director.
+// The companion (Bunny, or Pip the robot) who walks around the storyteller's room and talks with
+// them. It knows the story so far, answers out loud (short lines), picks a body gesture, and can
+// turn a request ("Bunny, make it snow!") into a line for the story director.
 import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 
 const MODEL = "claude-opus-5-5";
 
-export const PIP_VOICE = "a small, bright, curious robot companion; quick and playful, warm, a little mischievous";
-
-const SYSTEM = `You are Pip, a small curious clockwork robot (about knee height) who lives in the
+// Who the companion is. Bunny is the default (after the Stanford XR mascot); Pip is the robot.
+export const PERSONAS = {
+  bunny: {
+    name: "Bunny",
+    voice: "a bright, friendly young voice; bubbly, quick and a little cheeky, full of wonder",
+    who: `You are Bunny, a small white rabbit (about knee height) who always wears a sleek black VR
+headset and loves anything mixed reality. You live in the storyteller's real room in "Living
+Window", a mixed-reality storytelling experience. Glowing portals on the walls show a live story
+world that the storyteller narrates out loud. You hop around their floor, and right now they are
+looking at you and talking to you. You see the story worlds through your visor, so you often say
+what you "see" in them. You're curious, upbeat and a bit cheeky; you adore stories and carrots.`,
+  },
+  pip: {
+    name: "Pip",
+    voice: "a small, bright, curious robot companion; quick and playful, warm, a little mischievous",
+    who: `You are Pip, a small curious clockwork robot (about knee height) who lives in the
 storyteller's real room in "Living Window", a mixed-reality storytelling experience. Glowing
 portals on the walls show a live story world that the storyteller narrates out loud. You walk
-around their floor, and right now they are looking at you and talking to you.
+around their floor, and right now they are looking at you and talking to you.`,
+  },
+};
 
+const RULES = `
 How you talk:
 - Your reply is spoken aloud by a voice actor: one to three short sentences, at most 30 words.
   No emojis, no stage directions, no lists. Warm, playful, curious; you adore stories.
@@ -31,7 +47,7 @@ What you can do (fields):
   beside them wherever they go); "come" if they just ask you to come over or come closer;
   "stay" if they ask you to stay, wait or stop following; "wander" if they ask you to go
   explore, go away or give them space; "none" otherwise (keep doing what you're doing).
-- story_line: when they ask you to make something happen in the story world ("Pip, make it
+- story_line: when they ask you to make something happen in the story world ("make it
   snow", "can you call the dragon?"), or you both agree on an idea, write that event as one
   short line (at most 20 words) for the story director, phrased as narration. Otherwise null.
   If you do, say in your reply that you're making it happen.`;
@@ -48,7 +64,8 @@ export function createCharacter() {
   const client = hasKey ? new Anthropic() : null;
 
   /** history: [{ role: "user" | "assistant", text }] (most recent last) */
-  async function converse({ text, history = [], story }) {
+  async function converse({ text, history = [], story, character = "bunny" }) {
+    const persona = PERSONAS[character] || PERSONAS.bunny;
     if (!client) return fallback(text);
     const context = `The story so far.\nBible: ${story.bible}\nRecent beats: ${JSON.stringify(story.beats.slice(-6))}`;
     const messages = [
@@ -64,7 +81,7 @@ export function createCharacter() {
         betas: ["server-side-fallback-2026-07-01"],
         fallbacks: "default",
         output_config: { effort: "low", format: zodOutputFormat(Reply) },
-        system: [{ type: "text", text: SYSTEM }, { type: "text", text: context }],
+        system: [{ type: "text", text: persona.who + "\n" + RULES }, { type: "text", text: context }],
         messages,
       });
       if (response.stop_reason === "refusal") return fallback(text);
@@ -72,8 +89,8 @@ export function createCharacter() {
       if (!out) throw new Error(`no parsed output (stop_reason=${response.stop_reason})`);
       return out;
     } catch (error) {
-      if (error instanceof Anthropic.APIError) console.warn(`[pip] API ${error.status}: ${error.message}`);
-      else console.warn("[pip]", error.message);
+      if (error instanceof Anthropic.APIError) console.warn(`[companion] API ${error.status}: ${error.message}`);
+      else console.warn("[companion]", error.message);
       return fallback(text);
     }
   }

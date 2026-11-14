@@ -1,15 +1,20 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import * as SkeletonUtils from "three/addons/utils/SkeletonUtils.js";
+import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
 
-// Pip: an animated robot (RobotExpressive by Tomás Laulhé / Quaternius, CC0) who walks around your
-// real floor, wanders, comes when called, faces you to listen and talk, and gestures as it speaks.
-const HEIGHT = 0.8; // metres: about thigh high, big enough to read across a room
+// A companion who walks (or hops) around your real floor, wanders in front of you, comes when called,
+// follows you, faces you to listen and talk, and gestures as it speaks. The body is a "rig":
+//  - BunnyRig: the VR bunny, built from simple shapes and animated in code (hops, ears, visor glow).
+//  - RobotRig: Pip, RobotExpressive by Tomás Laulhé / Quaternius (CC0), with its own animations.
+// Rigs share one tiny interface: load(), play(name), current, update(dt, ctx), setFace(name, amount),
+// and onFinished (called when a one-shot gesture ends).
 const WALK_SPEED = 0.45; // m/s
 const RUN_SPEED = 1.3; // when it has fallen behind
 const GESTURES = { wave: "Wave", yes: "Yes", no: "No", thumbs_up: "ThumbsUp", jump: "Jump", dance: "Dance" };
+const ONE_SHOT = new Set(Object.values(GESTURES));
 
-function blobShadow() {
+function blobShadow(size) {
   const c = Object.assign(document.createElement("canvas"), { width: 128, height: 128 });
   const g = c.getContext("2d");
   const grad = g.createRadialGradient(64, 64, 4, 64, 64, 62);
@@ -18,7 +23,7 @@ function blobShadow() {
   g.fillStyle = grad;
   g.fillRect(0, 0, 128, 128);
   const m = new THREE.Mesh(
-    new THREE.PlaneGeometry(0.55, 0.55),
+    new THREE.PlaneGeometry(size, size),
     new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c), transparent: true, depthWrite: false }),
   );
   m.rotation.x = -Math.PI / 2;
@@ -27,25 +32,314 @@ function blobShadow() {
   return m;
 }
 
+// Draw in the transparent pass after the step-inside world, so the companion can come along inside.
+function afterWorld(obj) {
+  obj.traverse((o) => {
+    if (!o.isMesh) return;
+    o.frustumCulled = false;
+    o.material = o.material.clone();
+    o.material.transparent = true;
+    o.material.depthWrite = true;
+    o.renderOrder = 2;
+  });
+}
+
+// ---------------------------------------------------------------------------------------------
+// The VR bunny (after the Stanford XR mascot): white, long ears (one tilted), a black visor with
+// side straps, an "x" nose, a round tail. Everything here is code: no model file.
+// ---------------------------------------------------------------------------------------------
+export class BunnyRig {
+  constructor() {
+    this.height = 0.78; // to the ear tips
+    this.current = "Idle";
+    this.t = 0; // time in the current animation
+    this.onFinished = null;
+    this.face = { perk: 0 };
+    this.nextTwitch = 2;
+  }
+
+  async load(parent) {
+    const white = new THREE.MeshStandardMaterial({ color: 0xf6f3ec, roughness: 0.85 });
+    const pink = new THREE.MeshStandardMaterial({ color: 0xf2c4c8, roughness: 0.9 });
+    const black = new THREE.MeshStandardMaterial({ color: 0x14161c, roughness: 0.6 });
+    this.visorMat = new THREE.MeshStandardMaterial({
+      color: 0x07080b, roughness: 0.22, metalness: 0.1, emissive: 0x3aa0ff, emissiveIntensity: 0,
+    });
+    const strapMat = new THREE.MeshStandardMaterial({ color: 0xf6f3ec, roughness: 0.7 });
+    const mesh = (geo, mat, x = 0, y = 0, z = 0) => {
+      const m = new THREE.Mesh(geo, mat);
+      m.position.set(x, y, z);
+      return m;
+    };
+
+    this.model = new THREE.Group(); // hops and squashes as a whole
+    parent.add(this.model);
+    this.body = new THREE.Group(); // squash & stretch pivot at the floor
+    this.model.add(this.body);
+
+    // Body: a big soft pear, wider at the bottom and flat on the floor (like the logo).
+    // One smooth lathed profile (radius, height) so there are no seams between parts.
+    const profile = new THREE.SplineCurve(
+      [[0, 0], [0.12, 0.008], [0.168, 0.06], [0.176, 0.13], [0.16, 0.21], [0.125, 0.27], [0.08, 0.315], [0.0, 0.335]].map(
+        ([x, y]) => new THREE.Vector2(x, y),
+      ),
+    ).getPoints(40);
+    profile[0].x = 0;
+    profile[profile.length - 1].x = 0;
+    const torso = mesh(new THREE.LatheGeometry(profile, 56), white);
+    torso.scale.set(1, 1, 0.9);
+    this.body.add(torso);
+    // Little feet tucked under the front, and the round tail at the back.
+    for (const s of [-1, 1]) {
+      const foot = mesh(new THREE.SphereGeometry(0.045, 20, 14), white, s * 0.07, 0.02, 0.12);
+      foot.scale.set(0.85, 0.45, 1.1);
+      this.body.add(foot);
+    }
+    this.tail = mesh(new THREE.SphereGeometry(0.065, 24, 18), white, 0.03, 0.1, -0.15);
+    this.body.add(this.tail);
+
+    // Head group (pivot at the neck), carrying the visor, straps, nose and ears. It sits right on
+    // the body, no neck.
+    this.head = new THREE.Group();
+    this.head.position.set(0, 0.3, 0.01);
+    this.body.add(this.head);
+    const skull = mesh(new THREE.SphereGeometry(0.115, 40, 28), white, 0, 0.1, 0);
+    skull.scale.set(1.05, 0.96, 0.96);
+    this.head.add(skull);
+    // Visor: chunky black goggles, wider than the head, like the logo's headset.
+    const visor = mesh(new RoundedBoxGeometry(0.255, 0.098, 0.16, 5, 0.04), this.visorMat, 0, 0.112, 0.038);
+    this.head.add(visor);
+    // Headset straps: white "C" loops on each side of the visor.
+    for (const s of [-1, 1]) {
+      const loop = mesh(new THREE.TorusGeometry(0.046, 0.009, 10, 28, Math.PI), strapMat, s * 0.128, 0.112, 0.0);
+      loop.rotation.z = -s * Math.PI / 2;
+      this.head.add(loop);
+    }
+    // The "x" nose/mouth, just under the visor.
+    for (const r of [Math.PI / 4, -Math.PI / 4]) {
+      const bar = mesh(new THREE.BoxGeometry(0.03, 0.0065, 0.006), black, 0, 0.038, 0.108);
+      bar.rotation.set(-0.35, 0, r);
+      this.head.add(bar);
+    }
+    // Ears: long, flattened, one upright and one tilted out, like the logo. Pivots at the base.
+    this.ears = [-1, 1].map((s) => {
+      const pivot = new THREE.Group();
+      pivot.position.set(s * 0.045, 0.18, -0.01);
+      const ear = mesh(new THREE.SphereGeometry(0.05, 28, 20), white, 0, 0.16, 0);
+      ear.scale.set(0.72, 3.3, 0.32);
+      const inner = mesh(new THREE.SphereGeometry(0.05, 24, 16), pink, 0, 0.16, 0.011);
+      inner.scale.set(0.4, 2.7, 0.2);
+      pivot.add(ear, inner);
+      pivot.userData.rest = { z: s < 0 ? 0.1 : -0.55, x: -0.08 };
+      this.head.add(pivot);
+      return pivot;
+    });
+
+    afterWorld(this.model);
+    this.visorMat = visor.material; // the cloned material that is actually drawn
+  }
+
+  play(name) {
+    if (name === this.current) return;
+    this.current = name;
+    this.t = 0;
+  }
+
+  setFace(name, amount) {
+    if (name === "Surprised") this.face.perk = amount; // ears up, attentive
+  }
+
+  update(dt, { talking, listening, speakT }) {
+    this.t += dt;
+    const t = this.t, T = performance.now() / 1000;
+    let hop = 0, squash = 0, spin = 0, nodX = 0, shakeY = 0, tiltZ = 0;
+    const earWave = [0, 0], earBack = [0, 0];
+
+    const hopCycle = (freq, height) => {
+      const p = (t * freq) % 1;
+      const air = Math.sin(Math.PI * p);
+      hop = air * height;
+      // Squash on landing / take-off, stretch in the air.
+      squash = p < 0.12 ? (0.12 - p) / 0.12 : p > 0.88 ? (p - 0.88) / 0.12 : -air * 0.35;
+      earBack[0] = earBack[1] = air * 0.5; // ears flow back in the air
+    };
+
+    switch (this.current) {
+      case "Walking":
+        hopCycle(2.1, 0.055);
+        break;
+      case "Running":
+        hopCycle(3.0, 0.1);
+        break;
+      case "Wave": {
+        const k = Math.min(1, t / 0.25) * Math.max(0, Math.min(1, (1.7 - t) / 0.3));
+        earWave[1] = Math.sin(t * 14) * 0.45 * k; // waves its tilted ear
+        hop = Math.max(0, Math.sin(Math.min(t, 0.5) * Math.PI * 2)) * 0.03;
+        if (t > 1.7) this._done();
+        break;
+      }
+      case "Yes":
+        nodX = Math.sin(t * 13) * 0.22 * Math.max(0, 1 - t / 1.3);
+        if (t > 1.3) this._done();
+        break;
+      case "No":
+        shakeY = Math.sin(t * 12) * 0.35 * Math.max(0, 1 - t / 1.3);
+        if (t > 1.3) this._done();
+        break;
+      case "ThumbsUp": {
+        const p = Math.min(1, t / 0.7);
+        hop = Math.sin(Math.PI * p) * 0.16;
+        squash = p < 0.15 ? 0.6 * (1 - p / 0.15) : -Math.sin(Math.PI * p) * 0.3;
+        this.face.perk = 1;
+        if (t > 1.1) (this.face.perk = 0), this._done();
+        break;
+      }
+      case "Jump": {
+        const p = Math.min(1, t / 0.9);
+        hop = Math.sin(Math.PI * p) * 0.32;
+        spin = p * Math.PI * 2; // a full spin in the air
+        squash = p < 0.12 ? 0.7 * (1 - p / 0.12) : -Math.sin(Math.PI * p) * 0.4;
+        earBack[0] = earBack[1] = Math.sin(Math.PI * p) * 0.7;
+        if (t > 1.05) this._done();
+        break;
+      }
+      case "Dance": {
+        hopCycle(2.6, 0.07);
+        spin = Math.sin(t * 2.2) * 0.7;
+        tiltZ = Math.sin(t * 5.2) * 0.18;
+        earWave[0] = Math.sin(t * 10) * 0.4;
+        earWave[1] = Math.sin(t * 10 + 1.5) * 0.4;
+        if (t > 4.5) this._done();
+        break;
+      }
+      default: {
+        // Idle: breathing, and a quick ear twitch every few seconds.
+        squash = Math.sin(T * 2.4) * 0.025;
+        this.nextTwitch -= dt;
+        if (this.nextTwitch < 0) (this.twitch = 0.35), (this.nextTwitch = 2 + Math.random() * 4), (this.twitchEar = Math.random() < 0.5 ? 0 : 1);
+      }
+    }
+
+    // Talking: little head bobs and a glowing, pulsing visor. Listening: head tilt, ears up.
+    if (talking) nodX += Math.sin(speakT * 9) * 0.06 + Math.sin(speakT * 3.1) * 0.04;
+    if (listening) (tiltZ += 0.2), (nodX -= 0.08);
+    // Black at rest (like the logo); a soft blue glow while listening, pulsing while talking.
+    const glow = talking ? 0.7 + Math.sin(speakT * 11) * 0.4 : listening ? 0.35 + Math.sin(T * 4) * 0.15 : 0;
+    this.visorMat.emissiveIntensity += (glow - this.visorMat.emissiveIntensity) * Math.min(1, dt * 10);
+
+    this.model.position.y = hop;
+    this.model.rotation.y = spin;
+    const sq = THREE.MathUtils.clamp(squash, -0.5, 0.8) * 0.18;
+    this.body.scale.set(1 + sq * 0.6, 1 - sq, 1 + sq * 0.6);
+    this.head.rotation.set(nodX, shakeY, tiltZ);
+    const perk = Math.max(this.face.perk, listening ? 0.7 : 0);
+    if (this.twitch > 0) this.twitch -= dt;
+    this.ears.forEach((ear, i) => {
+      const rest = ear.userData.rest;
+      const twitch = this.twitch > 0 && this.twitchEar === i ? Math.sin((0.35 - this.twitch) * 40) * 0.12 : 0;
+      ear.rotation.z = THREE.MathUtils.lerp(rest.z, i === 0 ? 0.05 : -0.12, perk) + earWave[i] + twitch;
+      ear.rotation.x = rest.x - earBack[i];
+    });
+    this.tail.position.y = 0.11 + Math.sin(T * 6) * 0.004;
+  }
+
+  _done() {
+    const was = this.current;
+    this.current = "Idle";
+    this.t = 0;
+    this.onFinished?.(was);
+  }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Pip, the robot (RobotExpressive), kept as an alternative body.
+// ---------------------------------------------------------------------------------------------
+export class RobotRig {
+  constructor(url = "/models/RobotExpressive.glb") {
+    this.url = url;
+    this.height = 0.8;
+    this.onFinished = null;
+    this.current = "Idle";
+  }
+
+  async load(parent) {
+    const gltf = await new GLTFLoader().loadAsync(this.url);
+    const model = SkeletonUtils.clone(gltf.scene);
+    model.updateMatrixWorld(true); // measure the posed model, not the clone's stale transforms
+    const box = new THREE.Box3().setFromObject(model, true);
+    const h = box.max.y - box.min.y;
+    const s = this.height / (h > 0.5 && h < 20 ? h : 4.45); // 4.45 = RobotExpressive's height in its own units
+    model.scale.setScalar(s);
+    model.position.y = -Math.max(box.min.y, -0.1) * s;
+    afterWorld(model);
+    parent.add(model);
+    model.traverse((o) => o.isBone && o.name === "Head" && (this.headBone = o));
+    this.faces = [];
+    model.traverse((o) => o.morphTargetDictionary && this.faces.push(o));
+    this.mixer = new THREE.AnimationMixer(model);
+    this.actions = Object.fromEntries(gltf.animations.map((clip) => [clip.name, this.mixer.clipAction(clip)]));
+    for (const name of ONE_SHOT) {
+      const a = this.actions[name];
+      if (a && name !== "Dance") (a.clampWhenFinished = true), a.setLoop(THREE.LoopOnce, 1);
+    }
+    this.mixer.addEventListener("finished", () => {
+      const was = this.current;
+      this.play("Idle");
+      this.onFinished?.(was);
+    });
+    this.actions.Idle.play();
+  }
+
+  play(name, fade = 0.3) {
+    const next = this.actions?.[name], prev = this.actions?.[this.current];
+    if (!next || name === this.current) return;
+    next.reset().setEffectiveWeight(1).fadeIn(fade).play();
+    prev?.fadeOut(fade);
+    this.current = name;
+    if (name === "Dance") setTimeout(() => this.current === "Dance" && (this.play("Idle"), this.onFinished?.("Dance")), 4500);
+  }
+
+  setFace(name, amount) {
+    for (const m of this.faces) {
+      const i = m.morphTargetDictionary[name];
+      if (i !== undefined) m.morphTargetInfluences[i] = amount;
+    }
+  }
+
+  update(dt, { talking, listening, speakT }) {
+    this.mixer.update(dt);
+    if (this.headBone) {
+      this.headBone.rotation.x = talking ? Math.sin(speakT * 9) * 0.06 + Math.sin(speakT * 3.1) * 0.04 : listening ? -0.12 : 0;
+      this.headBone.rotation.z = listening ? 0.15 : 0;
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------------------------
+// The companion's behaviour: wandering, following, coming when called, talking, speech bubble.
+// ---------------------------------------------------------------------------------------------
 export class Companion {
-  constructor(scene, camera) {
+  constructor(scene, camera, { name = "Bunny", rig = new BunnyRig() } = {}) {
+    this.name = name;
     this.scene = scene;
     this.camera = camera;
+    this.rig = rig;
+    this.height = rig.height;
     this.root = new THREE.Group(); // stands on the floor (y = 0 in local-floor space)
-    this.root.name = "pip";
+    this.root.name = name.toLowerCase();
     this.root.visible = false;
     scene.add(this.root);
-    this.root.add(blobShadow());
-    // Invisible capsule so you can point at / pinch Pip.
+    this.root.add(blobShadow(0.5));
+    // Invisible capsule so you can point at / pinch the companion.
     this.hitbox = new THREE.Mesh(
-      new THREE.CapsuleGeometry(0.16, HEIGHT - 0.3, 4, 8),
+      new THREE.CapsuleGeometry(0.17, this.height - 0.3, 4, 8),
       new THREE.MeshBasicMaterial({ visible: false }),
     );
-    this.hitbox.position.y = HEIGHT / 2;
-    this.hitbox.userData.pip = true;
+    this.hitbox.position.y = this.height / 2;
+    this.hitbox.userData.companion = true;
     this.root.add(this.hitbox);
 
-    // Speech bubble above Pip's head ("…" while thinking, then what Pip says).
+    // Speech bubble above its head ("…" while thinking, then what it says).
     this.bubbleCanvas = Object.assign(document.createElement("canvas"), { width: 768, height: 256 });
     this.bubbleTex = new THREE.CanvasTexture(this.bubbleCanvas);
     this.bubbleTex.colorSpace = THREE.SRGBColorSpace;
@@ -53,7 +347,7 @@ export class Companion {
       new THREE.SpriteMaterial({ map: this.bubbleTex, transparent: true, depthWrite: false, depthTest: false }),
     );
     this.bubble.scale.set(0.9, 0.3, 1);
-    this.bubble.position.y = HEIGHT + 0.28;
+    this.bubble.position.y = this.height + 0.26;
     this.bubble.renderOrder = 25; // always readable, even in front of a window's caption
     this.bubble.visible = false;
     this.root.add(this.bubble);
@@ -62,15 +356,24 @@ export class Companion {
     this.mode = "idle"; // idle | walk | talk
     this.target = null;
     this.idleUntil = 0;
-    this.talking = false; // Pip speaking
-    this.listening = false; // you speaking to Pip / Pip thinking
+    this.talking = false; // it is speaking
+    this.listening = false; // you are speaking to it / it is thinking
     this.emoting = false;
     this.followUser = false;
     this.speakStart = 0;
-    // How far Pip roams and where it stops when called (wider on a flat screen, so it stays in frame).
+    // How far it roams and where it stops when called (wider on a flat screen, so it stays in frame).
     this.range = [1.2, 2.4];
     this.comeDistance = 0.8;
     this.following = false; // walks beside you wherever you go
+    rig.onFinished = () => {
+      this.emoting = false;
+      this.rig.play(this.mode === "walk" ? "Walking" : "Idle");
+    };
+  }
+
+  async load() {
+    await this.rig.load(this.root);
+    this.ready = true;
   }
 
   /** Follow you around (on), or stay where it is (off). */
@@ -81,46 +384,7 @@ export class Companion {
     if (!on) (this.mode = "idle"), (this.idleUntil = performance.now() + 6000);
   }
 
-  async load(url = "/models/RobotExpressive.glb") {
-    const gltf = await new GLTFLoader().loadAsync(url);
-    const model = SkeletonUtils.clone(gltf.scene);
-    model.updateMatrixWorld(true); // measure the posed model, not the clone's stale transforms
-    const box = new THREE.Box3().setFromObject(model, true);
-    const h = box.max.y - box.min.y;
-    const s = HEIGHT / (h > 0.5 && h < 20 ? h : 4.45); // 4.45 = RobotExpressive's height in its own units
-    model.scale.setScalar(s);
-    model.position.y = -Math.max(box.min.y, -0.1) * s;
-    model.traverse((o) => {
-      if (o.isMesh) {
-        o.frustumCulled = false;
-        // Draw in the transparent pass after the step-inside world, so Pip can come along inside.
-        o.material = o.material.clone();
-        o.material.transparent = true;
-        o.material.depthWrite = true;
-        o.renderOrder = 2;
-      }
-    });
-    this.model = model;
-    this.root.add(model);
-    model.traverse((o) => o.isBone && o.name === "Head" && (this.head = o));
-    this.face = [];
-    model.traverse((o) => o.morphTargetDictionary && this.face.push(o));
-    this.mixer = new THREE.AnimationMixer(model);
-    this.actions = Object.fromEntries(gltf.animations.map((clip) => [clip.name, this.mixer.clipAction(clip)]));
-    for (const name of Object.values(GESTURES).concat(["Jump"])) {
-      const a = this.actions[name];
-      if (a && name !== "Dance") (a.clampWhenFinished = true), a.setLoop(THREE.LoopOnce, 1);
-    }
-    this.mixer.addEventListener("finished", () => {
-      this.emoting = false;
-      this.play(this.mode === "walk" ? "Walking" : "Idle");
-    });
-    this.current = this.actions.Idle;
-    this.current.play();
-    this.ready = true;
-  }
-
-  /** Shows text above Pip's head for `ms` (or until replaced). Empty text hides it. */
+  /** Shows text above its head for `ms` (or until replaced). Empty text hides it. */
   say(text, ms = 9000) {
     clearTimeout(this._bubbleTimer);
     if (!text) return void (this.bubble.visible = false);
@@ -158,14 +422,6 @@ export class Companion {
     this._bubbleTimer = setTimeout(() => (this.bubble.visible = false), ms);
   }
 
-  play(name, fade = 0.3) {
-    const next = this.actions[name];
-    if (!next || next === this.current) return;
-    next.reset().setEffectiveWeight(1).fadeIn(fade).play();
-    this.current?.fadeOut(fade);
-    this.current = next;
-  }
-
   get visible() {
     return this.root.visible;
   }
@@ -180,7 +436,7 @@ export class Companion {
     const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(this.camera.getWorldQuaternion(new THREE.Quaternion()));
     fwd.y = 0;
     fwd.normalize();
-    // A little to your left, so Pip doesn't stand in front of the window you're looking at.
+    // A little to your left, so it doesn't stand in front of the window you're looking at.
     const left = new THREE.Vector3(fwd.z, 0, -fwd.x);
     this.root.position.set(eye.x + fwd.x * distance + left.x * distance * 0.4, 0, eye.z + fwd.z * distance + left.z * distance * 0.4);
     this.root.lookAt(eye.x, 0, eye.z);
@@ -196,49 +452,45 @@ export class Companion {
     this.following = false;
   }
 
-  /** Are you looking at Pip (so your words go to Pip instead of the story)? */
+  /** Are you looking at it (so your words go to it instead of the story)? */
   isLookedAt() {
     if (!this.visible) return false;
     const eye = this._eye();
-    const at = this.root.position.clone().setY(HEIGHT * 0.7);
+    const at = this.root.position.clone().setY(this.height * 0.6);
     const to = at.sub(eye);
     const dist = to.length();
     if (dist > 5) return false;
     const gaze = new THREE.Vector3(0, 0, -1).applyQuaternion(this.camera.getWorldQuaternion(new THREE.Quaternion()));
-    // A wider cone up close, since Pip fills more of your view.
+    // A wider cone up close, since it fills more of your view.
     return gaze.dot(to.normalize()) > Math.cos(THREE.MathUtils.degToRad(dist < 1.5 ? 32 : 22));
   }
 
   gesture(name) {
-    if (name === "think") return this.setFace("Surprised", 0.35);
+    if (name === "think") return this._face(0.35, 1500);
     const clip = GESTURES[name];
-    if (!clip || !this.actions[clip]) return;
+    if (!clip) return;
     this.emoting = true;
-    this.play(clip, 0.2);
-    if (name === "dance") setTimeout(() => (this.emoting = false), 4500);
+    this.rig.play(clip, 0.2);
   }
 
-  setFace(name, amount, ms = 1500) {
-    for (const m of this.face) {
-      const i = m.morphTargetDictionary[name];
-      if (i !== undefined) m.morphTargetInfluences[i] = amount;
-    }
+  _face(amount, ms) {
+    this.rig.setFace("Surprised", amount);
     clearTimeout(this._faceTimer);
-    this._faceTimer = setTimeout(() => this.setFace(name, 0, 0), ms);
+    if (amount) this._faceTimer = setTimeout(() => this.rig.setFace("Surprised", 0), ms);
   }
 
-  /** You started talking to Pip: stop and look at you. */
+  /** You started talking to it: stop and look at you. */
   listen() {
     this.listening = true;
     this.mode = "talk";
-    if (!this.emoting) this.play("Idle");
-    this.setFace("Surprised", 0.25, 30000);
+    if (!this.emoting) this.rig.play("Idle");
+    this._face(0.25, 30000);
   }
 
-  /** Pip's reply arrived: gesture, maybe move, and talk while its voice plays. */
+  /** Its reply arrived: gesture, maybe move, and talk while its voice plays. */
   react({ gesture, move }) {
     this.listening = false;
-    this.setFace("Surprised", 0, 0);
+    this._face(0, 0);
     if (move === "follow") this.setFollowing(true);
     if (move === "come") (this.following = false), (this.followUser = true);
     if (move === "stay") this.setFollowing(false);
@@ -254,12 +506,13 @@ export class Companion {
   }
 
   _pickWanderTarget(eye) {
-    // Somewhere on the floor in front of you (within ±50° of where you're facing), 1.2–2.4 m away,
-    // so Pip stays where you can see it instead of wandering behind you.
+    // Somewhere on the floor in front of you (within ±50° of where you're facing), so it stays
+    // where you can see it instead of wandering behind you.
     const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(this.camera.getWorldQuaternion(new THREE.Quaternion()));
     const facing = Math.atan2(fwd.x, fwd.z);
     for (let i = 0; i < 8; i++) {
-      const a = facing + THREE.MathUtils.degToRad((Math.random() * 2 - 1) * 50), r = this.range[0] + Math.random() * (this.range[1] - this.range[0]);
+      const a = facing + THREE.MathUtils.degToRad((Math.random() * 2 - 1) * 50);
+      const r = this.range[0] + Math.random() * (this.range[1] - this.range[0]);
       const p = new THREE.Vector3(eye.x + Math.sin(a) * r, 0, eye.z + Math.cos(a) * r);
       if (p.distanceTo(this.root.position) > 0.5) return p;
     }
@@ -268,19 +521,20 @@ export class Companion {
 
   update(dt) {
     if (!this.ready || !this.visible) return;
-    this.mixer.update(dt);
     const now = performance.now();
+    this.rig.update(dt, { talking: this.talking, listening: this.listening, speakT: (now - this.speakStart) / 1000 });
     const eye = this._eye();
     const toUser = new THREE.Vector3(eye.x - this.root.position.x, 0, eye.z - this.root.position.z);
     const distUser = toUser.length();
+    const moving = () => this.rig.current === "Walking" || this.rig.current === "Running";
 
     let speed = WALK_SPEED;
     if (this.listening || this.talking) {
       this.mode = "talk";
       this._turnTowards(toUser, dt, 4);
-      if (!this.emoting && this.current !== this.actions.Idle) this.play("Idle");
+      if (!this.emoting) this.rig.play("Idle");
     } else if (this.following) {
-      // Walk beside you: a little ahead and to your left, so Pip stays in view as you move.
+      // Walk beside you: a little ahead and to your left, so it stays in view as you move.
       const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(this.camera.getWorldQuaternion(new THREE.Quaternion())).setY(0);
       if (fwd.lengthSq() > 1e-4) fwd.normalize();
       const left = new THREE.Vector3(fwd.z, 0, -fwd.x); // 90° to the left of where you face
@@ -299,7 +553,7 @@ export class Companion {
         this.target = null;
       } else if (!this.emoting) {
         this._turnTowards(toUser, dt, 2); // waiting beside you: glance at you
-        if (this.current !== this.actions.Idle) this.play("Idle");
+        this.rig.play("Idle");
       }
     } else if (this.followUser && distUser > this.comeDistance + 0.2) {
       // Come to just in front of you.
@@ -319,37 +573,28 @@ export class Companion {
     if (this.mode === "walk" && this.target && !this.emoting) {
       const to = this.target.clone().sub(this.root.position).setY(0);
       const d = to.length();
-      if (d < 0.08 && this.following) {
+      if (d < 0.08) {
         this.mode = "idle";
         this.target = null;
-        this.play("Idle");
-      } else if (d < 0.08) {
-        this.mode = "idle";
-        this.target = null;
-        this.idleUntil = now + 3000 + Math.random() * 5000;
-        if (this.followUser) this.gesture("wave");
-        this.followUser = false;
-        this.play("Idle");
+        if (!this.following) {
+          this.idleUntil = now + 3000 + Math.random() * 5000;
+          if (this.followUser) this.gesture("wave");
+          this.followUser = false;
+        }
+        if (!this.emoting) this.rig.play("Idle");
       } else {
-        this.play(speed > WALK_SPEED ? "Running" : "Walking");
+        this.rig.play(speed > WALK_SPEED ? "Running" : "Walking");
         this._turnTowards(to, dt, speed > WALK_SPEED ? 8 : 5);
         const facing = new THREE.Vector3(0, 0, 1).applyQuaternion(this.root.quaternion);
         // Only move once roughly facing the way it's going.
         if (facing.dot(to.clone().normalize()) > 0.6) this.root.position.addScaledVector(to.normalize(), Math.min(d, speed * dt));
       }
-    } else if (this.mode !== "walk" && !this.emoting && (this.current === this.actions.Walking || this.current === this.actions.Running)) this.play("Idle");
-
-    // While talking, a little head bob so the words look like they come from Pip.
-    if (this.head) {
-      const t = (now - this.speakStart) / 1000;
-      this.head.rotation.x = this.talking ? Math.sin(t * 9) * 0.06 + Math.sin(t * 3.1) * 0.04 : this.listening ? -0.12 : 0;
-      this.head.rotation.z = this.listening ? 0.15 : 0;
-    }
+    } else if (this.mode !== "walk" && !this.emoting && moving()) this.rig.play("Idle");
   }
 
   _turnTowards(dir, dt, rate) {
     if (dir.lengthSq() < 1e-4) return;
-    const want = Math.atan2(dir.x, dir.z); // model faces +Z
+    const want = Math.atan2(dir.x, dir.z); // the body faces +Z
     const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), want);
     this.root.quaternion.slerp(q, Math.min(1, dt * rate));
   }

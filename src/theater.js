@@ -47,7 +47,7 @@ function start() {
           }
         }
       }
-      if (m.t === "pip") showSpeech({ speaker: "Pip", line: m.line });
+      if (m.t === "pip") showSpeech({ speaker: m.name || "Bunny", line: m.line });
       if (m.t === "direction") {
         if (m.narration) setNarration(m.narration);
         if (m.speech?.line) showSpeech(m.speech);

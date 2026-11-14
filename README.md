@@ -68,18 +68,22 @@ npm run stt            # second terminal: local Whisper speech-to-text on :8790
   the trigger when you're inside it. The frame with the touched spot marked goes to Claude, which works out what
   you touched and makes it respond. On desktop: click the focused window.
 
-## Pip, your companion
+## Bunny, your companion
 
-Press **Pip** (panel or desktop bar) and a small robot walks around your real floor, with a soft shadow under it.
-It wanders in front of you, stops to look around, and comes over when you ask. **Pinch Pip, or say "follow me",** and
-it walks beside you wherever you go (a little ahead and to your left, running to catch up, popping back if you leave
-the room); pinch again or say "stay" to stop. **Look at Pip while you talk** (orb, A/X or hand to
-mouth) and your words go to Pip instead of the story: Pip answers out loud from where it stands (Claude for the
-words, OpenAI TTS for the voice) with a matching gesture (wave, nod, shake, thumbs-up, jump, dance), knows the story
-so far, and can make things happen in it ("Pip, make it snow!" becomes a line for the story director). Pip's chats
-appear in the watch feed and on the theater view.
+Press **Bunny** (panel or desktop bar) and a little white VR bunny (after the Stanford XR mascot: long ears, one
+tilted, black headset visor with side straps, an "x" nose and a round tail) hops around your real floor, with a
+soft shadow under it. It's built from simple shapes and animated in code (no model file): it hops with squash and
+stretch and flowing ears, breathes and twitches its ears when idle, waves an ear, nods, shakes its head, does happy
+hops, spins in the air and dances, and its visor glows while it listens and pulses while it talks.
+It wanders in front of you, and comes over when you ask. **Pinch Bunny, or say "follow me",** and it hops beside you
+wherever you go (a little ahead and to your left, bounding to catch up, popping back if you leave the room); pinch
+again or say "stay" to stop. **Look at Bunny while you talk** (orb, A/X or hand to mouth) and your words go to Bunny
+instead of the story: it answers out loud from where it sits (Claude for the words, OpenAI TTS for the voice) with a
+matching gesture, knows the story so far, and can make things happen in it ("Bunny, make it snow!" becomes a line
+for the story director). Its chats appear in the watch feed and on the theater view.
 
-Model: "RobotExpressive" by Tomás Laulhé (Quaternius), modifications by Don McCurdy, CC0, from the three.js examples.
+Add `?companion=pip` to the headset URL to get Pip, the robot, instead ("RobotExpressive" by Tomás Laulhé
+(Quaternius), modifications by Don McCurdy, CC0, from the three.js examples).
 
 ## Hand gestures
 
