@@ -62,6 +62,7 @@ export class OrbisStream extends EventTarget {
         await this._connectAndStart();
         return;
       } catch (e) {
+        if (this.closed) return void this._teardown();
         const busy = e?.name === "RateLimitedError" || /429|capacity/i.test(String(e?.message));
         const wait = Math.min(30000, (busy ? 4000 : 2000) * attempt);
         this._setStatus("retrying", `${busy ? "No capacity right now" : e.message}. Retrying in ${Math.round(wait / 1000)} s`);
@@ -74,10 +75,12 @@ export class OrbisStream extends EventTarget {
   async _connectAndStart() {
     this._setStatus("connecting");
     this.jwt = await this._token(); // one JWT for the whole session
+    if (this.closed) return; // the window was closed while we waited: don't start a session nobody sees
     const reactor = new Reactor({ modelName: MODEL_NAME, modelTracks: TRACKS, jwt: this.jwt });
     this.reactor = reactor;
 
     reactor.on("trackReceived", (name, _track, stream) => {
+      if (this.closed) return; // a late track must not start playing after the window is gone
       if (name === "main_video") {
         this.video.srcObject = stream;
         this.video.play().catch(() => {});
@@ -103,7 +106,9 @@ export class OrbisStream extends EventTarget {
     });
     await reactor.connect(this.jwt);
     await ready;
+    if (this.closed) return void this._teardown();
     await this._startGeneration();
+    if (this.closed) this._teardown();
   }
 
   async _startGeneration() {
@@ -114,6 +119,7 @@ export class OrbisStream extends EventTarget {
     const reply = unwrap(await this.reactor.sendCommand("set_prompt", { prompt: this.prompt }));
     if (reply?.type === "command_error") throw new Error(`set_prompt: ${reply.reason || "rejected"}`);
     await conditions;
+    if (this.closed || !this.reactor) return;
     await this.reactor.sendCommand("start", {});
     this._setStatus("streaming");
   }
@@ -173,6 +179,10 @@ export class OrbisStream extends EventTarget {
     this.closed = true;
     this._setStatus("closed");
     await this._teardown();
+    // Let go of the media so nothing keeps playing or decoding.
+    this.video.srcObject = null;
+    this.audioStream?.getTracks().forEach((t) => t.stop());
+    this.audioStream = null;
   }
 
   /** For page unload: fire-and-forget server-side cleanup. */

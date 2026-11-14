@@ -7,9 +7,12 @@ export default defineConfig({
   plugins: [basicSsl()],
   server: {
     host: true,
+    // Tunnels for a Quest on another network (cloudflared, ngrok); Vite refuses unknown hosts otherwise.
+    allowedHosts: [".trycloudflare.com", ".ngrok-free.app", ".ngrok.app"],
     port: 5173,
     proxy: { "/api": "http://localhost:8787" },
   },
+  worker: { format: "es" }, // the depth worker is a module worker with code-split imports
   build: {
     rollupOptions: { input: {
         main: resolve("index.html"),

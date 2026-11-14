@@ -13,6 +13,11 @@ const HFOV = (84 * Math.PI) / 180; // matches the "20 mm wide-angle" view the di
 const TANH = Math.tan(HFOV / 2);
 const TANV = TANH * (9 / 16);
 const RADIUS = 30;
+const NEAR = 1.6; // metres: depth 1.0 (nearest) lands here
+const FAR = 28; // metres: depth 0.0 and the no-depth fallback; just inside the dome
+export const DEPTH_RANGE = { NEAR, FAR }; // how a depth map's 1..0 maps to metres (the test world writes true depth with it)
+const SLACK = 0.35; // how far you can move before the relief's anchor follows you
+const GRID = [192, 108];
 const FADE_S = 1.4;
 const MOTES = 500;
 
@@ -23,13 +28,32 @@ void main() {
   gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
 }`;
 
-const domeFrag = /* glsl */ `
-uniform sampler2D map; uniform float hasVideo; uniform float progress; uniform float time; uniform vec2 texel;
-varying vec3 vDir;
+// Shared by the dome and the relief: contrast-adaptive sharpen, fine grain, and the entry/exit iris.
+const pictureGlsl = /* glsl */ `
+uniform sampler2D map; uniform float progress; uniform float time; uniform vec2 texel;
 float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7))) * 43758.5453); }
+vec3 sharpen(vec2 uv, float bias){
+  vec3 c = texture2D(map, uv, bias).rgb;
+  vec3 n = texture2D(map, uv + vec2(0.0, texel.y), bias).rgb, s = texture2D(map, uv - vec2(0.0, texel.y), bias).rgb;
+  vec3 e = texture2D(map, uv + vec2(texel.x, 0.0), bias).rgb, w = texture2D(map, uv - vec2(texel.x, 0.0), bias).rgb;
+  vec3 mn = min(c, min(min(n, s), min(e, w))), mx = max(c, max(max(n, s), max(e, w)));
+  float amt = sqrt(clamp(min(mn.g, 1.0 - mx.g) / max(mx.g, 0.001), 0.0, 1.0)) * 0.22;
+  return clamp((c + (c * 4.0 - n - s - e - w) * amt), 0.0, 1.0);
+}
+float grain(){ return (hash(gl_FragCoord.xy + fract(time) * 91.0) - 0.5) * 0.022; }
+// Iris that opens from straight ahead on entry and closes on exit, with a warm rim: (iris, rim).
+vec2 irisRim(float ang){
+  float r = progress * 3.4;
+  float iris = 1.0 - smoothstep(r - 0.35, r, ang);
+  return vec2(iris, smoothstep(r - 0.5, r - 0.2, ang) * iris * (1.0 - progress));
+}`;
+
+const domeFrag = /* glsl */ `
+uniform float hasVideo; uniform float hasDepth;
+${pictureGlsl}
+varying vec3 vDir;
 float noise(vec2 p){ vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);
   return mix(mix(hash(i),hash(i+vec2(1,0)),f.x), mix(hash(i+vec2(0,1)),hash(i+vec2(1,1)),f.x), f.y); }
-vec2 mirror(vec2 u){ return 1.0 - abs(mod(u, 2.0) - 1.0); }
 void main(){
   vec3 d = normalize(vDir);
   float fwd = -d.z;
@@ -40,19 +64,15 @@ void main(){
   float outside = fwd > 0.05 ? min(length(past), 3.0) : 3.0;
 
   // The picture, lightly sharpened (contrast-adaptive) so upscaled frames stay crisp.
-  vec3 c = texture2D(map, uv).rgb;
-  vec3 n = texture2D(map, uv + vec2(0.0, texel.y)).rgb, s = texture2D(map, uv - vec2(0.0, texel.y)).rgb;
-  vec3 e = texture2D(map, uv + vec2(texel.x, 0.0)).rgb, w = texture2D(map, uv - vec2(texel.x, 0.0)).rgb;
-  vec3 mn = min(c, min(min(n, s), min(e, w))), mx = max(c, max(max(n, s), max(e, w)));
-  float amt = sqrt(clamp(min(mn.g, 1.0 - mx.g) / max(mx.g, 0.001), 0.0, 1.0)) * 0.22;
-  vec3 sharp = clamp((c + (c * 4.0 - n - s - e - w) * amt), 0.0, 1.0);
+  vec3 sharp = sharpen(uv, 0.0);
 
   // Beyond the frame: a soft, ever blurrier extension of it fading into the scene's colour.
   vec3 avg = texture2D(map, vec2(0.5, 0.5), 14.0).rgb;
   // Edge colours smeared outward and heavily blurred (like ambient light), never a recognisable copy.
   vec2 edgeUv = clamp(uv, 0.002, 0.998);
   float edge = min(min(uv.x, 1.0 - uv.x), min(uv.y, 1.0 - uv.y));
-  float inFrame = outside > 0.0 ? 0.0 : smoothstep(0.0, 0.07, edge);
+  // With depth, the relief mesh draws the in-frame picture; the dome keeps only the soft extension.
+  float inFrame = (outside > 0.0 ? 0.0 : smoothstep(0.0, 0.07, edge)) * (1.0 - hasDepth);
   vec3 video = sharp;
   if (inFrame < 1.0) {
     vec3 ext = vec3(0.0);
@@ -63,19 +83,49 @@ void main(){
     ext = mix(ext, avg, smoothstep(0.05, 1.0, outside)) * mix(0.85, 0.3, smoothstep(0.0, 1.6, outside));
     video = mix(ext, sharp, inFrame);
   }
-  video += (hash(gl_FragCoord.xy + fract(time) * 91.0) - 0.5) * 0.022; // fine grain hides compression blocks
+  video += grain(); // fine grain hides compression blocks
 
   // Before frames arrive: the same swirl the portal shows while a world forms.
   float sw = noise(vec2(atan(d.x, -d.z) * 2.0 + time * 0.6, d.y * 3.0 - time * 0.4));
   vec3 forming = mix(vec3(0.05,0.07,0.18), vec3(0.95,0.62,0.30), smoothstep(0.35, 0.9, sw));
   vec3 col = mix(forming, video, hasVideo);
-  // Iris that opens from straight ahead on entry and closes on exit, with a warm rim.
-  float ang = acos(clamp(fwd, -1.0, 1.0));
-  float r = progress * 3.4;
-  float iris = 1.0 - smoothstep(r - 0.35, r, ang);
-  float rim = smoothstep(r - 0.5, r - 0.2, ang) * iris * (1.0 - progress);
-  col += vec3(1.0, 0.7, 0.4) * rim * 1.5;
-  gl_FragColor = vec4(col, iris);
+  vec2 ir = irisRim(acos(clamp(fwd, -1.0, 1.0)));
+  col += vec3(1.0, 0.7, 0.4) * ir.y * 1.5;
+  gl_FragColor = vec4(col, ir.x);
+}`;
+
+// The in-frame picture as a depth-displaced relief: each grid vertex sits on its view ray at the
+// depth the map gives it, so per-eye rendering yields real stereo and head-motion parallax.
+const reliefVert = /* glsl */ `
+uniform sampler2D depthMap; uniform float hasDepth; uniform float depthStrength;
+varying vec2 vUv; varying float vD; varying vec3 vRay;
+void main() {
+  vUv = uv;
+  vec3 ray = vec3(position.x * ${TANH.toFixed(5)}, position.y * ${TANV.toFixed(5)}, -1.0);
+  vec2 o = vec2(0.7 / 252.0, 0.7 / 140.0); // small blur keeps the surface smooth
+  float d = (texture2D(depthMap, uv).r * 2.0 + texture2D(depthMap, uv + o).r + texture2D(depthMap, uv - o).r
+           + texture2D(depthMap, uv + vec2(o.x, -o.y)).r + texture2D(depthMap, uv + vec2(-o.x, o.y)).r) / 6.0;
+  float z = 1.0 / mix(${(1 / FAR).toFixed(6)}, ${(1 / NEAR).toFixed(6)}, d);
+  z = mix(${FAR.toFixed(1)}, z, hasDepth * depthStrength);
+  vD = d;
+  vRay = ray;
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(ray * z, 1.0);
+}`;
+
+const reliefFrag = /* glsl */ `
+uniform float hasVideo; uniform float hasDepth;
+${pictureGlsl}
+varying vec2 vUv; varying float vD; varying vec3 vRay;
+void main(){
+  // Steep depth edges stretch the picture like a rubber sheet: blur and dim them a little.
+  float steep = clamp(fwidth(vD) * 6.0, 0.0, 1.0);
+  vec3 col = sharpen(vUv, steep * 2.0) * (1.0 - 0.25 * steep) + grain();
+  float edge = min(min(vUv.x, 1.0 - vUv.x), min(vUv.y, 1.0 - vUv.y));
+  float a = smoothstep(0.0, 0.07, edge) * hasDepth * hasVideo;
+  // Angle from straight ahead of the undisplaced ray, same as the dome's iris.
+  vec2 ir = irisRim(acos(clamp(1.0 / length(vRay), -1.0, 1.0)));
+  col += vec3(1.0, 0.7, 0.4) * ir.y * 1.5;
+  gl_FragColor = vec4(col, a * ir.x);
 }`;
 
 const moteVert = /* glsl */ `
@@ -116,9 +166,15 @@ export class Immersion {
     this.world.visible = false;
     scene.add(this.world);
 
+    // Defaults for portals without depth; enter() swaps in the portal's live uniform objects.
+    const noDepth = new THREE.DataTexture(new Uint8Array([0]), 1, 1, THREE.RedFormat);
+    noDepth.needsUpdate = true;
+    this.noDepth = { depthMap: { value: noDepth }, hasDepth: { value: 0 }, depthStrength: { value: 1 } };
+    // One uniforms object shared by the dome and the relief, so swapped properties reach both.
     this.uniforms = {
       map: { value: new THREE.Texture() },
       hasVideo: { value: 0 },
+      ...this.noDepth,
       progress: { value: 0 },
       time: { value: 0 },
       texel: { value: new THREE.Vector2(1 / 1280, 1 / 720) },
@@ -139,6 +195,23 @@ export class Immersion {
     this.dome.frustumCulled = false;
     this.dome.visible = false;
     scene.add(this.dome); // at infinity: follows your head position, keeps the world's rotation
+
+    this.relief = new THREE.Mesh(
+      new THREE.PlaneGeometry(2, 2, GRID[0], GRID[1]), // x, y in [-1, 1] and uv in [0, 1]; the shader supplies z
+      new THREE.ShaderMaterial({
+        vertexShader: reliefVert,
+        fragmentShader: reliefFrag,
+        uniforms: this.uniforms,
+        transparent: true,
+        depthWrite: false,
+        depthTest: false, // like the dome: paint over the windows' wall masks; doors and UI draw later, on top
+        side: THREE.DoubleSide,
+      }),
+    );
+    this.relief.renderOrder = -9; // just after the dome, before portals, UI and motes
+    this.relief.frustumCulled = false;
+    this.relief.visible = false;
+    this.world.add(this.relief); // anchored (not re-centred on the head) so you get parallax
 
     // Motes in a ring around you (not right on top of your head).
     const pos = new Float32Array(MOTES * 3), seed = new Float32Array(MOTES);
@@ -188,6 +261,7 @@ export class Immersion {
     // Share the portal's live uniforms, so reconnects and new video tracks just work.
     this.uniforms.map = portal.screenMat.uniforms.map;
     this.uniforms.hasVideo = portal.screenMat.uniforms.hasVideo;
+    for (const k in this.noDepth) this.uniforms[k] = portal.screenMat.uniforms[k] || this.noDepth[k];
     if (switching) this.progress = Math.min(this.progress, 0.25); // re-open the iris on the new world
 
     // Anchor the world where you're standing, facing where the window was.
@@ -197,6 +271,7 @@ export class Immersion {
     this.world.position.copy(eye);
     this.world.rotation.set(0, Math.atan2(-dx, -dz), 0);
     this.dome.rotation.copy(this.world.rotation);
+    this.relief.position.set(0, 0, 0);
     this.forward.set(dx, 0, dz).normalize();
     this.entryEye.copy(eye);
     portal.setImmersed(true);
@@ -222,6 +297,7 @@ export class Immersion {
     this.progress = 0;
     this.world.visible = false;
     this.dome.visible = false;
+    this.relief.visible = false;
     if (was) this.onChange(null);
   }
 
@@ -267,6 +343,17 @@ export class Immersion {
     }
   }
 
+  // The relief is only right from its anchor: let the anchor trail the head by SLACK so stretch stays mild.
+  _followHead() {
+    this.world.updateMatrixWorld();
+    const c = this.world.worldToLocal(this.camera.getWorldPosition(new THREE.Vector3())); // world only yaws, so xz distances match
+    const p = this.relief.position;
+    const dx = c.x - p.x, dz = c.z - p.z, h = Math.hypot(dx, dz);
+    if (h > SLACK) p.x = c.x - (dx / h) * SLACK, p.z = c.z - (dz / h) * SLACK;
+    const dy = c.y - p.y;
+    p.y += dy - Math.max(-SLACK, Math.min(SLACK, dy));
+  }
+
   _whoosh(inward) {
     const ctx = this.audio;
     if (!ctx || ctx.state !== "running") return;
@@ -299,6 +386,8 @@ export class Immersion {
     this.moteMat.uniforms.opacity.value = Math.max(0, eased - 0.3) / 0.7;
     this.world.visible = this.progress > 0;
     this.dome.visible = this.world.visible;
+    this.relief.visible = this.world.visible && this.uniforms.hasDepth.value > 0.001;
+    if (this.relief.visible) this._followHead();
     if (this.dome.visible) {
       this.camera.getWorldPosition(this.dome.position);
       const v = this.video;

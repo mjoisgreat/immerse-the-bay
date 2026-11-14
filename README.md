@@ -56,6 +56,36 @@ npm run stt            # second terminal: local Whisper speech-to-text on :8790
   over passthrough), with tunnel walls lit by the scene's own colours, so moving your head gives real parallax.
   Sparks burst from the rim when a window opens.
 
+## Real depth in the windows (mono → stereo)
+
+Orbis sends one flat picture. A small depth model (Depth Anything V2 Small, running in a Web Worker in the browser;
+WebGPU when available, otherwise WASM) estimates how far away everything in the picture is, about 10 times a second,
+for the world you've stepped inside. That world is then drawn as a relief (a fine mesh pushed back by that depth)
+instead of a flat picture, so each eye sees it from its own angle and it shifts as you move your head. Windows on the
+wall stay flat pictures; depth only runs once you step in.
+
+* `src/depth.js` + `src/depth.worker.js` + `src/depthcore.js` run the model; `src/depthmath.js` normalises and smooths the result.
+* `src/immersion.js` (step inside) displaces the picture in its vertex shader. `src/portal.js` can do the same for
+  the wall window (`portal.windowRelief = true`), but that is off.
+* It only runs in the headset: on a desktop screen the picture stays flat and the model is never downloaded.
+  (For checking the relief without a headset, add `?stereo=desktop` to the URL.)
+* Turn it off with the **3D depth** button or `?stereo=0`. If the model can't load or is too slow to keep up, the
+  picture simply stays flat as before.
+* The model weights (tens of MB) are downloaded from Hugging Face the first time and cached by the browser.
+
+### Stereo test without Orbis
+
+Add `?test=1` to the address (for example `https://…/?test=1`). Windows then show a built-in 3D test world (an avenue
+of columns, near objects, moving things, far mountains) instead of an Orbis stream: no credits, no sound, and it goes
+through the same video and depth path as the real thing. Step inside, then press the **3D** button to cycle:
+
+* **Model** – depth estimated by the model, as with Orbis. The button shows how long each estimate takes.
+* **True depth** – the test world's exact depth, as a reference for how good the stereo can look.
+* **Off** – flat.
+
+If true depth looks right and the model's doesn't, the model (or its lag) is the weak point; if both look wrong, the
+rendering is. On a desktop the `3` key cycles the modes. The code is in `src/teststream.js`.
+
 ## Interactive story
 
 * **Choices:** after every beat the director offers 2–3 options for what happens next (gentle, surprising,

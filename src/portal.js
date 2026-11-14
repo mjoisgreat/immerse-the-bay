@@ -3,6 +3,14 @@ import * as THREE from "three";
 const W = 1.6, H = 0.9; // metres, 16:9 like Orbis output
 const DEPTH = 0.32; // how far the picture sits "inside" the wall
 
+// Depth relief: the picture is pushed back along rays from a virtual camera C = (0,0,F) in front of it.
+const HFOV = 60; // degrees: the horizontal FOV the video is assumed to have
+const F = W / 2 / Math.tan((HFOV / 2) * Math.PI / 180); // C's distance from the picture plane
+const NEAR = F; // nearest content stays exactly on the picture plane
+const FAR = 12.0; // farthest content, metres from C
+const BACK_S = (FAR * 1.02) / F; // the back plane sits just behind the farthest relief, same rays
+const DEPTH_TEXEL = "vec2(1.0 / 252.0, 1.0 / 140.0)";
+
 // The tunnel walls between the wall opening and the picture: light from the world spills onto them.
 const tunnelVert = /* glsl */ `
 attribute vec2 videoUv; attribute float front;
@@ -105,20 +113,78 @@ const screenVert = /* glsl */ `
 varying vec2 vUv;
 void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`;
 
+// The relief spreads sideways as it recedes. Only what you can see through the wall opening may show,
+// so fragments whose line of sight misses the opening are dropped (the wall mask does this in the
+// headset; on desktop there is no mask). Local space: picture at z = 0, opening at z = DEPTH.
+const clipVert = /* glsl */ `
+varying vec3 vPos; varying vec3 vCam;
+void setClip(vec3 pos) { vPos = pos; vCam = (inverse(modelMatrix) * vec4(cameraPosition, 1.0)).xyz; }`;
+const clipFrag = /* glsl */ `
+varying vec3 vPos; varying vec3 vCam;
+bool outsideOpening() {
+  float dz = vCam.z - vPos.z;
+  if (dz < 1e-4) return false;
+  vec2 hit = mix(vPos.xy, vCam.xy, clamp((${DEPTH.toFixed(4)} - vPos.z) / dz, 0.0, 1.0));
+  return abs(hit.x) > ${(W / 2 + 0.002).toFixed(4)} || abs(hit.y) > ${(H / 2 + 0.002).toFixed(4)};
+}`;
+
+// The picture as a relief: each vertex slides along its ray from C by the depth under it (s = 1 is flat).
+const reliefVert = /* glsl */ `
+uniform sampler2D depthMap; uniform float winDepth; uniform float depthStrength;
+varying vec2 vUv; varying float vDepth;
+${clipVert}
+void main() {
+  vUv = uv;
+  vec2 t = ${DEPTH_TEXEL};
+  float d = (texture2D(depthMap, uv).r * 2.0 + texture2D(depthMap, uv + vec2(t.x, 0.0)).r + texture2D(depthMap, uv - vec2(t.x, 0.0)).r
+    + texture2D(depthMap, uv + vec2(0.0, t.y)).r + texture2D(depthMap, uv - vec2(0.0, t.y)).r) / 6.0; // soft edges
+  vDepth = d;
+  float zc = 1.0 / mix(1.0 / ${FAR.toFixed(4)}, 1.0 / ${NEAR.toFixed(4)}, d);
+  zc = mix(${F.toFixed(4)}, zc, winDepth * depthStrength);
+  vec3 C = vec3(0.0, 0.0, ${F.toFixed(4)});
+  vec3 pos = C + (position - C) * (zc / ${F.toFixed(4)});
+  setClip(pos);
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
+}`;
+
+// Dark backing for the transparent picture: the same rays as the relief, scaled out to just behind
+// the farthest point by k (0 = the flat plane 5 mm behind the picture).
+const backVert = /* glsl */ `
+uniform float k;
+${clipVert}
+void main() {
+  vec3 C = vec3(0.0, 0.0, ${F.toFixed(4)});
+  vec3 pos = C + (position - C) * mix(1.0, ${BACK_S.toFixed(4)}, k);
+  setClip(pos);
+  vPos.z -= 0.005, vCam.z -= 0.005; // into the picture's local space: this plane sits 5 mm behind it
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
+}`;
+const backFrag = /* glsl */ `
+uniform float k;
+${clipFrag}
+void main() {
+  if (k > 0.0 && outsideOpening()) discard;
+  gl_FragColor = vec4(0.0196, 0.0235, 0.0471, 1.0);
+}`;
+
 // Live video when available, a swirling "world forming" effect while connecting,
 // an iris that opens on creation, and feathered edges so it reads as a window.
 const screenFrag = /* glsl */ `
 uniform sampler2D map; uniform float hasVideo; uniform float time; uniform float reveal; uniform float focus;
-varying vec2 vUv;
+uniform float winDepth;
+varying vec2 vUv; varying float vDepth;
+${clipFrag}
 float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7))) * 43758.5453); }
 float noise(vec2 p){ vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);
   return mix(mix(hash(i),hash(i+vec2(1,0)),f.x), mix(hash(i+vec2(0,1)),hash(i+vec2(1,1)),f.x), f.y); }
 void main(){
+  if (winDepth > 0.0 && outsideOpening()) discard;
   vec2 p = (vUv - 0.5) * vec2(${(W / H).toFixed(4)}, 1.0);
   float r = length(p), a = atan(p.y, p.x);
   float swirl = noise(vec2(a * 2.0 + time * 0.6 - r * 6.0, r * 4.0 - time * 0.4));
   vec3 forming = mix(vec3(0.05,0.07,0.18), vec3(0.95,0.62,0.30), smoothstep(0.35, 0.9, swirl)) * (1.2 - r);
-  vec3 col = mix(forming, texture2D(map, vUv).rgb, hasVideo);
+  float steep = smoothstep(0.004, 0.03, fwidth(vDepth)) * winDepth; // rubber-sheet stretch at depth jumps
+  vec3 col = mix(forming, texture2D(map, vUv, steep * 2.5).rgb * (1.0 - 0.3 * steep), hasVideo);
   float edge = min(min(vUv.x, 1.0 - vUv.x) * ${(W / H).toFixed(4)}, min(vUv.y, 1.0 - vUv.y));
   float feather = smoothstep(0.0, 0.035, edge);
   float iris = 1.0 - smoothstep(reveal * 1.2 - 0.05, reveal * 1.2, r);
@@ -153,9 +219,11 @@ export class Portal {
     this.created = performance.now();
     this.focused = false;
 
+    const placeholder = new THREE.DataTexture(new Uint8Array([0]), 1, 1, THREE.RedFormat, THREE.UnsignedByteType);
+    placeholder.needsUpdate = true;
     this.texture = new THREE.Texture(); // replaced by a VideoTexture once frames arrive
     this.screenMat = new THREE.ShaderMaterial({
-      vertexShader: screenVert,
+      vertexShader: reliefVert,
       fragmentShader: screenFrag,
       transparent: true,
       uniforms: {
@@ -164,9 +232,16 @@ export class Portal {
         time: { value: 0 },
         reveal: { value: 0 },
         focus: { value: 0 },
+        depthMap: { value: placeholder },
+        hasDepth: { value: 0 }, // eased 0..1: a current depth map exists (the step-inside view uses this)
+        winDepth: { value: 0 }, // hasDepth, but only if the wall window itself should be drawn as a relief
+        depthStrength: { value: 1 },
       },
     });
-    this.screen = new THREE.Mesh(new THREE.PlaneGeometry(W, H), this.screenMat);
+    this.depthTarget = 0;
+    this.windowRelief = false; // depth is for stepping inside; the window on the wall stays a flat picture
+    this.screen = new THREE.Mesh(new THREE.PlaneGeometry(W, H, 160, 90), this.screenMat);
+    this.screen.frustumCulled = false; // the vertex shader moves it far beyond its flat bounds
     this.screen.userData.portal = this;
     this.group.add(this.screen);
 
@@ -196,8 +271,11 @@ export class Portal {
     // Depth: the picture sits inside the wall, behind an opening, with lit tunnel walls.
     // (Added after the caption: the in-headset toast borrows children[2].)
     this.screen.position.z = -DEPTH;
-    const back = new THREE.Mesh(new THREE.PlaneGeometry(W, H), new THREE.MeshBasicMaterial({ color: 0x05060c }));
+    // The back plane recedes with the relief, clipped to the opening like the picture.
+    const backMat = new THREE.ShaderMaterial({ vertexShader: backVert, fragmentShader: backFrag, uniforms: { k: this.screenMat.uniforms.winDepth } });
+    const back = new THREE.Mesh(new THREE.PlaneGeometry(W, H), backMat);
     back.position.z = -DEPTH - 0.005;
+    back.frustumCulled = false;
     this.group.add(back);
     this.tunnelMat = new THREE.ShaderMaterial({
       vertexShader: tunnelVert,
@@ -241,7 +319,7 @@ export class Portal {
   }
 
   attachAudio(stream) {
-    if (!this.listener) return;
+    if (!this.listener || this.disposed) return; // a closed window must never start making sound
     // Chrome only feeds remote WebRTC audio into Web Audio if an element is also playing it.
     const el = Object.assign(new Audio(), { srcObject: stream, muted: true });
     el.play().catch(() => {});
@@ -271,6 +349,15 @@ export class Portal {
     this.glowMat.uniforms.strength.value = f ? 0.9 : 0.35;
   }
 
+  setDepth(tex) {
+    if (tex) this.screenMat.uniforms.depthMap.value = tex; // keep the last one when null so it eases out
+    this.depthTarget = tex ? 1 : 0;
+  }
+
+  setDepthStrength(x) {
+    this.screenMat.uniforms.depthStrength.value = x;
+  }
+
   setCaption(text, kind = "story") {
     const c = this.caption, g = c.getContext("2d");
     g.clearRect(0, 0, c.width, c.height);
@@ -290,6 +377,11 @@ export class Portal {
 
   update(t) {
     this.screenMat.uniforms.time.value = t;
+    const dt = this._t === undefined ? 0 : Math.min(0.1, Math.max(0, t - this._t));
+    this._t = t;
+    const hd = this.screenMat.uniforms.hasDepth, step = dt / (this.depthTarget > hd.value ? 0.6 : 0.3);
+    hd.value = this.depthTarget > hd.value ? Math.min(this.depthTarget, hd.value + step) : Math.max(this.depthTarget, hd.value - step);
+    this.screenMat.uniforms.winDepth.value = this.windowRelief ? hd.value : 0;
     this.glowMat.uniforms.time.value = t;
     const age = (performance.now() - this.created) / 1000;
     this.screenMat.uniforms.reveal.value = Math.min(1, age / 1.4);
@@ -298,8 +390,9 @@ export class Portal {
   }
 
   dispose() {
+    this.disposed = true;
     this.group.removeFromParent();
-    this.sound?.disconnect?.();
+    if (this.sound?.source) this.sound.disconnect(); // (three throws if it was never connected)
     if (this._audioEl) this._audioEl.srcObject = null;
     this.texture.dispose();
     this.captionTex.dispose();

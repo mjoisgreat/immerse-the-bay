@@ -6,6 +6,8 @@ import { Immersion } from "./immersion.js";
 import { Toolbar } from "./toolbar.js";
 import { HandGestures } from "./gestures.js";
 import { OrbisStream } from "./orbis.js";
+import { DepthEstimator } from "./depth.js";
+import { TestStream } from "./teststream.js";
 import { PushToTalk } from "./voice.js";
 import { createLink, speechHeaders } from "./link.js";
 import { urlRoom, urlInvite, owned, lastOwnedRoom, newRoomCode, makeOwnerCreds, credFor, voterId } from "./identity.js";
@@ -86,6 +88,52 @@ function stepOut() {
   flash("Back in your room.", 2000);
 }
 
+// ---------- Stereo depth ----------
+// Orbis video is flat. Once you step inside a window, a small depth model runs on that world and the
+// picture is drawn as a relief, so each eye sees it from its own angle. Windows on the wall stay flat.
+// Headset only: on a flat screen there is no second eye, so the model is never loaded or run there.
+// Off with ?stereo=0 or the 3D button; if the model can't load, everything stays flat.
+// (?stereo=desktop forces it on a flat screen, for checking the relief without a headset.)
+//
+// Stereo test (?test=1): windows show a built-in 3D test world instead of Orbis (no credits, no sound),
+// and the 3D button cycles model depth -> true depth -> off, so the model can be judged against the truth.
+const depth = new DepthEstimator();
+const stereoParam = new URLSearchParams(location.search).get("stereo");
+const TEST = new URLSearchParams(location.search).has("test");
+const STEREO_MODES = TEST ? ["model", "true", "off"] : ["model", "off"];
+let stereoMode = stereoParam === "0" || (!stereoParam && localStorage.getItem("stereo") === "0") ? "off" : "model";
+depth.enabled = stereoMode === "model";
+function toggleStereo() {
+  stereoMode = STEREO_MODES[(STEREO_MODES.indexOf(stereoMode) + 1) % STEREO_MODES.length];
+  depth.enabled = stereoMode === "model";
+  if (!TEST) localStorage.setItem("stereo", stereoMode === "off" ? "0" : "1");
+  const failed = stereoMode === "model" && depth.status === "failed";
+  flash(failed ? "3D depth isn't available on this device." : { model: TEST ? "3D: depth from the model." : "3D depth on.", true: "3D: true depth (reference).", off: "3D depth off." }[stereoMode], 2500);
+}
+function stereoLabel() {
+  if (stereoMode === "off") return "3D depth off";
+  if (stereoMode === "true") return "True depth";
+  if (depth.status === "loading") return "3D loading…";
+  if (depth.status === "failed") return "3D failed";
+  // In the test, show how long the model takes per frame (rounded, so the button isn't redrawn constantly).
+  return TEST && depth.lastMs ? `Model ${Math.round(depth.lastMs / 10) * 10} ms` : "3D depth on";
+}
+function updateDepth(t) {
+  const vr = renderer.xr.isPresenting || stereoParam === "desktop" || TEST;
+  if (vr) depth.warm(); // load the model on entering the headset, not on the first step inside
+  const active = vr && immersion.inside ? immersion.video : null;
+  const truth = TEST && stereoMode === "true";
+  depth.setActive(truth ? null : active);
+  depth.update();
+  // Only the world you're inside gets relief, and only while its depth map is current.
+  for (const { portal, stream } of portals.values()) {
+    const mine = active === stream.video;
+    stream.update?.(t, renderer, truth && mine); // test world: draw the next frame (and its true depth)
+    const tex = !mine ? null : truth ? stream.depthTexture : depth.isFresh(stream.video) ? depth.textureFor(stream.video) : null;
+    portal.setDepth(tex);
+  }
+}
+
 // ---------- Portals ----------
 const portals = new Map(); // id -> { portal, stream }
 let focusId = null;
@@ -110,7 +158,7 @@ function openPortal(origin, dir) {
   const portal = new Portal(id, listener);
   placeInFront(portal.group, origin, dir);
   scene.add(portal.group);
-  const stream = new OrbisStream(id, ROOM);
+  const stream = TEST ? new TestStream(id) : new OrbisStream(id, ROOM);
   stream.addEventListener("video", () => portal.attachVideo(stream.video));
   stream.addEventListener("audio", () => portal.attachAudio(stream.audioStream));
   stream.addEventListener("status", (e) => {
@@ -123,6 +171,10 @@ function openPortal(origin, dir) {
   portals.set(id, { portal, stream });
   setFocus(id);
   send({ t: "portal_added", id }); // server asks the director for this portal's first scene
+  if (TEST) {
+    stream.start(); // no need to wait for a prompt
+    flash("Stereo test world (no Orbis). Step inside, then press 3D: model / true depth / off.", 7000);
+  }
 }
 
 function closePortal(id) {
@@ -130,6 +182,7 @@ function closePortal(id) {
   if (!p) return;
   if (immersion.portal === p.portal) immersion.reset();
   p.stream.close();
+  depth.release(p.stream.video);
   p.portal.dispose();
   portals.delete(id);
   send({ t: "portal_removed", id });
@@ -169,7 +222,7 @@ async function resolveRoom() {
   return new Promise(() => {}); // page is leaving
 }
 const ROOM = await resolveRoom();
-history.replaceState(null, "", `?room=${ROOM}`);
+history.replaceState(null, "", `?room=${ROOM}${TEST ? "&test=1" : ""}`);
 showRoomCard();
 
 function showRoomCard() {
@@ -197,7 +250,7 @@ function send(m) {
 function retire(text = `Your room “${ROOM}” is now playing in another tab or device.`) {
   // Stop our streams so credits aren't spent twice.
   immersion.reset();
-  for (const p of portals.values()) p.stream.close(), p.portal.dispose();
+  for (const p of portals.values()) p.stream.close(), depth.release(p.stream.video), p.portal.dispose();
   portals.clear();
   focusId = null;
   retired = true;
@@ -705,6 +758,7 @@ const toolbar = new Toolbar(camera, [
   { id: "step", icon: "🚪", label: "Step inside", press: toggleStep },
   { id: "close", icon: "✕", label: "Close window", press: closeFocused },
   { id: "reset", icon: "↺", label: "Reset story", press: resetPressed },
+  { id: "stereo", icon: "◐", label: "3D depth", press: toggleStereo },
   { id: "hide", icon: "▾", label: "Hide buttons", press: () => setButtonsHidden(true) },
 ]);
 // Hide / show the buttons (the orb and ring hide with them; A/X and B/Y still work).
@@ -738,6 +792,7 @@ function syncButtons() {
   const armed = Date.now() < resetArmed;
   toolbar.set("talk", { state: talking ? "active" : "idle", label: talking ? "Listening…" : "Hold to talk" });
   toolbar.set("step", { label: immersion.inside ? "Step out" : "Step inside", icon: immersion.inside ? "↩" : "🚪" });
+  toolbar.set("stereo", { state: stereoMode === "true" || (stereoMode === "model" && depth.status !== "failed") ? "active" : "idle", label: stereoLabel() });
   toolbar.set("reset", { state: armed ? "warn" : "idle", label: armed ? "Tap again" : "Reset story" });
   bar.talk.classList.toggle("on", talking);
   bar.talk.textContent = talking ? "Listening…" : "Hold to talk";
@@ -819,6 +874,7 @@ addEventListener("keydown", (e) => {
   if (e.code === "Backspace" && focusId && !/INPUT|TEXTAREA/.test(e.target.tagName)) closePortal(focusId);
   if (e.code === "KeyE" && !/INPUT|TEXTAREA/.test(e.target.tagName)) immersion.inside ? stepOut() : stepInside(portals.get(focusId)?.portal);
   if (e.code === "Escape") stepOut();
+  if (TEST && e.code === "Digit3" && !/INPUT|TEXTAREA/.test(e.target.tagName)) toggleStereo(); // desktop has no 3D button
   if (e.code === "KeyH" && !/INPUT|TEXTAREA/.test(e.target.tagName)) setButtonsHidden(!toolbar.collapsed);
 });
 addEventListener("keyup", (e) => e.code === "Space" && stopTalking());
@@ -829,8 +885,9 @@ async function setupXR() {
   const cfg = await fetch("/api/config").then((r) => r.json()).catch(() => ({}));
   maxPortals = cfg.maxPortals || maxPortals;
   if (!navigator.xr || !(await navigator.xr.isSessionSupported("immersive-ar").catch(() => false))) {
-    enterBtn.textContent = "Desktop preview (open on Quest for MR)";
-    enterBtn.disabled = true;
+    // No headset here: the button just clears the start card (Room info brings it back).
+    enterBtn.textContent = "Start desktop preview (open on Quest for MR)";
+    enterBtn.onclick = () => ($("#overlay").hidden = true);
     return;
   }
   enterBtn.onclick = async () => {
@@ -859,6 +916,8 @@ async function setupXR() {
 setupXR();
 document.addEventListener("click", () => listener.context.state === "suspended" && listener.context.resume());
 
+if (TEST) window.__stereoTest = { camera, immersion, depth, portals, get mode() { return stereoMode; } }; // for poking at it from the console
+
 // ---------- Loop ----------
 const clock = new THREE.Clock();
 renderer.setAnimationLoop(() => {
@@ -866,6 +925,7 @@ renderer.setAnimationLoop(() => {
   const t = clock.elapsedTime;
   for (const { portal } of portals.values()) portal.update(t);
   checkWalking();
+  updateDepth(t);
   immersion.update(t, dt);
   previewRoom.visible = !renderer.xr.isPresenting && !immersion.active;
   exitOrb.visible = immersion.inside && renderer.xr.isPresenting && !toolbar.collapsed;
