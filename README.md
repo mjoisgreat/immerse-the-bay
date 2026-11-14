@@ -147,7 +147,7 @@ Director console (console.html) ── /ws ─────► └─────
 
 ## CI and automatic deploys
 
-`.github/workflows/ci.yml` runs on every push and pull request: `npm ci`, `npm test` (story state, permissions,
+`.github/workflows/ci.yml` runs on every push and pull request: `npm install`, `npm test` (story state, permissions,
 choices, touch, reset and hand-gesture tests) and `npm run build`. On pushes to `main` it then deploys to
 https://living-window.vercel.app with the Vercel CLI, once these repository secrets exist:
 `VERCEL_TOKEN` (create at vercel.com/account/tokens), `VERCEL_ORG_ID` and `VERCEL_PROJECT_ID` (from `.vercel/project.json`).

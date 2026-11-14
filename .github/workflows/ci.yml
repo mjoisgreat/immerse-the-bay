@@ -23,7 +23,7 @@ jobs:
         with:
           node-version: 24
           cache: npm
-      - run: npm ci
+      - run: npm install --no-audit --no-fund # lockfile is from macOS; let npm add Linux-only optional packages
       - name: Unit tests (story state, permissions, hand gestures)
         run: npm test
       - name: Build the site
