@@ -22,7 +22,7 @@ export function initialState() {
 
 /** Who may send which message. Roles come from the room's credentials (see api.js). */
 const OWNER_ONLY = new Set(["hello", "portal_sync", "portal_added", "portal_removed", "portal_status", "heartbeat", "immerse"]);
-const CONSOLE = new Set(["focus", "close_portal", "manual_prompt", "set_seed", "set_meta", "use_suggestion", "dismiss_suggestion"]);
+const CONSOLE = new Set(["focus", "close_portal", "manual_prompt", "set_seed", "set_meta", "use_suggestion", "dismiss_suggestion", "reset_story"]);
 const NARRATE = new Set(["utterance"]);
 const ANYONE = new Set(["whoami", "suggest", "vote"]);
 
@@ -120,6 +120,17 @@ export function reduce(s, m, ctx = {}) {
       p.prompt = String(m.prompt).slice(0, 1200);
       pushLog(s, "manual", `Portal ${m.id}: ${p.prompt.slice(0, 80)}...`);
       events.push({ t: "direction", narration: "", updates: [{ portal_id: m.id, prompt: p.prompt }] });
+      break;
+    }
+    case "reset_story": {
+      // Start the story over from its seed: clears what happened, the ideas, and the open windows.
+      const seed = s.story.seed;
+      s.story = { seed, bible: `Setting: ${seed}.`, beats: [] };
+      s.suggestions = [];
+      s.log = [];
+      s.immersedId = null;
+      pushLog(s, "story", "The story was reset");
+      events.push({ t: "reset" });
       break;
     }
     case "set_seed": {

@@ -25,6 +25,15 @@
       a { color: #ffd08a; }
       button.ghost { font-size: .85rem; padding: .45rem 1rem; background: transparent; color: #f3ead8; border: 1px solid #ffb36b55; }
       .card { max-height: calc(100vh - 2rem); overflow: auto; }
+      #overlay[hidden] { display: none; }
+      #status { bottom: 4.6rem; }
+      #bar { position: fixed; left: 50%; bottom: 1rem; transform: translateX(-50%); display: flex; gap: .5rem; flex-wrap: wrap;
+        justify-content: center; max-width: calc(100vw - 2rem); }
+      #bar button { font: 600 .9rem system-ui, sans-serif; padding: .6rem 1rem; background: rgba(16, 20, 34, .88); color: #fff3e0;
+        border: 1px solid #ffb36b77; user-select: none; -webkit-user-select: none; touch-action: none; }
+      #bar button:hover { border-color: #ffd08a; }
+      #bar button.on { background: #ff9a5a; color: #1b1206; }
+      #bar button.warn { background: #c8483a; border-color: #ff8a7a; }
     </style>
   </head>
   <body>
@@ -38,6 +47,14 @@
       </div>
     </div>
     <div id="status">Ready</div>
+    <div id="bar">
+      <button data-act="talk">Hold to talk</button>
+      <button data-act="new">New window</button>
+      <button data-act="step">Step inside</button>
+      <button data-act="close">Close window</button>
+      <button data-act="reset">Reset story</button>
+      <button data-act="info">Room info</button>
+    </div>
     <script type="module" src="/src/main.js"></script>
   </body>
 </html>

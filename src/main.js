@@ -3,6 +3,7 @@ import { XRControllerModelFactory } from "three/addons/webxr/XRControllerModelFa
 import { XRHandModelFactory } from "three/addons/webxr/XRHandModelFactory.js";
 import { Portal, PORTAL_SIZE } from "./portal.js";
 import { Immersion } from "./immersion.js";
+import { Toolbar } from "./toolbar.js";
 import { OrbisStream } from "./orbis.js";
 import { PushToTalk } from "./voice.js";
 import { createLink, speechHeaders } from "./link.js";
@@ -217,6 +218,7 @@ const link = createLink(ROOM, {
       roomState = m;
       if (m.focusId && m.focusId !== focusId && portals.has(m.focusId)) setFocus(m.focusId, false);
     } else if (m.t === "close_portal") closePortal(m.id);
+    else if (m.t === "reset") resetLocal();
     else if (m.t === "takeover" && m.rid !== RID && !retired) retire();
   },
 });
@@ -321,6 +323,7 @@ const handFactory = new XRHandModelFactory();
 
 function targets() {
   const ui = immersion.inside ? [micOrb, exitOrb] : [micOrb];
+  if (renderer.xr.isPresenting) ui.push(...toolbar.meshes);
   return [...ui, ...[...portals.values()].filter((p) => p.portal.group.visible).map((p) => p.portal.screen)];
 }
 
@@ -362,6 +365,10 @@ function onSelectStart(ctrl) {
     return startTalking();
   }
   if (hit?.object.userData.exit) return stepOut();
+  if (hit?.object.userData.button) {
+    ctrl.userData.button = hit.object.userData.button;
+    return toolbar.press(ctrl.userData.button, ctrl);
+  }
   const portal = hit?.object.userData.portal;
   if (portal) {
     setFocus(portal.id);
@@ -380,6 +387,10 @@ function onSelectStart(ctrl) {
 }
 
 function onSelectEnd(ctrl) {
+  if (ctrl.userData.button) {
+    toolbar.release(ctrl.userData.button, ctrl);
+    ctrl.userData.button = null;
+  }
   if (ctrl.userData.talking) {
     ctrl.userData.talking = false;
     stopTalking();
@@ -454,6 +465,91 @@ function checkWalking() {
   }
   if (immersion.walkedBack(eye)) stepOut();
 }
+
+// ---------- Buttons (floating panel in the headset, bar at the bottom on desktop) ----------
+function openInFront() {
+  const origin = camera.getWorldPosition(new THREE.Vector3());
+  const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.getWorldQuaternion(new THREE.Quaternion()));
+  dir.y = Math.max(-0.2, Math.min(0.2, dir.y));
+  openPortal(origin, dir.normalize());
+}
+function toggleStep() {
+  if (immersion.inside) stepOut();
+  else if (!portals.size) flash("Open a window first.");
+  else stepInside(portals.get(focusId)?.portal || portals.values().next().value.portal);
+}
+function closeFocused() {
+  const id = immersion.inside ? immersion.portal.id : focusId;
+  if (id) closePortal(id);
+  else flash("No window to close.");
+}
+// Reset asks twice (no pop-up dialogs in the headset): first tap arms it for 3 seconds.
+let resetArmed = 0;
+function resetPressed() {
+  if (Date.now() < resetArmed) {
+    resetArmed = 0;
+    send({ t: "reset_story" });
+    flash("Resetting the story…");
+  } else {
+    resetArmed = Date.now() + 3000;
+    flash("Tap Reset again to start the story over (closes all windows).", 3000);
+  }
+}
+// The server confirmed a reset: close everything and start fresh.
+function resetLocal() {
+  immersion.reset();
+  for (const id of [...portals.keys()]) closePortal(id);
+  flash("Story reset. Open a window to begin again.", 5000);
+}
+
+const toolbar = new Toolbar(camera, [
+  { id: "talk", icon: "🎙", label: "Hold to talk", press: () => startTalking(), release: () => stopTalking() },
+  { id: "new", icon: "＋", label: "New window", press: openInFront },
+  { id: "step", icon: "🚪", label: "Step inside", press: toggleStep },
+  { id: "close", icon: "✕", label: "Close window", press: closeFocused },
+  { id: "reset", icon: "↺", label: "Reset story", press: resetPressed },
+]);
+scene.add(toolbar.group);
+const hoverRay = new THREE.Raycaster();
+function updateToolbar() {
+  toolbar.group.visible = renderer.xr.isPresenting;
+  if (!toolbar.group.visible) return;
+  toolbar.update();
+  const hits = [];
+  for (let i = 0; i < 2; i++) {
+    const c = renderer.xr.getController(i);
+    if (!c.visible && !c.parent) continue;
+    tmpMat.identity().extractRotation(c.matrixWorld);
+    hoverRay.ray.origin.setFromMatrixPosition(c.matrixWorld);
+    hoverRay.ray.direction.set(0, 0, -1).applyMatrix4(tmpMat);
+    const h = hoverRay.intersectObjects(toolbar.meshes, false)[0];
+    if (h) hits.push(h.object);
+  }
+  toolbar.hover(hits);
+  syncButtons();
+}
+function syncButtons() {
+  const armed = Date.now() < resetArmed;
+  toolbar.set("talk", { state: talking ? "active" : "idle", label: talking ? "Listening…" : "Hold to talk" });
+  toolbar.set("step", { label: immersion.inside ? "Step out" : "Step inside", icon: immersion.inside ? "↩" : "🚪" });
+  toolbar.set("reset", { state: armed ? "warn" : "idle", label: armed ? "Tap again" : "Reset story" });
+  bar.talk.classList.toggle("on", talking);
+  bar.talk.textContent = talking ? "Listening…" : "Hold to talk";
+  bar.step.textContent = immersion.inside ? "Step out" : "Step inside";
+  bar.reset.textContent = armed ? "Click again to reset" : "Reset story";
+  bar.reset.classList.toggle("warn", armed);
+}
+
+// Desktop bar.
+const bar = Object.fromEntries([...document.querySelectorAll("#bar [data-act]")].map((b) => [b.dataset.act, b]));
+bar.talk.addEventListener("pointerdown", (e) => (e.preventDefault(), startTalking()));
+bar.talk.addEventListener("pointerup", () => stopTalking());
+bar.talk.addEventListener("pointerleave", () => stopTalking());
+bar.new.onclick = openInFront;
+bar.step.onclick = toggleStep;
+bar.close.onclick = closeFocused;
+bar.reset.onclick = resetPressed;
+bar.info.onclick = () => ($("#overlay").hidden = !$("#overlay").hidden);
 
 // ---------- Desktop controls (for building and testing without the headset) ----------
 let yaw = 0, pitch = 0, dragging = false, moved = 0;
@@ -532,6 +628,8 @@ renderer.setAnimationLoop(() => {
   immersion.update(t, dt);
   previewRoom.visible = !renderer.xr.isPresenting && !immersion.active;
   exitOrb.visible = immersion.inside && renderer.xr.isPresenting;
+  updateToolbar();
+  if (!renderer.xr.isPresenting) syncButtons();
   micOrb.position.y = -0.2 + Math.sin(t * 2) * 0.004;
   // The orb and in-view caption are headset UI; on desktop, Space and the status bar do the job.
   micOrb.visible = renderer.xr.isPresenting;

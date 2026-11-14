@@ -150,6 +150,28 @@ $("#titleForm").addEventListener("submit", (e) => {
 });
 $("#shared").addEventListener("change", (e) => send({ t: "set_meta", shared: e.target.checked }));
 $("#crowd").addEventListener("change", (e) => send({ t: "set_meta", crowd: e.target.checked }));
+let resetTimer;
+$("#reset").addEventListener("click", (e) => {
+  const b = e.currentTarget;
+  if (b.dataset.armed) {
+    clearTimeout(resetTimer);
+    delete b.dataset.armed;
+    b.textContent = "Reset story";
+    b.className = "ghost";
+    b.style.background = "";
+    return send({ t: "reset_story" });
+  }
+  b.dataset.armed = "1";
+  b.textContent = "Click again to reset";
+  b.className = "";
+  b.style.background = "var(--bad)";
+  resetTimer = setTimeout(() => {
+    delete b.dataset.armed;
+    b.textContent = "Reset story";
+    b.className = "ghost";
+    b.style.background = "";
+  }, 3000);
+});
 $("#presets").innerHTML = PRESETS.map((p, i) => `<button class="ghost" data-preset="${i}">${esc(p.split(",")[0])}</button>`).join("");
 
 start();

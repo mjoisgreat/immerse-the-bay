@@ -46,6 +46,12 @@ npm run stt            # second terminal: local Whisper speech-to-text on :8790
 
 ## Controls in the headset
 
+A button panel floats just below your gaze and follows you when you turn or walk away. Point at a button and
+pull the trigger (or pinch): **Hold to talk**, **New window**, **Step inside / Step out**, **Close window**,
+**Reset story** (tap twice: starts the story over from its seed and closes all windows). The same buttons sit
+at the bottom of the screen on desktop, plus **Room info**; the director console has Reset too.
+
+
 | Action | Hands | Touch controllers |
 |---|---|---|
 | Open a portal | Pinch at empty space | Trigger at empty space |
