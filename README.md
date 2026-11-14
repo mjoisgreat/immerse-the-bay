@@ -30,6 +30,15 @@ npm run stt            # second terminal: local Whisper speech-to-text on :8790
 * If the venue Wi-Fi blocks device-to-device traffic: `ngrok http https://localhost:5173` and open
   the ngrok URL on the Quest.
 
+## Rooms (live site)
+
+Each story lives in a **room**: add `?room=name` to both URLs, e.g.
+`https://living-window.vercel.app/?room=team` on the Quest and
+`https://living-window.vercel.app/console.html?room=team` on the laptop. Without it you're in room
+`main`. One headset drives a room at a time; if a second headset opens the same room, it takes over
+and the first one stops its streams (so credits aren't spent twice). Use your own room for the demo
+so nobody else with the link can interrupt it.
+
 ## Controls in the headset
 
 | Action | Hands | Touch controllers |

@@ -1,6 +1,10 @@
 // Connection to the story server. Locally: WebSocket (instant). On Vercel: HTTP
 // polling against /api/relay (serverless functions can't hold sockets open).
 // Both deliver the same messages: {t:"state"|"direction"|"close_portal", ...}.
+/** The story room this page belongs to: ?room=name (default "main"). */
+export const ROOM =
+  (new URLSearchParams(location.search).get("room") || "main").toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 32) || "main";
+
 export async function createLink({ onMessage, onOpen }) {
   const cfg = await fetch("/api/config").then((r) => r.json()).catch(() => ({}));
   return cfg.transport === "poll" ? pollLink(onMessage, onOpen) : wsLink(onMessage, onOpen);
@@ -31,7 +35,7 @@ function pollLink(onMessage, onOpen) {
 
   async function tick() {
     try {
-      const r = await fetch(`/api/relay?since=${since ?? 0}`, { cache: "no-store" });
+      const r = await fetch(`/api/relay?room=${ROOM}&since=${since ?? 0}`, { cache: "no-store" });
       if (!r.ok) throw new Error(String(r.status));
       const { state, events, seq } = await r.json();
       if (!connected) (connected = true), onOpen?.();
@@ -50,7 +54,7 @@ function pollLink(onMessage, onOpen) {
     // Messages are sent in order; a message that triggers the director waits for it.
     send: (m) =>
       (outbox = outbox.then(() =>
-        fetch("/api/relay", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(m) }).catch(() => {}),
+        fetch("/api/relay", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...m, room: ROOM }) }).catch(() => {}),
       )),
     get connected() {
       return connected;

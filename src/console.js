@@ -1,4 +1,4 @@
-import { createLink } from "./link.js";
+import { createLink, ROOM } from "./link.js";
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 
@@ -9,6 +9,7 @@ const PRESETS = [
   "An underwater city of glowing coral towers, schools of silver fish, sunbeams slanting down through blue water",
 ];
 
+document.querySelector("h1").textContent += ` · room “${ROOM}”`;
 let link = null;
 const send = (m) => link?.send(m);
 createLink({

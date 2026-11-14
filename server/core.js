@@ -10,6 +10,7 @@ export function initialState() {
     story: { seed: DEFAULT_SEED, bible: `Setting: ${DEFAULT_SEED}. Time: dusk. Mood: calm, magical.`, beats: [] },
     portals: [], // [{ id, prompt, status }]
     focusId: null,
+    rendererId: null, // the headset page that currently owns the streams
     log: [],
   };
 }
@@ -28,10 +29,19 @@ const find = (s, id) => s.portals.find((p) => p.id === id);
 export function reduce(s, m) {
   const events = [];
   let director = null;
+  // Only the current headset may change portals; a stale or second headset is ignored.
+  const fromRenderer = typeof m.rid === "string";
+  if (fromRenderer && m.t !== "hello" && s.rendererId && m.rid !== s.rendererId) return { events, director };
   switch (m.t) {
     case "hello":
-      // The headset owns the streams: when it (re)connects, its portals are the truth.
-      if (m.role === "renderer") (s.portals = []), (s.focusId = null);
+      // The headset owns the streams. A new headset takes over the room; the same
+      // headset reconnecting keeps its portals (it re-sends them right after).
+      if (m.role === "renderer") {
+        if (m.rid !== s.rendererId) events.push({ t: "takeover", rid: m.rid });
+        s.rendererId = m.rid ?? null;
+        s.portals = [];
+        s.focusId = null;
+      }
       break;
     case "portal_sync":
       if (!find(s, m.id) && s.portals.length < MAX_PORTALS) {

@@ -41,6 +41,10 @@ export class PushToTalk {
     this.recording = false;
     const pcm = this._toPcm16k();
     if (pcm.length < 16000 * 0.3) return ""; // under 0.3 s: treat as an accidental tap
+    // Near-silence makes Whisper invent words ("you", "thank you"), so don't send it.
+    let peak = 0;
+    for (let i = 0; i < pcm.length; i++) peak = Math.max(peak, Math.abs(pcm[i]));
+    if (peak < 0.03 * 0x7fff) return "";
     const r = await fetch("/api/transcribe", {
       method: "POST",
       headers: { "Content-Type": "application/octet-stream" },

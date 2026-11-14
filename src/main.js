@@ -4,7 +4,7 @@ import { XRHandModelFactory } from "three/addons/webxr/XRHandModelFactory.js";
 import { Portal } from "./portal.js";
 import { OrbisStream } from "./orbis.js";
 import { PushToTalk } from "./voice.js";
-import { createLink } from "./link.js";
+import { createLink, ROOM } from "./link.js";
 
 const $ = (s) => document.querySelector(s);
 const statusEl = $("#status");
@@ -108,9 +108,24 @@ const labelFor = (s) =>
 addEventListener("pagehide", () => portals.forEach((p) => p.stream.closeOnUnload()));
 
 // ---------- Server link ----------
+// Identifies this headset page. Only the newest headset in a room drives the streams.
+const RID = Math.random().toString(36).slice(2, 10);
+let retired = false;
 let link = null;
 function send(m) {
-  link?.send(m);
+  if (!retired) link?.send({ ...m, rid: RID });
+}
+function retire() {
+  // Another headset took over this room: stop our streams so credits aren't spent twice.
+  for (const p of portals.values()) p.stream.close(), p.portal.dispose();
+  portals.clear();
+  focusId = null;
+  retired = true;
+  $("#overlay").hidden = false;
+  $("#overlay .card").innerHTML =
+    `<h1>Living Window</h1><p>Room “${ROOM}” is now playing on another headset.</p><button onclick="location.reload()">Take it back</button>`;
+  renderer.xr.getSession()?.end();
+  say("Another headset took over this room");
 }
 createLink({
   onOpen() {
@@ -126,6 +141,7 @@ createLink({
     else if (m.t === "state") {
       if (m.focusId && m.focusId !== focusId && portals.has(m.focusId)) setFocus(m.focusId, false);
     } else if (m.t === "close_portal") closePortal(m.id);
+    else if (m.t === "takeover" && m.rid !== RID && !retired) retire();
   },
 }).then((l) => (link = l));
 
