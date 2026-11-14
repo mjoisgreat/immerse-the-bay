@@ -52,3 +52,4 @@ ul.feed li.story { font: italic 1.02rem Georgia, serif; color: #ffe9c7; }
 .gate { max-width: 26rem; margin: 12vh auto; }
 .err { color: var(--bad); min-height: 1.2rem; font-size: .9rem; }
 .empty { color: var(--muted); padding: 1rem 0; }
+.cards > .empty, .snaps > .empty { grid-column: 1 / -1; }

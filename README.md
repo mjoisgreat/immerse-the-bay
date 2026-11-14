@@ -30,14 +30,19 @@ npm run stt            # second terminal: local Whisper speech-to-text on :8790
 * If the venue Wi-Fi blocks device-to-device traffic: `ngrok http https://localhost:5173` and open
   the ngrok URL on the Quest.
 
-## Rooms (live site)
+## Rooms and community (live site)
 
-Each story lives in a **room**: add `?room=name` to both URLs, e.g.
-`https://living-window.vercel.app/?room=team` on the Quest and
-`https://living-window.vercel.app/console.html?room=team` on the laptop. Without it you're in room
-`main`. One headset drives a room at a time; if a second headset opens the same room, it takes over
-and the first one stops its streams (so credits aren't spent twice). Use your own room for the demo
-so nobody else with the link can interrupt it.
+* **Private rooms:** the first time a headset opens the site it gets its own room (e.g. `amber-fox-42`)
+  and a secret key kept in that browser. Only that headset can open portals and spend Orbis credits.
+  Anyone else who opens the room's link is sent to the watch page instead; nobody can take it over.
+* **Console:** on a laptop open `/console.html` and enter the room + **console code** shown on the
+  headset's start screen.
+* **Community:** turn on *Share to community* in the console and the story appears on `/community.html`
+  with live snapshots.
+* **Watch, suggest, vote:** `/watch.html?room=…` lets anyone follow the story, suggest what happens
+  next and upvote ideas. Use an idea from the console, or turn on **Crowd Mode** to apply the top
+  vote every 20 seconds.
+* **Co-narrators:** the console's invite link lets a friend type or speak lines into the story.
 
 ## Controls in the headset
 
