@@ -144,3 +144,11 @@ Director console (console.html) ── /ws ─────► └─────
 * Devpost deadline **Sun 9:00 AM**. Judging is 3 min pitch + 2 min Q&A, 10 AM to 12 PM.
 * Visko requires a **live** Orbis demo; a video of a run does not count. Record a backup clip anyway.
 * Keep `REACTOR_API_KEY` server-side only. Close sessions nobody is watching.
+
+## CI and automatic deploys
+
+`.github/workflows/ci.yml` runs on every push and pull request: `npm ci`, `npm test` (story state, permissions,
+choices, touch, reset and hand-gesture tests) and `npm run build`. On pushes to `main` it then deploys to
+https://living-window.vercel.app with the Vercel CLI, once these repository secrets exist:
+`VERCEL_TOKEN` (create at vercel.com/account/tokens), `VERCEL_ORG_ID` and `VERCEL_PROJECT_ID` (from `.vercel/project.json`).
+Without them the deploy job is skipped with a warning.

@@ -4,7 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "node --test test/*.test.js",
     "dev": "concurrently -k -n api,web -c yellow,cyan \"node --watch server/index.js\" \"vite\"",
     "server": "node server/index.js",
     "build": "vite build",
