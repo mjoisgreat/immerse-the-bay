@@ -107,3 +107,12 @@ test("companion chats are logged for watchers and broadcast", () => {
   assert.deepEqual(s.log.slice(-2).map((l) => [l.kind, l.text]), [["pip_you", "Hi Bunny"], ["speech", "Bunny: Hello!"]]);
   assert.equal(allowed("console", "pip_said"), false);
 });
+
+test("a slow director reply can't overwrite a newer one", () => {
+  const s = start();
+  const dir = (prompt) => ({ narration: "n", bible: "b", updates: [{ portal_id: "A", prompt }], choices: [], speech: null });
+  applyDirection(s, dir("newer scene"), 10, 2); // request 2 answered first
+  const [ev] = applyDirection(s, dir("older scene"), 10, 1); // request 1 answered late
+  assert.equal(s.portals[0].prompt, "newer scene");
+  assert.deepEqual(ev.updates, []);
+});

@@ -229,7 +229,14 @@ export function askDirector(director, s, event) {
 }
 
 /** Applies the director's answer to the *current* state (re-read after the wait). */
-export function applyDirection(s, out, ms) {
+export function applyDirection(s, out, ms, seq = 0) {
+  // A reply to an older request than one already applied: its portal prompts are out of date
+  // (applying them would make the scene jump back), so keep only the newer ones.
+  const stale = seq && seq < (s.appliedSeq || 0);
+  if (seq && !stale) s.appliedSeq = seq;
+  if (stale) out = { ...out, updates: out.updates.filter((u) => !(s.portalSeq || {})[u.portal_id] || s.portalSeq[u.portal_id] < seq) };
+  s.portalSeq ??= {};
+  for (const u of out.updates) s.portalSeq[u.portal_id] = Math.max(seq, s.portalSeq[u.portal_id] || 0);
   s.story.bible = out.bible || s.story.bible;
   const updates = out.updates.filter((u) => find(s, u.portal_id));
   for (const u of updates) find(s, u.portal_id).prompt = u.prompt;

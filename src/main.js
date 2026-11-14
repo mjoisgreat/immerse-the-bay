@@ -179,7 +179,13 @@ async function resolveRoom() {
   return new Promise(() => {}); // page is leaving
 }
 const ROOM = await resolveRoom();
-history.replaceState(null, "", `?room=${ROOM}`);
+{
+  // Normalise the address to this room, keeping other settings such as ?companion=pip.
+  const q = new URLSearchParams(location.search);
+  q.set("room", ROOM);
+  q.delete("invite");
+  history.replaceState(null, "", `?${q}`);
+}
 showRoomCard();
 
 function showRoomCard() {
@@ -241,7 +247,7 @@ const link = createLink(ROOM, {
 
 // Crowd Mode: the audience's top-voted line becomes the next story beat every 20 s.
 setInterval(() => {
-  if (retired || !roomState?.meta?.crowd || !roomState.suggestions?.length || !portals.size) return;
+  if (retired || talking || wantTalk || !roomState?.meta?.crowd || !roomState.suggestions?.length || !portals.size) return;
   send({ t: "use_suggestion", id: "top" });
   flash("The crowd has spoken…", 3000);
 }, 20000);
@@ -289,22 +295,33 @@ function applyDirection({ narration, updates, choices, speech }) {
 // ---------- Voice ----------
 const ptt = new PushToTalk();
 let talking = false;
+let wantTalk = false; // the button is held (the mic may still be starting)
 let talkingToBuddy = false;
 async function startTalking() {
-  if (talking) return;
+  if (talking || wantTalk) return;
+  wantTalk = true;
   talkingToBuddy = buddy.isLookedAt(); // look at the companion while you talk and your words go to it
   if (talkingToBuddy) buddy.listen();
   try {
     await ptt.begin();
+    if (!wantTalk) {
+      // Released before the mic was ready: treat it as a cancelled press.
+      await ptt.end({}).catch(() => {});
+      if (talkingToBuddy) buddy.react({ gesture: "none", move: "none" });
+      return;
+    }
     talking = true;
     micOrb.material.emissive.set(0xff3300);
     micOrb.scale.setScalar(1.4);
     flash("Listening… let go when you're done", 60000);
   } catch (e) {
+    wantTalk = false;
+    if (talkingToBuddy) buddy.react({ gesture: "none", move: "none" });
     flash(`Microphone unavailable: ${e.message}`);
   }
 }
 async function stopTalking() {
+  wantTalk = false;
   if (!talking) return;
   talking = false;
   micOrb.material.emissive.set(0x442200);
@@ -317,7 +334,9 @@ async function stopTalking() {
       return flash("Didn't catch that. Hold the orb and speak.");
     }
     flash(`“${text}”`, 4000);
-    if (talkingToBuddy) chatWithBuddy(text);
+    // To the companion if you were looking at it, or if you said its name; otherwise to the story.
+    const named = buddy.visible && new RegExp(`\\b${BUDDY.name}\\b`, "i").test(text);
+    if (talkingToBuddy || named) chatWithBuddy(text);
     else send({ t: "utterance", text });
   } catch (e) {
     if (talkingToBuddy) buddy.react({ gesture: "none", move: "none" });
@@ -590,6 +609,7 @@ $("#choices").addEventListener("click", (e) => {
 
 // Characters speak their lines aloud, from their window (or all around you when you're inside it).
 let voice = null;
+let voiceEnd = null; // onEnd of the line playing now
 async function playVoice({ speaker, line, voice: style, portal_id }) {
   const target = portals.get(portal_id) || portals.get(focusId);
   target?.portal.setCaption(`${speaker}: “${line}”`, "story");
@@ -608,16 +628,22 @@ async function speak(line, speaker, style, anchor = null, { onStart, onEnd } = {
     if (!r.ok) throw new Error(`voice ${r.status}`);
     const buf = await listener.context.decodeAudioData(await r.arrayBuffer());
     if (listener.context.state === "suspended") await listener.context.resume();
+    // A new line interrupts the previous one; let its speaker know it stopped.
+    const interrupted = voiceEnd;
+    voiceEnd = null;
     voice?.stop?.();
     voice?.removeFromParent();
+    interrupted?.();
     voice = anchor ? new THREE.PositionalAudio(listener) : new THREE.Audio(listener);
     if (anchor) voice.setRefDistance(2), anchor.add(voice);
     else scene.add(voice);
     voice.setBuffer(buf);
     voice.setVolume(1.4);
     const mine = voice;
+    voiceEnd = onEnd || null;
     voice.onEnded = () => {
       mine.isPlaying = false;
+      if (voiceEnd === onEnd) voiceEnd = null;
       onEnd?.();
     };
     voice.play();

@@ -98,13 +98,27 @@ export function createCharacter() {
   return { converse };
 }
 
+// Used when Claude is unavailable: understands the basic moves, and doesn't repeat itself.
+const CHATTER = [
+  "Ooh, tell me more! What happens next in our story?",
+  "I love that! What should we try in the windows?",
+  "Hmm, interesting. Do you want to step inside one of the worlds with me?",
+  "Ha! You always surprise me. What's your favourite part so far?",
+  "I'm all ears. Literally, look at them! What next?",
+];
+let chatterTurn = 0;
 function fallback(text) {
   const follow = /follow|come along|with me/i.test(text);
-  const come = /come|here|closer/i.test(text);
+  const stay = /\b(stay|wait|stop)\b/i.test(text);
+  const come = /\b(come|here|closer)\b/i.test(text);
+  const dance = /dance/i.test(text);
+  const hello = /\b(hi|hello|hey)\b/i.test(text);
+  const reply = follow ? "Right behind you!" : stay ? "Okay, I'll wait right here." : come ? "Coming! Wait for me!"
+    : dance ? "Watch these moves!" : hello ? "Hi there! I'm so happy you're here." : CHATTER[chatterTurn++ % CHATTER.length];
   return {
-    reply: follow ? "Right behind you!" : come ? "Coming! Wait for me!" : "Ooh, tell me more! What happens next in our story?",
-    gesture: follow || come ? "wave" : "think",
-    move: follow ? "follow" : come ? "come" : "none",
+    reply,
+    gesture: dance ? "dance" : follow || come || hello ? "wave" : stay ? "yes" : "think",
+    move: follow ? "follow" : stay ? "stay" : come ? "come" : "none",
     story_line: null,
   };
 }
