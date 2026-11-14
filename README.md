@@ -68,6 +68,17 @@ npm run stt            # second terminal: local Whisper speech-to-text on :8790
   the trigger when you're inside it. The frame with the touched spot marked goes to Claude, which works out what
   you touched and makes it respond. On desktop: click the focused window.
 
+## Hand gestures
+
+Everything works with bare hands (Quest hand tracking). Besides pointing and pinching (open, move, tap to touch,
+press buttons, pick choices):
+
+| Gesture | Does |
+|---|---|
+| Raise a hand to your mouth, like a microphone | Talk; lower it to send |
+| Clap | Step into the window you're facing; clap again to step out |
+| Turn your left palm toward your face and hold | Show / hide the buttons |
+
 ## Controls in the headset
 
 A button panel floats just below your gaze and follows you when you turn or walk away. Point at a button and

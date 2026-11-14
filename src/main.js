@@ -4,6 +4,7 @@ import { XRHandModelFactory } from "three/addons/webxr/XRHandModelFactory.js";
 import { Portal, PORTAL_SIZE } from "./portal.js";
 import { Immersion } from "./immersion.js";
 import { Toolbar } from "./toolbar.js";
+import { HandGestures } from "./gestures.js";
 import { OrbisStream } from "./orbis.js";
 import { PushToTalk } from "./voice.js";
 import { createLink, speechHeaders } from "./link.js";
@@ -650,8 +651,8 @@ function updateTitle() {
 // Steps: open a window → tell the story → touch / step inside. Each is spoken once.
 const GUIDE = [
   "Welcome, storyteller. Point at a wall and pinch, or pull the trigger, to open your first window.",
-  "A world is waking. Hold the orange orb, or the A button, and tell me what happens next.",
-  "Now reach out and tap anything in the window to touch it. Or walk right through it, and step inside.",
+  "A world is waking. Raise your hand to your mouth, or hold the A button, and tell me what happens next.",
+  "Now reach out and tap anything in the window to touch it. Or clap your hands, and step inside.",
 ];
 let guideStep = -1;
 function guide(step) {
@@ -744,6 +745,31 @@ function syncButtons() {
   bar.reset.textContent = armed ? "Click again to reset" : "Reset story";
   bar.reset.classList.toggle("warn", armed);
 }
+
+// Hand gestures: mic to the mouth, clap to step in or out, look at your left palm for the buttons.
+function facingPortal() {
+  const eye = camera.getWorldPosition(new THREE.Vector3());
+  const gaze = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.getWorldQuaternion(new THREE.Quaternion()));
+  let best = null, bestDot = 0.8;
+  for (const { portal } of portals.values()) {
+    const d = portal.group.getWorldPosition(new THREE.Vector3()).sub(eye).normalize().dot(gaze);
+    if (d > bestDot) (best = portal), (bestDot = d);
+  }
+  return best;
+}
+const gestures = new HandGestures(renderer, camera, {
+  "talk-start": startTalking,
+  "talk-end": stopTalking,
+  clap() {
+    if (immersion.inside) return stepOut();
+    const p = facingPortal() || portals.get(focusId)?.portal;
+    if (p) stepInside(p);
+    else flash("Open a window first, then clap to step inside.");
+  },
+  palm: () => setButtonsHidden(!toolbar.collapsed),
+  firstSeen: () =>
+    flash("Hands: raise a hand to your mouth to talk · clap to step inside · look at your left palm for the buttons.", 9000),
+});
 
 // Desktop bar.
 const bar = Object.fromEntries([...document.querySelectorAll("#bar [data-act]")].map((b) => [b.dataset.act, b]));
@@ -844,6 +870,7 @@ renderer.setAnimationLoop(() => {
   previewRoom.visible = !renderer.xr.isPresenting && !immersion.active;
   exitOrb.visible = immersion.inside && renderer.xr.isPresenting && !toolbar.collapsed;
   updateToolbar();
+  gestures.update();
   updateRipples();
   updateTitle();
   for (const { portal, stream } of portals.values()) {
