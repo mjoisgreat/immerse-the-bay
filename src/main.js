@@ -237,11 +237,16 @@ const link = createLink(ROOM, {
   },
 });
 
-// Crowd Mode: the audience's top-voted line becomes the next story beat every 20 s.
+// Crowd Mode: the audience's top-voted line becomes the next story beat every 20 s. The message
+// names the idea and who suggested it: inside a world the cards are hidden, so this is the only
+// place the storyteller sees a friend's idea arrive.
 setInterval(() => {
   if (retired || !roomState?.meta?.crowd || !roomState.suggestions?.length || !portals.size) return;
-  send({ t: "use_suggestion", id: "top" });
-  flash("The crowd has spoken…", 3000);
+  const top = [...roomState.suggestions].sort((a, b) => b.voters.length - a.voters.length || a.at - b.at)[0];
+  roomState.suggestions = roomState.suggestions.filter((x) => x.id !== top.id);
+  send({ t: "use_suggestion", id: top.id }); // by id, so the message names the idea actually used
+  refreshCards();
+  flash(`“${top.text}”, ${top.by ? `${top.by}'s idea` : "the crowd's pick"}`, 4000);
 }, 20000);
 
 // Keep the room marked "live" for the community page.
