@@ -14,6 +14,13 @@ const MAX_PORTALS = Number(process.env.MAX_PORTALS || 3);
 const STT_URL = process.env.STT_URL || "http://127.0.0.1:8790";
 
 const app = express();
+// The deployed page (livingwindow.web.app) may call the API on a different origin.
+app.use((req, res, next) => {
+  res.set("Access-Control-Allow-Origin", "*");
+  res.set("Access-Control-Allow-Headers", "Content-Type");
+  if (req.method === "OPTIONS") return res.status(204).end();
+  next();
+});
 const director = createDirector();
 
 // ---------- Story state (the server is the single source of truth) ----------
@@ -35,7 +42,8 @@ function pushLog(kind, text) {
 
 // ---------- HTTP API ----------
 app.get("/api/config", (_req, res) => {
-  res.json({ maxPortals: MAX_PORTALS, director: director.usingClaude ? "claude" : "template" });
+  // WS_URL: Firebase Hosting can't proxy WebSockets, so the deployed page connects to Cloud Run directly.
+  res.json({ maxPortals: MAX_PORTALS, director: director.usingClaude ? "claude" : "template", wsUrl: process.env.WS_URL || null });
 });
 
 app.post("/api/token", async (_req, res) => {
@@ -83,8 +91,36 @@ app.post("/api/session-cleanup", express.json({ limit: "32kb" }), async (req, re
   }
 });
 
-// Raw 16 kHz mono Int16 PCM in, { text } out. Forwards to the local Whisper sidecar.
+// Raw 16 kHz mono Int16 PCM in, { text } out.
+// STT_MODE=google uses Google Cloud Speech (deployed); otherwise the local Whisper sidecar.
+let googleSpeech = null;
+async function transcribeGoogle(pcm) {
+  if (!googleSpeech) {
+    const { SpeechClient } = await import("@google-cloud/speech");
+    googleSpeech = new SpeechClient();
+  }
+  const [r] = await googleSpeech.recognize({
+    config: {
+      encoding: "LINEAR16",
+      sampleRateHertz: 16000,
+      languageCode: "en-US",
+      model: "latest_short",
+      enableAutomaticPunctuation: true,
+    },
+    audio: { content: pcm.toString("base64") },
+  });
+  return (r.results || []).map((x) => x.alternatives?.[0]?.transcript || "").join(" ").trim();
+}
+
 app.post("/api/transcribe", express.raw({ type: "application/octet-stream", limit: "8mb" }), async (req, res) => {
+  if (process.env.STT_MODE === "google") {
+    try {
+      return res.json({ text: await transcribeGoogle(req.body) });
+    } catch (e) {
+      console.warn("[stt] google", e.message);
+      return res.status(502).json({ error: "speech-to-text failed" });
+    }
+  }
   try {
     const r = await fetch(`${STT_URL}/transcribe`, {
       method: "POST",

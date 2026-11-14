@@ -4,6 +4,7 @@ import { XRHandModelFactory } from "three/addons/webxr/XRHandModelFactory.js";
 import { Portal } from "./portal.js";
 import { OrbisStream } from "./orbis.js";
 import { PushToTalk } from "./voice.js";
+import { wsUrl } from "./ws-url.js";
 
 const $ = (s) => document.querySelector(s);
 const statusEl = $("#status");
@@ -108,8 +109,8 @@ addEventListener("pagehide", () => portals.forEach((p) => p.stream.closeOnUnload
 
 // ---------- Server link ----------
 let ws;
-function connectWs() {
-  ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`);
+async function connectWs() {
+  ws = new WebSocket(await wsUrl());
   ws.onopen = () => {
     send({ t: "hello", role: "renderer" });
     for (const [id, p] of portals) {

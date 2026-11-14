@@ -1,3 +1,4 @@
+import { wsUrl } from "./ws-url.js";
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 
@@ -9,8 +10,8 @@ const PRESETS = [
 ];
 
 let ws;
-function connect() {
-  ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`);
+async function connect() {
+  ws = new WebSocket(await wsUrl());
   ws.onopen = () => ($("#conn").textContent = "connected");
   ws.onclose = () => (($("#conn").textContent = "reconnecting…"), setTimeout(connect, 1500));
   ws.onmessage = (e) => {
