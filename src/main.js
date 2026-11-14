@@ -1,7 +1,8 @@
 import * as THREE from "three";
 import { XRControllerModelFactory } from "three/addons/webxr/XRControllerModelFactory.js";
 import { XRHandModelFactory } from "three/addons/webxr/XRHandModelFactory.js";
-import { Portal } from "./portal.js";
+import { Portal, PORTAL_SIZE } from "./portal.js";
+import { Immersion } from "./immersion.js";
 import { OrbisStream } from "./orbis.js";
 import { PushToTalk } from "./voice.js";
 import { createLink, speechHeaders } from "./link.js";
@@ -47,6 +48,39 @@ micOrb.position.set(-0.22, -0.2, -0.55);
 micOrb.userData.mic = true;
 camera.add(micOrb);
 
+// Exit orb (blue, right side): only shown while you're inside a world. Pinch it to step back out.
+const exitOrb = new THREE.Mesh(
+  new THREE.TorusGeometry(0.028, 0.009, 16, 40),
+  new THREE.MeshStandardMaterial({ color: 0x6aa8ff, emissive: 0x10264a, roughness: 0.3 }),
+);
+exitOrb.position.set(0.22, -0.2, -0.55);
+exitOrb.userData.exit = true;
+exitOrb.visible = false;
+camera.add(exitOrb);
+
+// ---------- Step inside ----------
+const immersion = new Immersion(scene, camera, {
+  audioContext: listener.context,
+  onChange(id) {
+    send({ t: "immerse", id }); // the director reframes that world as a first-person view
+    buzz();
+  },
+});
+function buzz(strength = 0.6, ms = 90) {
+  for (const src of renderer.xr.getSession()?.inputSources || []) src.gamepad?.hapticActuators?.[0]?.pulse?.(strength, ms);
+}
+function stepInside(portal) {
+  if (!portal || (immersion.inside && immersion.portal === portal)) return;
+  setFocus(portal.id);
+  immersion.enter(portal, [...portals.values()].find((p) => p.portal === portal)?.stream.video);
+  flash(`You stepped into window ${portal.id}. Step back or press B/Y to leave.`, 5000);
+}
+function stepOut() {
+  if (!immersion.inside) return;
+  immersion.exit();
+  flash("Back in your room.", 2000);
+}
+
 // ---------- Portals ----------
 const portals = new Map(); // id -> { portal, stream }
 let focusId = null;
@@ -89,6 +123,7 @@ function openPortal(origin, dir) {
 function closePortal(id) {
   const p = portals.get(id);
   if (!p) return;
+  if (immersion.portal === p.portal) immersion.reset();
   p.stream.close();
   p.portal.dispose();
   portals.delete(id);
@@ -155,6 +190,7 @@ function send(m) {
 }
 function retire(text = `Your room “${ROOM}” is now playing in another tab or device.`) {
   // Stop our streams so credits aren't spent twice.
+  immersion.reset();
   for (const p of portals.values()) p.stream.close(), p.portal.dispose();
   portals.clear();
   focusId = null;
@@ -173,6 +209,7 @@ const link = createLink(ROOM, {
       else send({ t: "portal_added", id });
     }
     if (focusId) send({ t: "focus", id: focusId });
+    if (immersion.inside) send({ t: "immerse", id: immersion.portal.id });
   },
   onMessage(m) {
     if (m.t === "direction") applyDirection(m);
@@ -283,7 +320,8 @@ const controllerFactory = new XRControllerModelFactory();
 const handFactory = new XRHandModelFactory();
 
 function targets() {
-  return [micOrb, ...[...portals.values()].map((p) => p.portal.screen)];
+  const ui = immersion.inside ? [micOrb, exitOrb] : [micOrb];
+  return [...ui, ...[...portals.values()].filter((p) => p.portal.group.visible).map((p) => p.portal.screen)];
 }
 
 function rayFrom(obj) {
@@ -323,9 +361,17 @@ function onSelectStart(ctrl) {
     ctrl.userData.talking = true;
     return startTalking();
   }
+  if (hit?.object.userData.exit) return stepOut();
   const portal = hit?.object.userData.portal;
   if (portal) {
     setFocus(portal.id);
+    // Remember where it was: pulling it into your face steps inside and puts the window back.
+    const at = portal.group.getWorldPosition(new THREE.Vector3());
+    ctrl.userData.grabFrom = {
+      pos: portal.group.position.clone(),
+      quat: portal.group.quaternion.clone(),
+      dist: at.distanceTo(camera.getWorldPosition(new THREE.Vector3())),
+    };
     ctrl.attach(portal.group); // grab: the portal follows your hand until you let go
     ctrl.userData.grabbed = portal;
     return;
@@ -354,19 +400,59 @@ function onSqueeze(ctrl) {
   if (portal) closePortal(portal.id);
 }
 
-// A / X button on Touch controllers = push-to-talk from anywhere.
-let buttonHeld = false;
+// A / X on Touch controllers = push-to-talk from anywhere. B / Y = step into the window you're
+// pointing at (or the focused one), or step back out.
+let buttonHeld = false, stepHeld = false;
 function pollButtons() {
   const session = renderer.xr.getSession();
   if (!session) return;
-  let pressed = false;
-  for (const src of session.inputSources) {
-    const b = src.gamepad?.buttons?.[4];
-    if (b?.pressed) pressed = true;
-  }
+  let pressed = false, step = null;
+  session.inputSources.forEach((src, i) => {
+    if (src.gamepad?.buttons?.[4]?.pressed) pressed = true;
+    if (src.gamepad?.buttons?.[5]?.pressed) step = i;
+  });
   if (pressed && !buttonHeld) startTalking();
   if (!pressed && buttonHeld) stopTalking();
   buttonHeld = pressed;
+  if (step !== null && !stepHeld) {
+    if (immersion.inside) stepOut();
+    else {
+      rayFrom(renderer.xr.getController(step));
+      const aimed = raycaster.intersectObjects(targets(), false).find((h) => h.object.userData.portal);
+      stepInside(aimed?.object.userData.portal || portals.get(focusId)?.portal);
+    }
+  }
+  stepHeld = step !== null;
+}
+
+// Walking: step through a window's surface to go inside; walk back ~60 cm to come out.
+// Pulling a grabbed window into your face also takes you in.
+const eye = new THREE.Vector3(), local = new THREE.Vector3();
+function checkWalking() {
+  camera.getWorldPosition(eye);
+  if (!renderer.xr.isPresenting) return;
+  for (const { portal } of portals.values()) {
+    const grabbedBy = [0, 1].map((i) => renderer.xr.getController(i)).find((c) => c.userData.grabbed === portal);
+    if (grabbedBy) {
+      const from = grabbedBy.userData.grabFrom;
+      const d = portal.group.getWorldPosition(local).distanceTo(eye);
+      if (d < 0.4 || (from && d < from.dist - 0.45)) {
+        scene.attach(portal.group);
+        if (from) portal.group.position.copy(from.pos), portal.group.quaternion.copy(from.quat);
+        grabbedBy.userData.grabbed = null;
+        stepInside(portal);
+      }
+      continue;
+    }
+    if (!portal.group.visible) continue;
+    local.copy(eye);
+    portal.group.worldToLocal(local);
+    const prev = portal._headZ;
+    portal._headZ = local.z;
+    const within = Math.abs(local.x) < PORTAL_SIZE.W / 2 + 0.1 && Math.abs(local.y) < PORTAL_SIZE.H / 2 + 0.6;
+    if (within && prev >= 0.25 && local.z < 0.25 && local.z > -0.6) stepInside(portal);
+  }
+  if (immersion.walkedBack(eye)) stepOut();
 }
 
 // ---------- Desktop controls (for building and testing without the headset) ----------
@@ -378,8 +464,14 @@ addEventListener("pointerup", (e) => {
   const ndc = new THREE.Vector2((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
   raycaster.setFromCamera(ndc, camera);
   const hit = raycaster.intersectObjects(targets(), false)[0];
-  if (hit?.object.userData.portal) setFocus(hit.object.userData.portal.id);
+  if (hit?.object.userData.exit) stepOut();
+  else if (hit?.object.userData.portal) setFocus(hit.object.userData.portal.id);
   else if (!hit) openPortal(raycaster.ray.origin.clone(), raycaster.ray.direction.clone());
+});
+renderer.domElement.addEventListener("dblclick", (e) => {
+  const ndc = new THREE.Vector2((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
+  raycaster.setFromCamera(ndc, camera);
+  stepInside(raycaster.intersectObjects(targets(), false)[0]?.object.userData.portal);
 });
 addEventListener("pointermove", (e) => {
   if (!dragging) return;
@@ -391,6 +483,8 @@ addEventListener("pointermove", (e) => {
 addEventListener("keydown", (e) => {
   if (e.code === "Space" && !e.repeat && e.target === document.body) (e.preventDefault(), startTalking());
   if (e.code === "Backspace" && focusId && e.target === document.body) closePortal(focusId);
+  if (e.code === "KeyE" && e.target === document.body) immersion.inside ? stepOut() : stepInside(portals.get(focusId)?.portal);
+  if (e.code === "Escape") stepOut();
 });
 addEventListener("keyup", (e) => e.code === "Space" && stopTalking());
 
@@ -417,11 +511,12 @@ async function setupXR() {
     previewRoom.visible = false;
     $("#overlay").hidden = true;
     session.addEventListener("end", () => {
+      immersion.reset();
       scene.background = new THREE.Color(0x0b0e16);
       previewRoom.visible = true;
       $("#overlay").hidden = false;
     });
-    flash("Pinch at a wall to open a window. Hold the orange orb (or A/X) to tell the story.", 8000);
+    flash("Pinch at a wall to open a window. Hold the orange orb (or A/X) to tell the story. Walk through a window, or press B/Y, to step inside.", 9000);
   };
 }
 setupXR();
@@ -430,8 +525,13 @@ document.addEventListener("click", () => listener.context.state === "suspended" 
 // ---------- Loop ----------
 const clock = new THREE.Clock();
 renderer.setAnimationLoop(() => {
-  const t = clock.getElapsedTime();
+  const dt = Math.min(clock.getDelta(), 0.1);
+  const t = clock.elapsedTime;
   for (const { portal } of portals.values()) portal.update(t);
+  checkWalking();
+  immersion.update(t, dt);
+  previewRoom.visible = !renderer.xr.isPresenting && !immersion.active;
+  exitOrb.visible = immersion.inside && renderer.xr.isPresenting;
   micOrb.position.y = -0.2 + Math.sin(t * 2) * 0.004;
   // The orb and in-view caption are headset UI; on desktop, Space and the status bar do the job.
   micOrb.visible = renderer.xr.isPresenting;

@@ -76,7 +76,7 @@ function renderSnaps() {
     return;
   }
   $("#snaps").innerHTML = ids
-    .map((id) => `<div class="snap ${id === state.focusId ? "focus" : ""}"><img alt="Portal ${esc(id)}" src="${snaps[id]}"><span>Window ${esc(id)}</span></div>`)
+    .map((id) => `<div class="snap ${id === state.focusId ? "focus" : ""}"><img alt="Portal ${esc(id)}" src="${snaps[id]}"><span>Window ${esc(id)}${id === state.immersedId ? " · storyteller inside" : ""}</span></div>`)
     .join("");
 }
 pollSnaps();

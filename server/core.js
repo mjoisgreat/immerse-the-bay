@@ -11,6 +11,7 @@ export function initialState() {
     story: { seed: DEFAULT_SEED, bible: `Setting: ${DEFAULT_SEED}. Time: dusk. Mood: calm, magical.`, beats: [] },
     portals: [], // [{ id, prompt, status }]
     focusId: null,
+    immersedId: null, // the portal the storyteller has stepped inside, if any
     rendererId: null, // the owner's headset page that currently drives the streams
     meta: { title: "", shared: false, crowd: false },
     suggestions: [], // [{ id, text, voters: [voterId], at }]
@@ -20,7 +21,7 @@ export function initialState() {
 }
 
 /** Who may send which message. Roles come from the room's credentials (see api.js). */
-const OWNER_ONLY = new Set(["hello", "portal_sync", "portal_added", "portal_removed", "portal_status", "heartbeat"]);
+const OWNER_ONLY = new Set(["hello", "portal_sync", "portal_added", "portal_removed", "portal_status", "heartbeat", "immerse"]);
 const CONSOLE = new Set(["focus", "close_portal", "manual_prompt", "set_seed", "set_meta", "use_suggestion", "dismiss_suggestion"]);
 const NARRATE = new Set(["utterance"]);
 const ANYONE = new Set(["whoami", "suggest", "vote"]);
@@ -63,6 +64,7 @@ export function reduce(s, m, ctx = {}) {
       s.rendererId = m.rid ?? null;
       s.portals = [];
       s.focusId = null;
+      s.immersedId = null;
       break;
     case "portal_sync":
       if (!find(s, m.id) && s.portals.length < MAX_PORTALS) {
@@ -80,11 +82,24 @@ export function reduce(s, m, ctx = {}) {
     case "portal_removed":
       s.portals = s.portals.filter((p) => p.id !== m.id);
       if (s.focusId === m.id) s.focusId = s.portals[0]?.id ?? null;
+      if (s.immersedId === m.id) s.immersedId = null;
       pushLog(s, "portal", `Portal ${m.id} closed`);
       break;
     case "portal_status": {
       const p = find(s, m.id);
       if (p) p.status = String(m.status).slice(0, 20);
+      break;
+    }
+    case "immerse": {
+      // The storyteller stepped inside a portal (or back out into the room).
+      const id = m.id && find(s, m.id) ? m.id : null;
+      if (id === (s.immersedId ?? null)) break;
+      s.immersedId = id;
+      if (id) {
+        s.focusId = id;
+        pushLog(s, "portal", `Stepped inside portal ${id}`);
+        director = { type: "step_inside", portal_id: id };
+      } else pushLog(s, "portal", "Stepped back into the room");
       break;
     }
     case "focus":
@@ -170,7 +185,7 @@ export function topSuggestion(s) {
 
 /** Asks the director (slow, async). Reads a snapshot; does not mutate. */
 export function askDirector(director, s, event) {
-  return director.direct({ event, story: s.story, portals: s.portals, focusId: s.focusId });
+  return director.direct({ event, story: s.story, portals: s.portals, focusId: s.focusId, immersedId: s.immersedId ?? null });
 }
 
 /** Applies the director's answer to the *current* state (re-read after the wait). */

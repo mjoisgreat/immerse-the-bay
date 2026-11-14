@@ -102,8 +102,9 @@ export class Portal {
   attachVideo(video) {
     const tex = new THREE.VideoTexture(video);
     tex.colorSpace = THREE.NoColorSpace; // shader passes sRGB through untouched
-    tex.minFilter = THREE.LinearFilter;
-    tex.generateMipmaps = false;
+    // Mipmaps let the step-inside dome blur the picture softly past its edges.
+    tex.minFilter = THREE.LinearMipmapLinearFilter;
+    tex.generateMipmaps = true;
     this.texture = tex;
     this.screenMat.uniforms.map.value = tex;
     const onFrame = () => (this.screenMat.uniforms.hasVideo.value = 1);
@@ -124,6 +125,15 @@ export class Portal {
     this.sound.setRolloffFactor(1.6);
     this.sound.setDirectionalCone(200, 320, 0.35);
     this.group.add(this.sound);
+    this.setImmersed(this.immersed);
+  }
+
+  // Inside the world its sound surrounds you instead of coming from the window.
+  setImmersed(on) {
+    this.immersed = Boolean(on);
+    if (!this.sound) return;
+    if (on) this.sound.setRefDistance(60), this.sound.setDirectionalCone(360, 360, 1);
+    else this.sound.setRefDistance(1.2), this.sound.setDirectionalCone(200, 320, 0.35);
   }
 
   setFocused(f) {

@@ -52,6 +52,15 @@ npm run stt            # second terminal: local Whisper speech-to-text on :8790
 | Focus and move a portal | Pinch on it, drag, release | Trigger on it, drag, release |
 | Talk | Pinch and hold the orange orb | Hold A or X (or trigger on the orb) |
 | Close a portal | From the director console | Grip while pointing at it |
+| Step inside a portal | Walk through it, or pinch it and pull it toward you | Walk through it, or press B / Y |
+| Step back out | Walk back ~60 cm, or pinch the blue ring | Walk back, or press B / Y |
+
+**Step inside:** the portal's live video wraps around you and your room fades away. Below the horizon the
+picture is projected onto your real floor, so walking around gives real parallax underfoot; glowing motes in
+the world's colours drift around you, and the edges blur softly instead of ending. The director is told you're
+inside and reframes that world as an eye-level, first-person shot with things happening around you. Your lines
+keep steering it, and other portals float inside as doors (walk into one to switch).
+On desktop: double-click a portal (or press E) to go in, Esc to come out.
 
 ## How it works
 
