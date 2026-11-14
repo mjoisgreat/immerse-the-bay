@@ -1,4 +1,9 @@
-// Small helpers for Vercel Node functions.
+// Adapter: runs a shared handler (server/api.js) inside a Vercel Node function.
+import { redisStore } from "../../server/stores.js";
+
+let storePromise;
+export const getStore = () => (storePromise ??= redisStore());
+
 export async function readBody(req) {
   if (Buffer.isBuffer(req.body)) return req.body;
   if (req.body && typeof req.body === "object") return req.body; // already-parsed JSON
@@ -11,15 +16,23 @@ export async function readJson(req) {
   const b = await readBody(req);
   if (Buffer.isBuffer(b)) return b.length ? JSON.parse(b.toString("utf8")) : {};
   if (typeof b === "string") return JSON.parse(b);
-  return b;
+  return b || {};
 }
 
-export function fail(res, e) {
-  res.status(e.status || 500).json({ error: e.message || "error" });
-}
-
-export function onlyPost(req, res) {
-  if (req.method === "POST") return true;
-  res.status(405).json({ error: "POST only" });
-  return false;
+/** routes: { GET?: (req, store) => result, POST?: ... } */
+export function route(routes, { needsStore = true } = {}) {
+  return async (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    const fn = routes[req.method];
+    if (!fn) return res.status(405).json({ error: "method not allowed" });
+    try {
+      const store = needsStore ? await getStore() : null;
+      if (needsStore && !store) return res.status(500).json({ error: "Redis is not configured (add Upstash in Vercel)" });
+      const r = await fn(req, store);
+      if (r.body === null) return res.status(r.status).end();
+      res.status(r.status).json(r.body);
+    } catch (e) {
+      res.status(e.status || 500).json({ error: e.message || "error" });
+    }
+  };
 }

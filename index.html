@@ -18,6 +18,13 @@
       #status { position: fixed; left: 50%; bottom: 1rem; transform: translateX(-50%); padding: .5rem 1rem; border-radius: 999px;
         background: rgba(12, 14, 24, 0.75); font-size: .95rem; max-width: 90vw; text-align: center; }
       #hint { font-size: .85rem; opacity: .6; margin-top: 1rem; }
+      #roominfo { margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid #ffb36b33; text-align: left; }
+      .kv { display: flex; justify-content: space-between; gap: 1rem; margin: .25rem 0; font-family: system-ui, sans-serif; }
+      .kv span { opacity: .7; } .kv b { letter-spacing: .06em; color: #ffd08a; }
+      .small { font: .85rem/1.5 system-ui, sans-serif; opacity: .8; margin: .75rem 0; }
+      a { color: #ffd08a; }
+      button.ghost { font-size: .85rem; padding: .45rem 1rem; background: transparent; color: #f3ead8; border: 1px solid #ffb36b55; }
+      .card { max-height: calc(100vh - 2rem); overflow: auto; }
     </style>
   </head>
   <body>
@@ -27,6 +34,7 @@
         <p>Tell a story out loud, and your room becomes it, live.</p>
         <button id="enter">Enter Living Window</button>
         <div id="hint">Desktop: click empty space to open a portal, drag to look, hold Space to talk.</div>
+        <div id="roominfo">Setting up your room…</div>
       </div>
     </div>
     <div id="status">Ready</div>

@@ -8,12 +8,14 @@ export default defineConfig({
   server: {
     host: true,
     port: 5173,
-    proxy: {
-      "/api": "http://localhost:8787",
-      "/ws": { target: "ws://localhost:8787", ws: true },
-    },
+    proxy: { "/api": "http://localhost:8787" },
   },
   build: {
-    rollupOptions: { input: { main: resolve("index.html"), console: resolve("console.html") } },
+    rollupOptions: { input: {
+        main: resolve("index.html"),
+        console: resolve("console.html"),
+        watch: resolve("watch.html"),
+        community: resolve("community.html"),
+      } },
   },
 });

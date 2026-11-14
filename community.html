@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Living Window Community</title>
+    <style>
+      .hero { padding: 2rem 0 1rem; }
+      .hero h2 { font: 500 2rem Georgia, serif; text-transform: none; letter-spacing: 0; color: var(--text); margin: 0 0 .4rem; }
+      .hero p { color: var(--muted); max-width: 40rem; margin: 0; }
+      .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 1rem; }
+      .card { display: block; color: inherit; text-decoration: none; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; transition: border-color .15s, transform .15s; }
+      .card:hover, .card:focus-visible { border-color: var(--warm); transform: translateY(-2px); }
+      .thumb { aspect-ratio: 16 / 9; background: radial-gradient(circle at 30% 40%, #3a2a5a, #0e1320 70%); position: relative; }
+      .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+      .thumb .pill { position: absolute; top: .6rem; left: .6rem; }
+      .body { padding: .8rem 1rem 1rem; }
+      .body h3 { margin: 0 0 .3rem; font: 500 1.1rem Georgia, serif; }
+      .body p { margin: 0; color: #ffe9c7; font: italic .95rem Georgia, serif; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+      .meta { display: flex; gap: .5rem; margin-top: .6rem; flex-wrap: wrap; }
+    </style>
+  </head>
+  <body>
+    <header class="top">
+      <h1>Living Window</h1>
+      <nav><a class="pill" href="/">Start your own story</a></nav>
+    </header>
+    <div class="wrap">
+      <div class="hero">
+        <h2>Stories happening now</h2>
+        <p>People are telling stories out loud in mixed reality, and their rooms are becoming them. Step into one to watch,
+          suggest what happens next, and vote on the crowd's ideas.</p>
+      </div>
+      <div class="cards" id="cards"><div class="empty">Loading…</div></div>
+    </div>
+    <script type="module" src="/src/community.js"></script>
+  </body>
+</html>

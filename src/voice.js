@@ -36,7 +36,7 @@ export class PushToTalk {
   }
 
   /** Stops recording and returns the transcript ("" if nothing heard). */
-  async end() {
+  async end(headers = {}) {
     if (!this.recording) return "";
     this.recording = false;
     const pcm = this._toPcm16k();
@@ -47,7 +47,7 @@ export class PushToTalk {
     if (peak < 0.03 * 0x7fff) return "";
     const r = await fetch("/api/transcribe", {
       method: "POST",
-      headers: { "Content-Type": "application/octet-stream" },
+      headers: { "Content-Type": "application/octet-stream", ...headers },
       body: pcm.buffer,
     });
     const j = await r.json().catch(() => ({}));

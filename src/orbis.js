@@ -1,5 +1,6 @@
 // One live Visko Orbis stream. Each portal owns one of these.
 import { Reactor } from "@reactor-team/js-sdk";
+import { credFor } from "./identity.js";
 
 const MODEL_NAME = "reactor/visko-orbis-stable";
 const TRACKS = [
@@ -16,9 +17,10 @@ function unwrap(raw) {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 export class OrbisStream extends EventTarget {
-  constructor(id) {
+  constructor(id, room) {
     super();
     this.id = id;
+    this.room = room;
     this.video = Object.assign(document.createElement("video"), {
       muted: true, // picture only; sound goes through spatial audio
       playsInline: true,
@@ -42,7 +44,11 @@ export class OrbisStream extends EventTarget {
   }
 
   async _token() {
-    const r = await fetch("/api/token", { method: "POST" });
+    const r = await fetch("/api/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ room: this.room, cred: credFor(this.room) }),
+    });
     const j = await r.json().catch(() => ({}));
     if (!r.ok || !j.jwt) throw new Error(j.error || `token request failed (${r.status})`);
     return j.jwt;

@@ -1,12 +1,3 @@
-import { mintOrbisToken } from "../server/services.js";
-import { fail, onlyPost } from "./_lib/http.js";
-
-export default async function handler(req, res) {
-  if (!onlyPost(req, res)) return;
-  try {
-    res.setHeader("Cache-Control", "no-store");
-    res.json({ jwt: await mintOrbisToken() });
-  } catch (e) {
-    fail(res, e);
-  }
-}
+import * as api from "../server/api.js";
+import { route, readJson } from "./_lib/http.js";
+export default route({ POST: async (req, store) => api.token(store, await readJson(req)) });

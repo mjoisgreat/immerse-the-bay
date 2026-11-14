@@ -1,45 +1,22 @@
-// Connection to the story server. Locally: WebSocket (instant). On Vercel: HTTP
-// polling against /api/relay (serverless functions can't hold sockets open).
-// Both deliver the same messages: {t:"state"|"direction"|"close_portal", ...}.
-/** The story room this page belongs to: ?room=name (default "main"). */
-export const ROOM =
-  (new URLSearchParams(location.search).get("room") || "main").toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 32) || "main";
+// Connection to a story room: polls /api/relay for state + events, posts messages.
+// Works the same on the laptop server and on Vercel.
+import { credFor, voterId } from "./identity.js";
 
-export async function createLink({ onMessage, onOpen }) {
-  const cfg = await fetch("/api/config").then((r) => r.json()).catch(() => ({}));
-  return cfg.transport === "poll" ? pollLink(onMessage, onOpen) : wsLink(onMessage, onOpen);
-}
-
-function wsLink(onMessage, onOpen) {
-  let ws;
-  const connect = () => {
-    ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`);
-    ws.onopen = () => onOpen?.();
-    ws.onclose = () => setTimeout(connect, 1500);
-    ws.onmessage = (e) => onMessage(JSON.parse(e.data));
-  };
-  connect();
-  return {
-    send: (m) => ws?.readyState === 1 && ws.send(JSON.stringify(m)),
-    get connected() {
-      return ws?.readyState === 1;
-    },
-  };
-}
-
-function pollLink(onMessage, onOpen) {
-  let since = null; // null until the first poll: skip history, only act on new events
+export function createLink(room, { onMessage, onOpen, skipHistory = true }) {
+  let since = null; // null until the first poll; history is skipped so old events aren't replayed
   let lastState = "";
   let connected = false;
+  let stopped = false;
   let outbox = Promise.resolve();
 
   async function tick() {
+    if (stopped) return;
     try {
-      const r = await fetch(`/api/relay?room=${ROOM}&since=${since ?? 0}`, { cache: "no-store" });
+      const r = await fetch(`/api/relay?room=${room}&since=${since ?? 0}`, { cache: "no-store" });
       if (!r.ok) throw new Error(String(r.status));
       const { state, events, seq } = await r.json();
       if (!connected) (connected = true), onOpen?.();
-      if (since !== null) for (const e of events) onMessage(e);
+      if (since !== null || !skipHistory) for (const e of events) onMessage(e);
       since = seq;
       const key = JSON.stringify(state);
       if (key !== lastState) (lastState = key), onMessage({ t: "state", ...state });
@@ -50,14 +27,37 @@ function pollLink(onMessage, onOpen) {
   }
   tick();
 
+  /** Sends in order. Resolves with the server's JSON reply ({ok, role} or {error}). */
+  function request(m) {
+    const p = outbox.then(() =>
+      fetch("/api/relay", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...m, room, cred: credFor(room), voter: voterId }),
+      })
+        .then(async (r) => ({ status: r.status, ...(await r.json().catch(() => ({}))) }))
+        .catch(() => ({ status: 0, error: "offline" })),
+    );
+    outbox = p;
+    return p;
+  }
+
   return {
-    // Messages are sent in order; a message that triggers the director waits for it.
-    send: (m) =>
-      (outbox = outbox.then(() =>
-        fetch("/api/relay", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...m, room: ROOM }) }).catch(() => {}),
-      )),
+    send: request,
+    request,
+    stop: () => (stopped = true),
     get connected() {
       return connected;
     },
   };
+}
+
+/** Headers that let narrators use the mic (speech-to-text) for a room. */
+export function speechHeaders(room) {
+  const c = credFor(room);
+  const h = { "X-Room": room };
+  if (c.key) h["X-Key"] = c.key;
+  else if (c.pin) h["X-Pin"] = c.pin;
+  else if (c.invite) h["X-Invite"] = c.invite;
+  return h;
 }

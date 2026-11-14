@@ -4,75 +4,85 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Director Console</title>
-    <style>
-      :root { --bg: #0b0e16; --panel: #141a28; --line: #2a3350; --text: #f3ead8; --muted: #9aa3bd; --warm: #ffb36b; --cool: #6aa8ff; }
-      * { box-sizing: border-box; }
-      body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 system-ui, sans-serif; }
-      header { display: flex; gap: 1rem; align-items: center; justify-content: space-between; padding: 1rem 1.25rem; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
-      h1 { font: 500 1.3rem Georgia, serif; margin: 0; }
-      .pill { padding: .2rem .7rem; border-radius: 999px; background: var(--panel); border: 1px solid var(--line); color: var(--muted); font-size: .85rem; }
-      main { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 1rem; padding: 1rem 1.25rem; }
-      @media (max-width: 800px) { main { grid-template-columns: 1fr; } }
-      section { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 1rem; min-width: 0; }
-      h2 { font-size: .8rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 0 0 .75rem; }
-      form { display: flex; gap: .5rem; }
-      input, textarea { flex: 1; min-width: 0; font: inherit; color: var(--text); background: #0e1320; border: 1px solid var(--line); border-radius: 10px; padding: .65rem .8rem; }
-      textarea { width: 100%; min-height: 4.5rem; resize: vertical; }
-      button { font: inherit; border: 0; border-radius: 10px; padding: .6rem 1rem; cursor: pointer; background: var(--warm); color: #1b1206; font-weight: 600; }
-      button.ghost { background: transparent; color: var(--muted); border: 1px solid var(--line); font-weight: 400; }
-      .portal { border: 1px solid var(--line); border-radius: 12px; padding: .75rem; margin-bottom: .75rem; }
-      .portal.focus { border-color: var(--warm); }
-      .portal .row { display: flex; justify-content: space-between; align-items: center; gap: .5rem; margin-bottom: .4rem; }
-      .portal p { margin: 0 0 .5rem; color: var(--muted); font-size: .9rem; overflow-wrap: anywhere; }
-      .status { font-size: .8rem; color: var(--cool); }
-      #bible { white-space: pre-wrap; color: var(--muted); font-size: .9rem; }
-      #log { list-style: none; margin: 0; padding: 0; max-height: 40vh; overflow: auto; font-size: .88rem; }
-      #log li { padding: .35rem 0; border-bottom: 1px dashed var(--line); overflow-wrap: anywhere; }
-      #log b { color: var(--warm); font-weight: 500; margin-right: .4rem; }
-      .seeds { display: flex; flex-wrap: wrap; gap: .4rem; margin-top: .6rem; }
-      .seeds button { font-size: .82rem; padding: .35rem .7rem; }
-      #narration { font: italic 1.25rem Georgia, serif; color: #ffe9c7; min-height: 1.8rem; margin: .75rem 0 0; }
-    </style>
   </head>
   <body>
-    <header>
+    <header class="top">
       <h1>Living Window · Director Console</h1>
-      <div style="display:flex;gap:.5rem;flex-wrap:wrap">
-        <span class="pill" id="conn">connecting…</span>
+      <nav>
+        <span class="pill" id="roomPill">no room</span>
+        <span class="pill" id="conn">…</span>
         <span class="pill" id="brain">director: …</span>
-      </div>
+        <a class="pill" href="/community.html">Community</a>
+      </nav>
     </header>
-    <main>
+
+    <!-- Unlock: room code + console code from the headset's start screen -->
+    <div class="wrap" id="gate" hidden>
+      <section class="gate">
+        <h2>Open your room</h2>
+        <p class="muted">Enter the room and console code shown on the headset's start screen.</p>
+        <form class="row" id="gateForm" style="flex-direction:column;align-items:stretch">
+          <input id="gateRoom" placeholder="Room, e.g. amber-fox-42" autocomplete="off" />
+          <input id="gatePin" placeholder="Console code, e.g. K7QM3P" autocomplete="off" style="text-transform:uppercase" />
+          <button>Open console</button>
+          <div class="err" id="gateErr"></div>
+        </form>
+      </section>
+    </div>
+
+    <div class="wrap grid2" id="app" hidden>
       <div>
         <section>
           <h2>Tell the story (goes to the focused portal)</h2>
-          <form id="say">
-            <input id="line" placeholder="e.g. A paper boat drifts in, carrying a sleeping fox" autocomplete="off" autofocus />
+          <form class="row" id="say">
+            <input id="line" placeholder="e.g. A paper boat drifts in, carrying a sleeping fox" autocomplete="off" />
             <button>Send</button>
           </form>
-          <div id="narration"></div>
+          <div class="narration" id="narration"></div>
         </section>
-        <section style="margin-top:1rem">
+        <section>
+          <h2>Audience suggestions</h2>
+          <div id="suggs" class="empty">No suggestions yet. Share the watch link so people can suggest and vote.</div>
+        </section>
+        <section>
           <h2>Portals</h2>
-          <div id="portals"><p style="color:var(--muted)">No portals yet. Open one in the headset.</p></div>
+          <div id="portals" class="empty">No portals yet. Open one in the headset.</div>
         </section>
       </div>
       <div>
         <section>
+          <h2>Room</h2>
+          <form class="row" id="titleForm" style="margin-bottom:.4rem">
+            <input id="title" placeholder="Story title (shown in the community)" maxlength="60" />
+            <button class="ghost">Save</button>
+          </form>
+          <label class="toggle"><div>Share to community<small>List this story on the community page so anyone can watch and suggest.</small></div>
+            <span class="switch"><input type="checkbox" id="shared" /><span></span></span></label>
+          <label class="toggle"><div>Crowd Mode<small>Every 20 s the top-voted suggestion becomes the next story line.</small></div>
+            <span class="switch"><input type="checkbox" id="crowd" /><span></span></span></label>
+        </section>
+        <section>
+          <h2>Share</h2>
+          <div class="muted">Watch link (anyone can watch, suggest and vote)</div>
+          <div class="copy"><code id="watchLink"></code><button class="ghost" data-copy="watchLink">Copy</button></div>
+          <div class="muted">Co-narrator invite (they can speak or type lines into the story)</div>
+          <div class="copy"><code id="inviteLink">only the room owner and console can see this</code><button class="ghost" data-copy="inviteLink">Copy</button></div>
+        </section>
+        <section>
           <h2>Story seed</h2>
-          <form id="seed"><input id="seedText" placeholder="Where the story begins" /><button class="ghost">Set</button></form>
-          <div class="seeds" id="presets"></div>
+          <form class="row" id="seed"><input id="seedText" placeholder="Where the story begins" /><button class="ghost">Set</button></form>
+          <div class="row" id="presets" style="margin-top:.6rem"></div>
         </section>
-        <section style="margin-top:1rem">
+        <section>
           <h2>Story bible</h2>
-          <div id="bible"></div>
+          <div id="bible" class="muted" style="white-space:pre-wrap"></div>
         </section>
-        <section style="margin-top:1rem">
+        <section>
           <h2>Live log</h2>
-          <ul id="log"></ul>
+          <ul class="feed" id="log"></ul>
         </section>
       </div>
-    </main>
+    </div>
     <script type="module" src="/src/console.js"></script>
   </body>
 </html>

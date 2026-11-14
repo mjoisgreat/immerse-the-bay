@@ -4,7 +4,8 @@ import { XRHandModelFactory } from "three/addons/webxr/XRHandModelFactory.js";
 import { Portal } from "./portal.js";
 import { OrbisStream } from "./orbis.js";
 import { PushToTalk } from "./voice.js";
-import { createLink, ROOM } from "./link.js";
+import { createLink, speechHeaders } from "./link.js";
+import { urlRoom, urlInvite, owned, lastOwnedRoom, newRoomCode, makeOwnerCreds, credFor, voterId } from "./identity.js";
 
 const $ = (s) => document.querySelector(s);
 const statusEl = $("#status");
@@ -70,7 +71,7 @@ function openPortal(origin, dir) {
   const portal = new Portal(id, listener);
   placeInFront(portal.group, origin, dir);
   scene.add(portal.group);
-  const stream = new OrbisStream(id);
+  const stream = new OrbisStream(id, ROOM);
   stream.addEventListener("video", () => portal.attachVideo(stream.video));
   stream.addEventListener("audio", () => portal.attachAudio(stream.audioStream));
   stream.addEventListener("status", (e) => {
@@ -107,29 +108,66 @@ const labelFor = (s) =>
 
 addEventListener("pagehide", () => portals.forEach((p) => p.stream.closeOnUnload()));
 
+// ---------- Room: each headset owns a private story room ----------
+// Visiting with ?room=X: if this browser owns X, drive it; if X is unclaimed, claim it;
+// otherwise it's someone else's story, so go and watch it instead (no takeovers).
+async function resolveRoom() {
+  let room = urlRoom || lastOwnedRoom() || newRoomCode();
+  if (owned()[room]) return room;
+  const who = await fetch("/api/relay", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ t: "whoami", room, cred: credFor(room), voter: voterId }),
+  })
+    .then((r) => r.json())
+    .catch(() => ({}));
+  if (who.role === "none") {
+    makeOwnerCreds(room);
+    return room;
+  }
+  location.replace(`/watch.html?room=${room}${urlInvite ? `&invite=${urlInvite}` : ""}`);
+  return new Promise(() => {}); // page is leaving
+}
+const ROOM = await resolveRoom();
+history.replaceState(null, "", `?room=${ROOM}`);
+showRoomCard();
+
+function showRoomCard() {
+  const c = owned()[ROOM];
+  const origin = location.origin;
+  $("#roominfo").innerHTML = `
+    <div class="kv"><span>Your room</span><b>${ROOM}</b></div>
+    <div class="kv"><span>Console code</span><b>${c.pin}</b></div>
+    <p class="small">On a laptop, open <b>${origin}/console.html</b> and enter the room and code.
+    Share <a href="/watch.html?room=${ROOM}" target="_blank">the watch link</a> with friends, or browse the
+    <a href="/community.html" target="_blank">community</a>.</p>
+    <button class="ghost" id="newroom">Start a new room</button>`;
+  $("#newroom").onclick = () => location.replace(`/?room=${newRoomCode()}`);
+}
+
 // ---------- Server link ----------
-// Identifies this headset page. Only the newest headset in a room drives the streams.
+// Identifies this page. If the owner opens the room on a second device/tab, the newest wins.
 const RID = Math.random().toString(36).slice(2, 10);
 let retired = false;
-let link = null;
+let roomState = null;
 function send(m) {
-  if (!retired) link?.send({ ...m, rid: RID });
+  if (!retired) link.send({ ...m, rid: RID });
 }
-function retire() {
-  // Another headset took over this room: stop our streams so credits aren't spent twice.
+function retire(text = `Your room “${ROOM}” is now playing in another tab or device.`) {
+  // Stop our streams so credits aren't spent twice.
   for (const p of portals.values()) p.stream.close(), p.portal.dispose();
   portals.clear();
   focusId = null;
   retired = true;
   $("#overlay").hidden = false;
-  $("#overlay .card").innerHTML =
-    `<h1>Living Window</h1><p>Room “${ROOM}” is now playing on another headset.</p><button onclick="location.reload()">Take it back</button>`;
+  $("#overlay .card").innerHTML = `<h1>Living Window</h1><p>${text}</p><button onclick="location.reload()">Take it back</button>`;
   renderer.xr.getSession()?.end();
-  say("Another headset took over this room");
+  say(text);
 }
-createLink({
-  onOpen() {
-    send({ t: "hello", role: "renderer" });
+const link = createLink(ROOM, {
+  async onOpen() {
+    const r = await link.request({ t: "hello", role: "renderer", rid: RID });
+    if (r.status === 403) return location.replace(`/watch.html?room=${ROOM}`); // someone claimed it first
     for (const [id, p] of portals) {
       if (p.stream.prompt) send({ t: "portal_sync", id, prompt: p.stream.prompt, status: p.stream.status });
       else send({ t: "portal_added", id });
@@ -139,11 +177,39 @@ createLink({
   onMessage(m) {
     if (m.t === "direction") applyDirection(m);
     else if (m.t === "state") {
+      roomState = m;
       if (m.focusId && m.focusId !== focusId && portals.has(m.focusId)) setFocus(m.focusId, false);
     } else if (m.t === "close_portal") closePortal(m.id);
     else if (m.t === "takeover" && m.rid !== RID && !retired) retire();
   },
-}).then((l) => (link = l));
+});
+
+// Crowd Mode: the audience's top-voted line becomes the next story beat every 20 s.
+setInterval(() => {
+  if (retired || !roomState?.meta?.crowd || !roomState.suggestions?.length || !portals.size) return;
+  send({ t: "use_suggestion", id: "top" });
+  flash("The crowd has spoken…", 3000);
+}, 20000);
+
+// Keep the room marked "live" for the community page.
+setInterval(() => !retired && send({ t: "heartbeat" }), 30000);
+
+// Small snapshots of each portal so watchers and the gallery can see the story (no extra credits).
+const snapCanvas = Object.assign(document.createElement("canvas"), { width: 320, height: 180 });
+setInterval(() => {
+  if (retired) return;
+  const g = snapCanvas.getContext("2d");
+  for (const [id, p] of portals) {
+    const v = p.stream.video;
+    if (p.stream.status !== "streaming" || v.readyState < 2) continue;
+    g.drawImage(v, 0, 0, 320, 180);
+    fetch("/api/snapshot", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ room: ROOM, cred: credFor(ROOM), id, data: snapCanvas.toDataURL("image/jpeg", 0.6) }),
+    }).catch(() => {});
+  }
+}, 8000);
 
 function applyDirection({ narration, updates }) {
   for (const u of updates) {
@@ -184,7 +250,7 @@ async function stopTalking() {
   micOrb.scale.setScalar(1);
   flash("Thinking…", 20000);
   try {
-    const text = await ptt.end();
+    const text = await ptt.end(speechHeaders(ROOM));
     if (!text) return flash("Didn't catch that. Hold the orb and speak.");
     flash(`“${text}”`, 4000);
     send({ t: "utterance", text });

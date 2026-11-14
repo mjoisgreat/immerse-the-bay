@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Watch a Living Window</title>
+    <style>
+      .snaps { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: .75rem; }
+      .snap { position: relative; border-radius: 12px; overflow: hidden; background: #0e1320; border: 1px solid #2a3350; aspect-ratio: 16 / 9; }
+      .snap.focus { border-color: #ffd08a; box-shadow: 0 0 24px #ffb36b55; }
+      .snap img { width: 100%; height: 100%; object-fit: cover; display: block; }
+      .snap span { position: absolute; left: .5rem; bottom: .4rem; font-size: .78rem; background: #0b0e16cc; padding: .1rem .5rem; border-radius: 999px; }
+      .hold { user-select: none; -webkit-user-select: none; touch-action: none; }
+      .hold.on { background: #ff8a7a; }
+    </style>
+  </head>
+  <body>
+    <header class="top">
+      <h1 id="title">Living Window</h1>
+      <nav>
+        <span class="pill" id="live">offline</span>
+        <span class="pill" id="roomPill"></span>
+        <a class="pill" href="/community.html">Community</a>
+        <a class="pill" href="/">Start your own</a>
+      </nav>
+    </header>
+    <div class="wrap grid2">
+      <div>
+        <section>
+          <h2>The windows</h2>
+          <div class="snaps" id="snaps"><div class="empty">Waiting for the storyteller to open a window…</div></div>
+          <div class="narration" id="narration"></div>
+        </section>
+        <section id="coPanel" hidden>
+          <h2>You're a co-narrator</h2>
+          <form class="row" id="coForm">
+            <input id="coLine" placeholder="Say what happens next…" autocomplete="off" maxlength="300" />
+            <button>Send</button>
+            <button type="button" class="ghost hold" id="mic">Hold to talk</button>
+          </form>
+          <div class="err" id="coErr"></div>
+        </section>
+        <section>
+          <h2>The story so far</h2>
+          <ul class="feed" id="feed"><li class="muted">Nothing yet.</li></ul>
+        </section>
+      </div>
+      <div>
+        <section>
+          <h2>Suggest what happens next</h2>
+          <form class="row" id="suggest">
+            <input id="idea" placeholder="e.g. A whale rises out of the lake" maxlength="140" autocomplete="off" />
+            <button>Suggest</button>
+          </form>
+          <p class="muted" id="crowdNote" style="margin:.6rem 0 0"></p>
+        </section>
+        <section>
+          <h2>Vote on ideas</h2>
+          <div id="suggs" class="empty">No ideas yet. Be the first.</div>
+        </section>
+      </div>
+    </div>
+    <script type="module" src="/src/watch.js"></script>
+  </body>
+</html>
