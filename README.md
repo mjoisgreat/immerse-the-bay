@@ -85,6 +85,17 @@ for the story director). Its chats appear in the watch feed and on the theater v
 Add `?companion=pip` to the headset URL to get Pip, the robot, instead ("RobotExpressive" by Tomás Laulhé
 (Quaternius), modifications by Don McCurdy, CC0, from the three.js examples).
 
+## Room background: see-through or Stanford's Main Quad
+
+Press **Stanford** on the panel (**Stanford Quad** on desktop) and your room is replaced by a real 3D place all around
+you: Stanford's Main Quad at golden hour (a Gaussian splat made with World Labs Marble, from the
+`feature/splat-worlds` branch: `public/worlds/stanford.spz`, listed in `worlds/manifest.json`, drawn with
+[Spark](https://sparkjs.dev)). It's placed where you stand, facing the way you face, and you can walk around in it.
+Press **See-through** to fade back to your real room. The story windows aren't affected: they keep floating in front
+of you (without the "hole in the wall" effect, since there's no real wall), stepping inside a window still shows its
+live video (the Quad hides while you're inside and comes back when you step out), and Bunny comes along. The splat
+renderer is only downloaded the first time you press the button.
+
 ## Hand gestures
 
 Everything works with bare hands (Quest hand tracking). Besides pointing and pinching (open, move, tap to touch,

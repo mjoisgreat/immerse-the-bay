@@ -6,6 +6,7 @@ import { Immersion } from "./immersion.js";
 import { Toolbar } from "./toolbar.js";
 import { HandGestures } from "./gestures.js";
 import { Companion, BunnyRig, RobotRig } from "./companion.js";
+import { Backdrop } from "./backdrop.js";
 import { OrbisStream } from "./orbis.js";
 import { PushToTalk } from "./voice.js";
 import { createLink, speechHeaders } from "./link.js";
@@ -41,7 +42,8 @@ scene.add(rimLight);
 const previewRoom = new THREE.Group();
 previewRoom.add(new THREE.GridHelper(20, 40, 0x334466, 0x1c2233));
 scene.add(previewRoom);
-scene.background = new THREE.Color(0x0b0e16);
+const DESKTOP_BG = new THREE.Color(0x0b0e16);
+scene.background = DESKTOP_BG;
 
 addEventListener("resize", () => {
   camera.aspect = innerWidth / innerHeight;
@@ -760,6 +762,20 @@ function toggleBuddy() {
   flash(`Meet ${BUDDY.name}! Look at ${BUDDY.name} while you talk to chat. Pinch, or say “follow me”, and ${BUDDY.name} comes with you.`, 8000);
 }
 
+// ---------- Room background: see-through (your real room) or a 3D world around you ----------
+// The story windows are unaffected; stepping inside a window still shows its live video.
+const backdrop = new Backdrop(scene, renderer, camera);
+async function toggleBackdrop() {
+  if (backdrop.on) {
+    backdrop.hide();
+    return flash("Back to your room.", 3000);
+  }
+  if (backdrop.loading) return;
+  flash("Loading Stanford's Main Quad…", 20000);
+  const ok = await backdrop.show("stanford").catch(() => false);
+  flash(ok ? "You're standing in Stanford's Main Quad. Walk around! Press See-through to return to your room." : "Couldn't load the 3D world.", 7000);
+}
+
 // ---------- Buttons (floating panel in the headset, bar at the bottom on desktop) ----------
 function openInFront() {
   const origin = camera.getWorldPosition(new THREE.Vector3());
@@ -803,6 +819,7 @@ const toolbar = new Toolbar(camera, [
   { id: "step", icon: "🚪", label: "Step inside", press: toggleStep },
   { id: "close", icon: "✕", label: "Close window", press: closeFocused },
   { id: "buddy", icon: BUDDY.icon, label: BUDDY.name, press: toggleBuddy },
+  { id: "world", icon: "🏛", label: "Stanford", press: toggleBackdrop },
   { id: "reset", icon: "↺", label: "Reset story", press: resetPressed },
   { id: "hide", icon: "▾", label: "Hide buttons", press: () => setButtonsHidden(true) },
 ]);
@@ -834,6 +851,8 @@ function updateToolbar() {
   syncButtons();
 }
 function syncButtons() {
+  toolbar.set("world", { label: backdrop.on ? "See-through" : "Stanford", icon: backdrop.on ? "👓" : "🏛" });
+  bar.world.textContent = backdrop.on ? "See-through" : "Stanford Quad";
   const armed = Date.now() < resetArmed;
   toolbar.set("talk", { state: talking ? "active" : "idle", label: talking ? "Listening…" : "Hold to talk" });
   toolbar.set("step", { label: immersion.inside ? "Step out" : "Step inside", icon: immersion.inside ? "↩" : "🚪" });
@@ -881,6 +900,7 @@ bar.close.onclick = closeFocused;
 bar.reset.onclick = resetPressed;
 bar.info.onclick = () => ($("#overlay").hidden = !$("#overlay").hidden);
 bar.hide.onclick = () => setButtonsHidden(true);
+bar.world.onclick = toggleBackdrop;
 bar.buddy.onclick = toggleBuddy;
 bar.buddy.textContent = BUDDY.name;
 $("#showbar").onclick = () => setButtonsHidden(false);
@@ -970,7 +990,9 @@ renderer.setAnimationLoop(() => {
   for (const { portal } of portals.values()) portal.update(t);
   checkWalking();
   immersion.update(t, dt);
-  previewRoom.visible = !renderer.xr.isPresenting && !immersion.active;
+  backdrop.update(dt, { inside: immersion.active });
+  scene.background = backdrop.background(renderer.xr.isPresenting ? null : DESKTOP_BG);
+  previewRoom.visible = !renderer.xr.isPresenting && !immersion.active && !backdrop.on;
   exitOrb.visible = immersion.inside && renderer.xr.isPresenting && !toolbar.collapsed;
   updateToolbar();
   gestures.update();
@@ -979,7 +1001,8 @@ renderer.setAnimationLoop(() => {
   updateTitle();
   for (const { portal, stream } of portals.values()) {
     // The "hole in the wall" only makes sense over passthrough, not inside a world.
-    portal.mask.visible = renderer.xr.isPresenting && !immersion.active;
+    // ...nor over a 3D world background (there's no real wall to cut into).
+    portal.mask.visible = renderer.xr.isPresenting && !immersion.active && backdrop.opacity === 0;
     if (guideStep === 0 && stream.status === "streaming") guide(1);
   }
   if (!renderer.xr.isPresenting) syncButtons();
