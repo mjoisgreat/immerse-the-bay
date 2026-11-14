@@ -29,6 +29,13 @@ scene.add(camera);
 const listener = new THREE.AudioListener();
 camera.add(listener);
 scene.add(new THREE.HemisphereLight(0xffffff, 0x444466, 1.2));
+// Key and rim light so Pip reads clearly against a dim room.
+const keyLight = new THREE.DirectionalLight(0xfff1dc, 1.8);
+keyLight.position.set(1.5, 3, 2);
+scene.add(keyLight);
+const rimLight = new THREE.DirectionalLight(0x9cc3ff, 1.2);
+rimLight.position.set(-2, 2, -3);
+scene.add(rimLight);
 
 // Desktop preview room (hidden in mixed reality, where the real room shows through).
 const previewRoom = new THREE.Group();
@@ -692,6 +699,7 @@ async function chatWithPip(text) {
   if (pipBusy) return flash("Pip is still thinking…");
   pipBusy = true;
   pip.listen();
+  pip.say("…", 15000);
   flash("Pip is thinking…", 15000);
   try {
     const r = await fetch("/api/character", {
@@ -704,12 +712,14 @@ async function chatWithPip(text) {
     pipHistory.push({ role: "user", text }, { role: "assistant", text: out.reply });
     pipHistory.splice(0, Math.max(0, pipHistory.length - 12));
     pip.react(out);
+    pip.say(out.reply, 12000);
     flash(`Pip: “${out.reply}”`, 9000);
     send({ t: "pip_said", you: text, pip: out.reply });
     await speak(out.reply, "Pip", PIP_VOICE, pip.root, { onStart: () => pip.speaking(true), onEnd: () => pip.speaking(false) });
     if (out.story_line && portals.size) send({ t: "utterance", text: out.story_line });
   } catch (e) {
     pip.react({ gesture: "no", move: "stay" });
+    pip.say("Hmm, my gears got stuck. Try again?", 5000);
     flash(e.message);
   } finally {
     pipBusy = false;
@@ -718,7 +728,17 @@ async function chatWithPip(text) {
 function togglePip() {
   if (pip.visible) return pip.dismiss(), flash("Pip waves goodbye.");
   if (!pip.ready) return flash("Pip is still waking up…");
-  pip.summon();
+  const xr = renderer.xr.isPresenting;
+  pip.range = xr ? [1.2, 2.4] : [2.2, 3.2];
+  pip.comeDistance = xr ? 0.8 : 2.0;
+  if (xr) pip.summon(1.4);
+  else {
+    // On a flat screen: further away, and tilt the view down so Pip is in frame.
+    pip.summon(2.4);
+    pitch = -Math.atan2(1.6 - 0.45, 2.4);
+    camera.rotation.set(pitch, yaw, 0, "YXZ");
+  }
+  pip.say("Hi! I'm Pip. Look at me and talk!", 6000);
   flash("Meet Pip! Look at Pip while you talk to chat. Say “come here” to call Pip over.", 8000);
 }
 

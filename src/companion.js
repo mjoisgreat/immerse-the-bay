@@ -4,7 +4,7 @@ import * as SkeletonUtils from "three/addons/utils/SkeletonUtils.js";
 
 // Pip: an animated robot (RobotExpressive by Tomás Laulhé / Quaternius, CC0) who walks around your
 // real floor, wanders, comes when called, faces you to listen and talk, and gestures as it speaks.
-const HEIGHT = 0.62; // metres: about knee-to-thigh high
+const HEIGHT = 0.8; // metres: about thigh high, big enough to read across a room
 const WALK_SPEED = 0.45; // m/s
 const GESTURES = { wave: "Wave", yes: "Yes", no: "No", thumbs_up: "ThumbsUp", jump: "Jump", dance: "Dance" };
 
@@ -44,6 +44,17 @@ export class Companion {
     this.hitbox.userData.pip = true;
     this.root.add(this.hitbox);
 
+    // Speech bubble above Pip's head ("…" while thinking, then what Pip says).
+    this.bubbleCanvas = Object.assign(document.createElement("canvas"), { width: 768, height: 256 });
+    this.bubbleTex = new THREE.CanvasTexture(this.bubbleCanvas);
+    this.bubbleTex.colorSpace = THREE.SRGBColorSpace;
+    this.bubble = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.bubbleTex, transparent: true, depthWrite: false }));
+    this.bubble.scale.set(0.9, 0.3, 1);
+    this.bubble.position.y = HEIGHT + 0.28;
+    this.bubble.renderOrder = 6;
+    this.bubble.visible = false;
+    this.root.add(this.bubble);
+
     this.ready = false;
     this.mode = "idle"; // idle | walk | talk
     this.target = null;
@@ -53,6 +64,9 @@ export class Companion {
     this.emoting = false;
     this.followUser = false;
     this.speakStart = 0;
+    // How far Pip roams and where it stops when called (wider on a flat screen, so it stays in frame).
+    this.range = [1.2, 2.4];
+    this.comeDistance = 0.8;
   }
 
   async load(url = "/models/RobotExpressive.glb") {
@@ -94,6 +108,44 @@ export class Companion {
     this.ready = true;
   }
 
+  /** Shows text above Pip's head for `ms` (or until replaced). Empty text hides it. */
+  say(text, ms = 9000) {
+    clearTimeout(this._bubbleTimer);
+    if (!text) return void (this.bubble.visible = false);
+    const g = this.bubbleCanvas.getContext("2d"), w = 768, h = 256;
+    g.clearRect(0, 0, w, h);
+    g.font = "500 34px system-ui, sans-serif";
+    const words = text.split(/\s+/), lines = [];
+    let line = "";
+    for (const wd of words) {
+      const t = line ? `${line} ${wd}` : wd;
+      if (g.measureText(t).width > w - 80 && line) lines.push(line), (line = wd);
+      else line = t;
+    }
+    lines.push(line);
+    const shown = lines.slice(0, 4);
+    if (lines.length > 4) shown[3] = shown[3].replace(/\s*\S*$/, "…");
+    const bh = 36 + shown.length * 42;
+    const top = h - bh - 26;
+    g.fillStyle = "rgba(255,248,236,0.95)";
+    g.strokeStyle = "#ff9a5a";
+    g.lineWidth = 5;
+    g.beginPath();
+    g.roundRect(10, top, w - 20, bh, 30);
+    g.moveTo(w / 2 - 22, top + bh);
+    g.lineTo(w / 2, h - 4);
+    g.lineTo(w / 2 + 22, top + bh);
+    g.fill();
+    g.stroke();
+    g.fillStyle = "#1b1206";
+    g.textAlign = "center";
+    g.textBaseline = "middle";
+    shown.forEach((l, i) => g.fillText(l, w / 2, top + 18 + 21 + i * 42));
+    this.bubbleTex.needsUpdate = true;
+    this.bubble.visible = true;
+    this._bubbleTimer = setTimeout(() => (this.bubble.visible = false), ms);
+  }
+
   play(name, fade = 0.3) {
     const next = this.actions[name];
     if (!next || next === this.current) return;
@@ -110,13 +162,13 @@ export class Companion {
     return this.camera.getWorldPosition(new THREE.Vector3());
   }
 
-  /** Appear a little in front of you, with a hop. */
-  summon() {
+  /** Appear in front of you (further away on a flat screen, so it fits in view). */
+  summon(distance = 1.4) {
     const eye = this._eye();
     const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(this.camera.getWorldQuaternion(new THREE.Quaternion()));
     fwd.y = 0;
     fwd.normalize();
-    this.root.position.set(eye.x + fwd.x * 1.3, 0, eye.z + fwd.z * 1.3);
+    this.root.position.set(eye.x + fwd.x * distance, 0, eye.z + fwd.z * distance);
     this.root.lookAt(eye.x, 0, eye.z);
     this.root.visible = true;
     this.mode = "idle";
@@ -185,10 +237,13 @@ export class Companion {
   }
 
   _pickWanderTarget(eye) {
-    // Somewhere on the floor 0.9–2.2 m from you, not right under your feet.
+    // Somewhere on the floor in front of you (within ±50° of where you're facing), 1.2–2.4 m away,
+    // so Pip stays where you can see it instead of wandering behind you.
+    const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(this.camera.getWorldQuaternion(new THREE.Quaternion()));
+    const facing = Math.atan2(fwd.x, fwd.z);
     for (let i = 0; i < 8; i++) {
-      const a = Math.random() * Math.PI * 2, r = 0.9 + Math.random() * 1.3;
-      const p = new THREE.Vector3(eye.x + Math.cos(a) * r, 0, eye.z + Math.sin(a) * r);
+      const a = facing + THREE.MathUtils.degToRad((Math.random() * 2 - 1) * 50), r = this.range[0] + Math.random() * (this.range[1] - this.range[0]);
+      const p = new THREE.Vector3(eye.x + Math.sin(a) * r, 0, eye.z + Math.cos(a) * r);
       if (p.distanceTo(this.root.position) > 0.5) return p;
     }
     return null;
@@ -206,9 +261,9 @@ export class Companion {
       this.mode = "talk";
       this._turnTowards(toUser, dt, 4);
       if (!this.emoting && this.current !== this.actions.Idle) this.play("Idle");
-    } else if (this.followUser && distUser > 1.0) {
-      // Come to about 80 cm in front of you.
-      this.target = new THREE.Vector3(eye.x, 0, eye.z).addScaledVector(toUser.clone().normalize(), -0.8);
+    } else if (this.followUser && distUser > this.comeDistance + 0.2) {
+      // Come to just in front of you.
+      this.target = new THREE.Vector3(eye.x, 0, eye.z).addScaledVector(toUser.clone().normalize(), -this.comeDistance);
       this.mode = "walk";
     } else if (this.mode === "talk" && now > this.idleUntil) {
       this.mode = "idle";
