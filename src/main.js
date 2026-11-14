@@ -65,6 +65,9 @@ const immersion = new Immersion(scene, camera, {
   onChange(id) {
     send({ t: "immerse", id }); // the director reframes that world as a first-person view
     buzz();
+    // Tuck the buttons away inside a world for an unobstructed view; bring them back on leaving.
+    if (id && !toolbar.collapsed) (toolbar.setCollapsed(true), (autoHidden = true));
+    else if (!id && autoHidden) (toolbar.setCollapsed(false), (autoHidden = false));
   },
 });
 function buzz(strength = 0.6, ms = 90) {
@@ -175,7 +178,8 @@ function showRoomCard() {
     <div class="kv"><span>Your room</span><b>${ROOM}</b></div>
     <div class="kv"><span>Console code</span><b>${c.pin}</b></div>
     <p class="small">On a laptop, open <b>${origin}/console.html</b> and enter the room and code.
-    Share <a href="/watch.html?room=${ROOM}" target="_blank">the watch link</a> with friends, or browse the
+    Put the <a href="/theater.html?room=${ROOM}" target="_blank">theater view</a> on a big screen, share
+    <a href="/watch.html?room=${ROOM}" target="_blank">the watch link</a> with friends, or browse the
     <a href="/community.html" target="_blank">community</a>.</p>
     <button class="ghost" id="newroom">Start a new room</button>`;
   $("#newroom").onclick = () => location.replace(`/?room=${newRoomCode()}`);
@@ -235,23 +239,24 @@ setInterval(() => {
 setInterval(() => !retired && send({ t: "heartbeat" }), 30000);
 
 // Small snapshots of each portal so watchers and the gallery can see the story (no extra credits).
-const snapCanvas = Object.assign(document.createElement("canvas"), { width: 320, height: 180 });
+const snapCanvas = Object.assign(document.createElement("canvas"), { width: 480, height: 270 });
 setInterval(() => {
   if (retired) return;
   const g = snapCanvas.getContext("2d");
   for (const [id, p] of portals) {
     const v = p.stream.video;
     if (p.stream.status !== "streaming" || v.readyState < 2) continue;
-    g.drawImage(v, 0, 0, 320, 180);
+    g.drawImage(v, 0, 0, 480, 270);
     fetch("/api/snapshot", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ room: ROOM, cred: credFor(ROOM), id, data: snapCanvas.toDataURL("image/jpeg", 0.6) }),
+      body: JSON.stringify({ room: ROOM, cred: credFor(ROOM), id, data: snapCanvas.toDataURL("image/jpeg", 0.62) }),
     }).catch(() => {});
   }
-}, 8000);
+}, 3000);
 
 function applyDirection({ narration, updates, choices, speech }) {
+  if (guideStep === 1 && roomState?.log?.some((l) => ["voice", "choice", "guest", "crowd"].includes(l.kind))) setTimeout(() => guide(2), 6000);
   showChoices(choices || []);
   if (speech?.line) playVoice(speech);
   for (const u of updates) {
@@ -327,7 +332,7 @@ const handFactory = new XRHandModelFactory();
 function targets() {
   const ui = immersion.inside ? [micOrb, exitOrb] : [micOrb];
   if (renderer.xr.isPresenting) ui.push(...toolbar.targets);
-  return [...ui, ...[...portals.values()].filter((p) => p.portal.group.visible).map((p) => p.portal.screen)];
+  return [...ui.filter((o) => o.visible), ...[...portals.values()].filter((p) => p.portal.group.visible).map((p) => p.portal.screen)];
 }
 
 function rayFrom(obj) {
@@ -432,15 +437,18 @@ function onSqueeze(ctrl) {
 
 // A / X on Touch controllers = push-to-talk from anywhere. B / Y = step into the window you're
 // pointing at (or the focused one), or step back out.
-let buttonHeld = false, stepHeld = false;
+let buttonHeld = false, stepHeld = false, stickHeld = false;
 function pollButtons() {
   const session = renderer.xr.getSession();
   if (!session) return;
-  let pressed = false, step = null;
+  let pressed = false, step = null, stick = false;
   session.inputSources.forEach((src, i) => {
     if (src.gamepad?.buttons?.[4]?.pressed) pressed = true;
     if (src.gamepad?.buttons?.[5]?.pressed) step = i;
+    if (src.gamepad?.buttons?.[3]?.pressed) stick = true;
   });
+  if (stick && !stickHeld) setButtonsHidden(!toolbar.collapsed); // thumbstick click: hide / show buttons
+  stickHeld = stick;
   if (pressed && !buttonHeld) startTalking();
   if (!pressed && buttonHeld) stopTalking();
   buttonHeld = pressed;
@@ -564,6 +572,9 @@ let voice = null;
 async function playVoice({ speaker, line, voice: style, portal_id }) {
   const target = portals.get(portal_id) || portals.get(focusId);
   target?.portal.setCaption(`${speaker}: “${line}”`, "story");
+  await speak(line, speaker, style, target);
+}
+async function speak(line, speaker, style, target = null) {
   try {
     const r = await fetch("/api/voice", {
       method: "POST",
@@ -585,6 +596,69 @@ async function playVoice({ speaker, line, voice: style, portal_id }) {
   } catch (e) {
     console.warn("[voice]", e.message);
   }
+}
+
+// ---------- First-time guide: a title card and a narrator who teaches the controls ----------
+const NARRATOR = ["Narrator", "a warm, wise storyteller with a gentle voice, full of hushed wonder"];
+const titleCanvas = Object.assign(document.createElement("canvas"), { width: 1400, height: 520 });
+{
+  const g = titleCanvas.getContext("2d");
+  const grad = g.createRadialGradient(700, 260, 20, 700, 260, 700);
+  grad.addColorStop(0, "rgba(40,28,20,0.85)");
+  grad.addColorStop(1, "rgba(10,12,20,0)");
+  g.fillStyle = grad;
+  g.fillRect(0, 0, 1400, 520);
+  g.textAlign = "center";
+  g.fillStyle = "#ffd08a";
+  g.shadowColor = "#ff9a5a";
+  g.shadowBlur = 40;
+  g.font = "500 150px Georgia, serif";
+  g.fillText("Living Window", 700, 250);
+  g.shadowBlur = 0;
+  g.fillStyle = "#f3ead8";
+  g.font = "italic 52px Georgia, serif";
+  g.fillText("Tell a story out loud, and your room becomes it.", 700, 360);
+}
+const titleTex = new THREE.CanvasTexture(titleCanvas);
+titleTex.colorSpace = THREE.SRGBColorSpace;
+const titleCard = new THREE.Mesh(
+  new THREE.PlaneGeometry(1.4, 0.52),
+  new THREE.MeshBasicMaterial({ map: titleTex, transparent: true, depthWrite: false, opacity: 0 }),
+);
+titleCard.visible = false;
+scene.add(titleCard);
+let titleShownAt = 0;
+function showTitle() {
+  const eye = camera.getWorldPosition(new THREE.Vector3());
+  const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.getWorldQuaternion(new THREE.Quaternion()));
+  fwd.y = 0;
+  fwd.normalize();
+  titleCard.position.copy(eye).addScaledVector(fwd, 1.6);
+  titleCard.position.y = eye.y + 0.1;
+  titleCard.lookAt(eye.x, titleCard.position.y, eye.z);
+  titleCard.visible = true;
+  titleShownAt = performance.now();
+}
+function updateTitle() {
+  if (!titleCard.visible) return;
+  const t = (performance.now() - titleShownAt) / 1000;
+  titleCard.material.opacity = Math.min(1, t / 1.2) * Math.min(1, Math.max(0, (6.5 - t) / 1.2));
+  titleCard.position.y += 0.0004; // slow drift upward
+  if (t > 6.5) titleCard.visible = false;
+}
+
+// Steps: open a window → tell the story → touch / step inside. Each is spoken once.
+const GUIDE = [
+  "Welcome, storyteller. Point at a wall and pinch, or pull the trigger, to open your first window.",
+  "A world is waking. Hold the orange orb, or the A button, and tell me what happens next.",
+  "Now reach out and tap anything in the window to touch it. Or walk right through it, and step inside.",
+];
+let guideStep = -1;
+function guide(step) {
+  if (step <= guideStep || retired) return;
+  guideStep = step;
+  flash(GUIDE[step], 9000);
+  if (renderer.xr.isPresenting) speak(GUIDE[step], ...NARRATOR);
 }
 
 // ---------- Buttons (floating panel in the headset, bar at the bottom on desktop) ----------
@@ -630,7 +704,15 @@ const toolbar = new Toolbar(camera, [
   { id: "step", icon: "🚪", label: "Step inside", press: toggleStep },
   { id: "close", icon: "✕", label: "Close window", press: closeFocused },
   { id: "reset", icon: "↺", label: "Reset story", press: resetPressed },
+  { id: "hide", icon: "▾", label: "Hide buttons", press: () => setButtonsHidden(true) },
 ]);
+// Hide / show the buttons (the orb and ring hide with them; A/X and B/Y still work).
+let autoHidden = false;
+function setButtonsHidden(on) {
+  toolbar.setCollapsed(on);
+  autoHidden = false;
+  document.body.classList.toggle("clean", on);
+}
 scene.add(toolbar.group);
 const hoverRay = new THREE.Raycaster();
 function updateToolbar() {
@@ -673,6 +755,8 @@ bar.step.onclick = toggleStep;
 bar.close.onclick = closeFocused;
 bar.reset.onclick = resetPressed;
 bar.info.onclick = () => ($("#overlay").hidden = !$("#overlay").hidden);
+bar.hide.onclick = () => setButtonsHidden(true);
+$("#showbar").onclick = () => setButtonsHidden(false);
 $("#bar").hidden = false; // only clickable once everything is wired up
 
 // ---------- Desktop controls (for building and testing without the headset) ----------
@@ -705,10 +789,11 @@ addEventListener("pointermove", (e) => {
   camera.rotation.set(pitch, yaw, 0, "YXZ");
 });
 addEventListener("keydown", (e) => {
-  if (e.code === "Space" && !e.repeat && e.target === document.body) (e.preventDefault(), startTalking());
-  if (e.code === "Backspace" && focusId && e.target === document.body) closePortal(focusId);
-  if (e.code === "KeyE" && e.target === document.body) immersion.inside ? stepOut() : stepInside(portals.get(focusId)?.portal);
+  if (e.code === "Space" && !e.repeat && !/INPUT|TEXTAREA/.test(e.target.tagName)) (e.preventDefault(), startTalking());
+  if (e.code === "Backspace" && focusId && !/INPUT|TEXTAREA/.test(e.target.tagName)) closePortal(focusId);
+  if (e.code === "KeyE" && !/INPUT|TEXTAREA/.test(e.target.tagName)) immersion.inside ? stepOut() : stepInside(portals.get(focusId)?.portal);
   if (e.code === "Escape") stepOut();
+  if (e.code === "KeyH" && !/INPUT|TEXTAREA/.test(e.target.tagName)) setButtonsHidden(!toolbar.collapsed);
 });
 addEventListener("keyup", (e) => e.code === "Space" && stopTalking());
 
@@ -740,7 +825,9 @@ async function setupXR() {
       previewRoom.visible = true;
       $("#overlay").hidden = false;
     });
-    flash("Pinch at a wall to open a window. Hold the orange orb (or A/X) to tell the story. Walk through a window, or press B/Y, to step inside.", 9000);
+    showTitle();
+    if (!portals.size) setTimeout(() => guide(0), 4500);
+    else guideStep = 2; // already mid-story: no tutorial
   };
 }
 setupXR();
@@ -755,13 +842,18 @@ renderer.setAnimationLoop(() => {
   checkWalking();
   immersion.update(t, dt);
   previewRoom.visible = !renderer.xr.isPresenting && !immersion.active;
-  exitOrb.visible = immersion.inside && renderer.xr.isPresenting;
+  exitOrb.visible = immersion.inside && renderer.xr.isPresenting && !toolbar.collapsed;
   updateToolbar();
   updateRipples();
+  updateTitle();
+  for (const { portal, stream } of portals.values()) {
+    portal.mask.visible = renderer.xr.isPresenting; // the "hole in the wall" only makes sense over passthrough
+    if (guideStep === 0 && stream.status === "streaming") guide(1);
+  }
   if (!renderer.xr.isPresenting) syncButtons();
   micOrb.position.y = -0.2 + Math.sin(t * 2) * 0.004;
   // The orb and in-view caption are headset UI; on desktop, Space and the status bar do the job.
-  micOrb.visible = renderer.xr.isPresenting;
+  micOrb.visible = renderer.xr.isPresenting && !toolbar.collapsed;
   if (!renderer.xr.isPresenting) toastMesh.visible = false;
   pollButtons();
   renderer.render(scene, camera);

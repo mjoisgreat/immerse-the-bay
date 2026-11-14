@@ -2,31 +2,29 @@ import * as THREE from "three";
 
 // "Step inside": one portal's live video becomes the world around you.
 //
-// Orbis is flat video, so a few tricks sell the depth:
-//  - Ground projection: the dome stays fixed where you stepped in, and everything below the
-//    horizon is flattened onto your real floor. Walking around gives true parallax underfoot.
-//  - Beyond the video's edges, a blurred mirror of the picture fades into the scene's average
-//    colour, so there are no hard borders or black voids when you turn around.
-//  - Motes drift around you at arm's length, tinted by the world's colours (near-field depth).
-//  - Entering and leaving get a soft whoosh and a controller buzz.
-const PHI = (210 * Math.PI) / 180; // horizontal arc covered by the video
-const THETA = PHI * (9 / 16); // vertical arc, keeps 16:9 proportions
-const RADIUS = 25;
+// Orbis is flat (perspective) video, so it is shown with the same perspective the camera had:
+// every direction you look is mapped onto the image as if it were a window at infinity, so
+// straight lines stay straight and scale feels right — you stand where the camera stood.
+// It covers your natural field of view ahead; past its edges, a soft blurred extension of the
+// picture fills your peripheral vision so there's no hard frame. It stays at "infinity" (follows
+// your head position, not your rotation), and motes drifting at arm's length give near depth.
+// A light sharpen and fine grain keep the upscaled video crisp instead of soft or blocky.
+const HFOV = (84 * Math.PI) / 180; // matches the "20 mm wide-angle" view the director asks Orbis for
+const TANH = Math.tan(HFOV / 2);
+const TANV = TANH * (9 / 16);
+const RADIUS = 30;
 const FADE_S = 1.4;
-const MOTES = 700;
+const MOTES = 500;
 
 const domeVert = /* glsl */ `
-uniform float floorH;
 varying vec3 vDir;
 void main() {
   vDir = position;
-  vec3 p = position;
-  if (p.y < -floorH) p *= -floorH / p.y; // flatten onto the floor
-  gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
 }`;
 
 const domeFrag = /* glsl */ `
-uniform sampler2D map; uniform float hasVideo; uniform float progress; uniform float time;
+uniform sampler2D map; uniform float hasVideo; uniform float progress; uniform float time; uniform vec2 texel;
 varying vec3 vDir;
 float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7))) * 43758.5453); }
 float noise(vec2 p){ vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);
@@ -34,24 +32,46 @@ float noise(vec2 p){ vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);
 vec2 mirror(vec2 u){ return 1.0 - abs(mod(u, 2.0) - 1.0); }
 void main(){
   vec3 d = normalize(vDir);
-  float lon = atan(d.x, -d.z);            // 0 straight ahead, + to the right
-  float lat = asin(clamp(d.y, -1.0, 1.0));
-  vec2 uv = vec2(0.5 + lon / ${PHI.toFixed(5)}, 0.5 + lat / ${THETA.toFixed(5)});
-  vec2 past = max(max(-uv, uv - 1.0), 0.0) * vec2(${PHI.toFixed(5)}, ${THETA.toFixed(5)}); // radians past each edge
-  float outside = length(past);
-  // Inside the frame: the picture. Outside: an ever blurrier mirror of it.
-  vec3 video = texture2D(map, outside > 0.0 ? mirror(uv) : uv, outside * 9.0).rgb;
-  vec3 avg = texture2D(map, vec2(0.5, 0.45), 14.0).rgb;
-  video = mix(video, avg * 0.8, smoothstep(0.15, 1.2, outside));
-  video *= mix(1.0, 0.45, smoothstep(0.2, 1.6, outside));
-  video = mix(video, avg * 0.45, 1.0 - smoothstep(-1.45, -0.95, lat)); // calm ground right at your feet
+  float fwd = -d.z;
+  // Perspective-correct: where this view direction meets the image plane.
+  vec2 plane = d.xy / max(fwd, 0.02);
+  vec2 uv = 0.5 + 0.5 * plane / vec2(${TANH.toFixed(5)}, ${TANV.toFixed(5)});
+  vec2 past = max(max(-uv, uv - 1.0), 0.0) * vec2(${(2 * TANH).toFixed(5)}, ${(2 * TANV).toFixed(5)});
+  float outside = fwd > 0.05 ? min(length(past), 3.0) : 3.0;
+
+  // The picture, lightly sharpened (contrast-adaptive) so upscaled frames stay crisp.
+  vec3 c = texture2D(map, uv).rgb;
+  vec3 n = texture2D(map, uv + vec2(0.0, texel.y)).rgb, s = texture2D(map, uv - vec2(0.0, texel.y)).rgb;
+  vec3 e = texture2D(map, uv + vec2(texel.x, 0.0)).rgb, w = texture2D(map, uv - vec2(texel.x, 0.0)).rgb;
+  vec3 mn = min(c, min(min(n, s), min(e, w))), mx = max(c, max(max(n, s), max(e, w)));
+  float amt = sqrt(clamp(min(mn.g, 1.0 - mx.g) / max(mx.g, 0.001), 0.0, 1.0)) * 0.22;
+  vec3 sharp = clamp((c + (c * 4.0 - n - s - e - w) * amt), 0.0, 1.0);
+
+  // Beyond the frame: a soft, ever blurrier extension of it fading into the scene's colour.
+  vec3 avg = texture2D(map, vec2(0.5, 0.5), 14.0).rgb;
+  // Edge colours smeared outward and heavily blurred (like ambient light), never a recognisable copy.
+  vec2 edgeUv = clamp(uv, 0.002, 0.998);
+  float edge = min(min(uv.x, 1.0 - uv.x), min(uv.y, 1.0 - uv.y));
+  float inFrame = outside > 0.0 ? 0.0 : smoothstep(0.0, 0.07, edge);
+  vec3 video = sharp;
+  if (inFrame < 1.0) {
+    vec3 ext = vec3(0.0);
+    float spread = 0.06 + outside * 0.08;
+    for (int i = -1; i <= 1; i++) for (int j = -1; j <= 1; j++)
+      ext += texture2D(map, clamp(edgeUv + vec2(float(i), float(j)) * spread, 0.0, 1.0), 5.0 + outside * 2.0).rgb;
+    ext /= 9.0;
+    ext = mix(ext, avg, smoothstep(0.05, 1.0, outside)) * mix(0.85, 0.3, smoothstep(0.0, 1.6, outside));
+    video = mix(ext, sharp, inFrame);
+  }
+  video += (hash(gl_FragCoord.xy + fract(time) * 91.0) - 0.5) * 0.022; // fine grain hides compression blocks
+
   // Before frames arrive: the same swirl the portal shows while a world forms.
-  float sw = noise(vec2(lon * 2.0 + time * 0.6, lat * 3.0 - time * 0.4));
+  float sw = noise(vec2(atan(d.x, -d.z) * 2.0 + time * 0.6, d.y * 3.0 - time * 0.4));
   vec3 forming = mix(vec3(0.05,0.07,0.18), vec3(0.95,0.62,0.30), smoothstep(0.35, 0.9, sw));
   vec3 col = mix(forming, video, hasVideo);
   // Iris that opens from straight ahead on entry and closes on exit, with a warm rim.
-  float ang = length(vec2(lon, lat));
-  float r = progress * 3.6;
+  float ang = acos(clamp(fwd, -1.0, 1.0));
+  float r = progress * 3.4;
   float iris = 1.0 - smoothstep(r - 0.35, r, ang);
   float rim = smoothstep(r - 0.5, r - 0.2, ang) * iris * (1.0 - progress);
   col += vec3(1.0, 0.7, 0.4) * rim * 1.5;
@@ -101,7 +121,7 @@ export class Immersion {
       hasVideo: { value: 0 },
       progress: { value: 0 },
       time: { value: 0 },
-      floorH: { value: 1.6 },
+      texel: { value: new THREE.Vector2(1 / 1280, 1 / 720) },
     };
     this.dome = new THREE.Mesh(
       new THREE.SphereGeometry(RADIUS, 128, 64),
@@ -112,11 +132,13 @@ export class Immersion {
         side: THREE.BackSide,
         transparent: true,
         depthWrite: false,
+        depthTest: false, // paint over the windows' wall masks
       }),
     );
     this.dome.renderOrder = -10; // behind every portal and UI element
     this.dome.frustumCulled = false;
-    this.world.add(this.dome);
+    this.dome.visible = false;
+    scene.add(this.dome); // at infinity: follows your head position, keeps the world's rotation
 
     // Motes in a ring around you (not right on top of your head).
     const pos = new Float32Array(MOTES * 3), seed = new Float32Array(MOTES);
@@ -174,7 +196,7 @@ export class Immersion {
     const dx = at.x - eye.x, dz = at.z - eye.z;
     this.world.position.copy(eye);
     this.world.rotation.set(0, Math.atan2(-dx, -dz), 0);
-    this.uniforms.floorH.value = Math.max(0.8, eye.y); // local-floor: the real floor is y = 0
+    this.dome.rotation.copy(this.world.rotation);
     this.forward.set(dx, 0, dz).normalize();
     this.entryEye.copy(eye);
     portal.setImmersed(true);
@@ -199,6 +221,7 @@ export class Immersion {
     this.inside = false;
     this.progress = 0;
     this.world.visible = false;
+    this.dome.visible = false;
     if (was) this.onChange(null);
   }
 
@@ -210,8 +233,9 @@ export class Immersion {
   /** Where a world-space direction lands in the video (u right, v up), or null if past its edges. */
   uvFromDirection(dir) {
     const d = dir.clone().applyQuaternion(this.world.quaternion.clone().invert()).normalize();
-    const u = 0.5 + Math.atan2(d.x, -d.z) / PHI;
-    const v = 0.5 + Math.asin(Math.max(-1, Math.min(1, d.y))) / THETA;
+    if (-d.z < 0.05) return null;
+    const u = 0.5 + (0.5 * (d.x / -d.z)) / TANH;
+    const v = 0.5 + (0.5 * (d.y / -d.z)) / TANV;
     return u >= 0 && u <= 1 && v >= 0 && v <= 1 ? { x: u, y: v } : null;
   }
 
@@ -274,6 +298,12 @@ export class Immersion {
     this.uniforms.time.value = t;
     this.moteMat.uniforms.opacity.value = Math.max(0, eased - 0.3) / 0.7;
     this.world.visible = this.progress > 0;
+    this.dome.visible = this.world.visible;
+    if (this.dome.visible) {
+      this.camera.getWorldPosition(this.dome.position);
+      const v = this.video;
+      if (v?.videoWidth) this.uniforms.texel.value.set(1 / v.videoWidth, 1 / v.videoHeight);
+    }
     if (this.portal) {
       // The window you walked through disappears once the world is around you.
       this.portal.group.visible = this.progress < 0.55;

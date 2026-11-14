@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Living Window Theater</title>
+    <style>
+      :root { --warm: #ffb36b; --warm2: #ffd08a; --text: #f3ead8; --muted: #a9b0c6; --bg: #07080d; }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); overflow: hidden;
+        font-family: system-ui, -apple-system, sans-serif; }
+      #ambient { position: fixed; inset: -8%; background-size: cover; background-position: center; filter: blur(60px) saturate(1.4) brightness(.45);
+        transition: background-image 1.5s ease; }
+      .stage { position: relative; height: 100%; display: grid; grid-template-rows: auto 1fr auto; gap: 1.2vh; padding: 2.4vh 2.6vw; }
+      header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+      .brand { display: flex; align-items: baseline; gap: 1rem; min-width: 0; }
+      .brand h1 { margin: 0; font: 500 clamp(1.4rem, 2.6vw, 2.6rem) Georgia, serif; color: var(--warm2); text-shadow: 0 0 30px #ff9a5a66; white-space: nowrap; }
+      .brand span { font: italic clamp(.9rem, 1.4vw, 1.4rem) Georgia, serif; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .pills { display: flex; gap: .6rem; flex: none; }
+      .pill { padding: .35rem .9rem; border-radius: 999px; background: #ffffff14; border: 1px solid #ffffff22; font-size: clamp(.75rem, 1vw, 1rem); }
+      .pill.live { background: #7fd89a; color: #07080d; border-color: #7fd89a; font-weight: 700; }
+      .pill.inside { background: #ff9a5a; color: #1b1206; border-color: #ff9a5a; font-weight: 700; animation: glow 2s ease-in-out infinite; }
+      @keyframes glow { 50% { box-shadow: 0 0 24px #ff9a5a; } }
+      .main { display: grid; grid-template-columns: minmax(0, 1fr) clamp(180px, 19vw, 360px); gap: 1.6vw; min-height: 0; }
+      .screen { position: relative; border-radius: 22px; overflow: hidden; background: #0e1120; min-height: 0;
+        box-shadow: 0 0 0 1px #ffd08a55, 0 0 60px #ff9a5a33, 0 30px 80px #000a; }
+      .screen img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity 1.2s ease;
+        animation: drift 24s ease-in-out infinite alternate; }
+      .screen img.on { opacity: 1; }
+      @keyframes drift { from { transform: scale(1.02) translate(0, 0); } to { transform: scale(1.09) translate(-1.5%, -1%); } }
+      .screen .empty { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; color: var(--muted);
+        font: italic clamp(1rem, 2vw, 2rem) Georgia, serif; padding: 2rem; }
+      [hidden] { display: none !important; }
+      .screen .tag { position: absolute; left: 1rem; top: 1rem; z-index: 2; }
+      .speech { position: absolute; left: 50%; bottom: 4%; transform: translate(-50%, 20px); width: min(86%, 1100px); z-index: 3; opacity: 0;
+        transition: opacity .6s ease, transform .6s ease; background: #0b0d18d9; border: 1px solid #ffd08a66; border-radius: 18px;
+        padding: 1.1rem 1.5rem; backdrop-filter: blur(8px); }
+      .speech.on { opacity: 1; transform: translate(-50%, 0); }
+      .speech b { display: block; color: var(--warm); font-size: clamp(.8rem, 1.1vw, 1.1rem); letter-spacing: .08em; text-transform: uppercase; margin-bottom: .3rem; }
+      .speech q { font: italic clamp(1.1rem, 2.1vw, 2.2rem)/1.3 Georgia, serif; }
+      aside { display: flex; flex-direction: column; gap: 1.2vh; min-height: 0; }
+      .thumbs { display: flex; flex-direction: column; gap: 1vh; }
+      .thumb { position: relative; border-radius: 12px; overflow: hidden; aspect-ratio: 16 / 9; background: #0e1120; border: 1px solid #ffffff22; }
+      .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+      .thumb span { position: absolute; left: .4rem; bottom: .3rem; font-size: .75rem; background: #000a; padding: .05rem .45rem; border-radius: 999px; }
+      .card { background: #0b0d18cc; border: 1px solid #ffffff1f; border-radius: 16px; padding: 1rem; backdrop-filter: blur(8px); }
+      .card h2 { margin: 0 0 .6rem; font-size: clamp(.7rem, .85vw, .9rem); letter-spacing: .1em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+      .qr { margin-top: auto; text-align: center; }
+      .qr img { width: 100%; max-width: 220px; border-radius: 10px; background: #fff; padding: 8px; }
+      .qr p { margin: .5rem 0 0; font-size: clamp(.8rem, 1vw, 1rem); }
+      .ideas div { display: flex; gap: .6rem; align-items: baseline; padding: .3rem 0; font-size: clamp(.8rem, 1vw, 1.05rem); }
+      .ideas em { color: var(--warm); font-style: normal; font-weight: 700; min-width: 2.2rem; }
+      footer { display: grid; gap: .9vh; justify-items: center; text-align: center; }
+      .narration { font: italic clamp(1.2rem, 2.5vw, 2.7rem)/1.25 Georgia, serif; color: #ffe9c7; text-shadow: 0 2px 20px #000; min-height: 1.3em;
+        transition: opacity .8s ease; max-width: 1400px; }
+      .choices { display: flex; gap: .8rem; flex-wrap: wrap; justify-content: center; min-height: 2.4rem; align-items: center; }
+      .choices .label { color: var(--muted); font-size: clamp(.75rem, .95vw, 1rem); letter-spacing: .08em; text-transform: uppercase; }
+      .choice { padding: .45rem 1.1rem; border-radius: 999px; border: 1px solid #ffd08a88; background: #281e3ccc;
+        font: italic clamp(.9rem, 1.3vw, 1.35rem) Georgia, serif; animation: pop .5s ease both; }
+      .choice:nth-child(3) { animation-delay: .1s; } .choice:nth-child(4) { animation-delay: .2s; }
+      @keyframes pop { from { opacity: 0; transform: translateY(10px) scale(.96); } }
+      #start { position: fixed; right: 1rem; bottom: 1rem; z-index: 9; font: 600 .85rem system-ui; padding: .5rem .9rem; border-radius: 999px;
+        border: 1px solid #ffffff33; background: #0b0d18cc; color: var(--text); cursor: pointer; }
+      .gate { position: fixed; inset: 0; display: grid; place-items: center; text-align: center; padding: 2rem; }
+      .gate input { font: inherit; padding: .7rem 1rem; border-radius: 12px; border: 1px solid #ffffff33; background: #0b0d18; color: var(--text); }
+      .gate button { font: 600 1rem system-ui; padding: .7rem 1.2rem; border-radius: 12px; border: 0; background: var(--warm); color: #1b1206; cursor: pointer; }
+      @media (max-width: 760px) { .main { grid-template-columns: 1fr; } aside { display: none; } }
+    </style>
+  </head>
+  <body>
+    <div id="ambient"></div>
+    <form class="gate" id="gate" hidden>
+      <div>
+        <h1 style="font:500 2.4rem Georgia,serif;color:#ffd08a">Living Window Theater</h1>
+        <p style="color:#a9b0c6">Show a room's story full screen, for an audience or a judging table.</p>
+        <input id="gateRoom" placeholder="Room, e.g. amber-fox-42" autocomplete="off" /> <button>Show</button>
+      </div>
+    </form>
+    <div class="stage" id="stage" hidden>
+      <header>
+        <div class="brand"><h1>Living Window</h1><span id="title"></span></div>
+        <div class="pills"><span class="pill" id="inside" hidden>Storyteller is inside the world</span><span class="pill" id="live">offline</span></div>
+      </header>
+      <div class="main">
+        <div class="screen" id="screen">
+          <img id="imgA" alt="" /><img id="imgB" alt="" />
+          <div class="empty" id="empty">Waiting for the storyteller to open a window…</div>
+          <div class="speech" id="speech"><b id="speaker"></b><q id="line"></q></div>
+        </div>
+        <aside>
+          <div class="thumbs" id="thumbs"></div>
+          <div class="card ideas" id="ideasCard" hidden><h2>Audience ideas</h2><div id="ideas"></div></div>
+          <div class="card qr"><h2>Join the story</h2><img id="qr" alt="QR code to the watch page" /><p>Scan to suggest and vote on what happens next</p></div>
+        </aside>
+      </div>
+      <footer>
+        <div class="narration" id="narration"></div>
+        <div class="choices" id="choices"></div>
+      </footer>
+    </div>
+    <button id="start" hidden>Full screen</button>
+    <script type="module" src="/src/theater.js"></script>
+  </body>
+</html>

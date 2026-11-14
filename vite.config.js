@@ -15,6 +15,7 @@ export default defineConfig({
         main: resolve("index.html"),
         console: resolve("console.html"),
         watch: resolve("watch.html"),
+        theater: resolve("theater.html"),
         community: resolve("community.html"),
       } },
   },

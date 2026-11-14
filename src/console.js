@@ -56,6 +56,7 @@ function open(r, me) {
   $("#app").hidden = false;
   $("#roomPill").textContent = `room ${room}`;
   $("#watchLink").textContent = `${location.origin}/watch.html?room=${room}`;
+  $("#theaterLink").textContent = `${location.origin}/theater.html?room=${room}`;
   if (me.invite) $("#inviteLink").textContent = `${location.origin}/watch.html?room=${room}&invite=${me.invite}`;
   link = createLink(room, {
     onOpen: () => ($("#conn").textContent = "connected"),

@@ -34,6 +34,10 @@
       #bar button:hover { border-color: #ffd08a; }
       #bar button.on { background: #ff9a5a; color: #1b1206; }
       #bar button.warn { background: #c8483a; border-color: #ff8a7a; }
+      #showbar { display: none; position: fixed; right: 1rem; bottom: 1rem; font: 600 .85rem system-ui, sans-serif; padding: .5rem .9rem;
+        background: rgba(16, 20, 34, .7); color: #fff3e0; border: 1px solid #ffb36b55; }
+      body.clean #bar, body.clean #choices { display: none; }
+      body.clean #showbar { display: block; }
       #choices { position: fixed; left: 50%; bottom: 7.4rem; transform: translateX(-50%); display: flex; gap: .5rem; flex-wrap: wrap;
         justify-content: center; max-width: calc(100vw - 2rem); }
       #choices:empty { display: none; }
@@ -61,7 +65,9 @@
       <button data-act="close">Close window</button>
       <button data-act="reset">Reset story</button>
       <button data-act="info">Room info</button>
+      <button data-act="hide">Hide buttons</button>
     </div>
+    <button id="showbar">☰ Buttons</button>
     <script type="module" src="/src/main.js"></script>
   </body>
 </html>

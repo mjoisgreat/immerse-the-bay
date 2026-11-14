@@ -1,6 +1,105 @@
 import * as THREE from "three";
 
 const W = 1.6, H = 0.9; // metres, 16:9 like Orbis output
+const DEPTH = 0.32; // how far the picture sits "inside" the wall
+
+// The tunnel walls between the wall opening and the picture: light from the world spills onto them.
+const tunnelVert = /* glsl */ `
+attribute vec2 videoUv; attribute float front;
+varying vec2 vVideoUv; varying float vFront;
+void main() { vVideoUv = videoUv; vFront = front; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`;
+const tunnelFrag = /* glsl */ `
+uniform sampler2D map; uniform float hasVideo; uniform float reveal;
+varying vec2 vVideoUv; varying float vFront;
+void main() {
+  vec3 spill = texture2D(map, vVideoUv, 3.0).rgb;
+  vec3 dark = vec3(0.03, 0.035, 0.07);
+  vec3 lit = mix(vec3(0.25, 0.16, 0.10), spill, hasVideo);
+  vec3 col = mix(lit * 0.75, dark, smoothstep(0.0, 1.0, vFront)); // bright near the picture, dark at the rim
+  col += vec3(1.0, 0.7, 0.42) * pow(vFront, 12.0) * 0.35; // warm lip at the opening
+  gl_FragColor = vec4(col * (0.4 + 0.6 * reveal), 1.0);
+}`;
+
+function tunnelGeometry() {
+  const x = W / 2, y = H / 2, d = -DEPTH, e = 0.02;
+  // Each side: front-a, front-b, back-b, back-a, plus which video edge lights it.
+  const sides = [
+    [[-x, y], [x, y], (t) => [t, 1 - e]],
+    [[x, -y], [-x, -y], (t) => [1 - t, e]],
+    [[-x, -y], [-x, y], (t) => [e, t]],
+    [[x, y], [x, -y], (t) => [1 - e, 1 - t]],
+  ];
+  const pos = [], uv = [], front = [], idx = [];
+  sides.forEach(([a, b, edge], i) => {
+    const N = 12; // segments along each side, so the spill follows the picture
+    for (let k = 0; k <= N; k++) {
+      const t = k / N, px = a[0] + (b[0] - a[0]) * t, py = a[1] + (b[1] - a[1]) * t;
+      pos.push(px, py, 0, px, py, d);
+      uv.push(...edge(t), ...edge(t));
+      front.push(1, 0);
+      if (k < N) {
+        const o = (i * (N + 1) + k) * 2;
+        idx.push(o, o + 1, o + 2, o + 1, o + 3, o + 2);
+      }
+    }
+  });
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute("videoUv", new THREE.Float32BufferAttribute(uv, 2));
+  g.setAttribute("front", new THREE.Float32BufferAttribute(front, 1));
+  g.setIndex(idx);
+  return g;
+}
+
+// A wall around the opening that only writes depth: the real room (passthrough) hides the tunnel
+// and the recessed picture except through the hole, so it looks cut into your wall, with parallax.
+function maskGeometry() {
+  const outer = new THREE.Shape([
+    new THREE.Vector2(-1.6, -1.2), new THREE.Vector2(1.6, -1.2), new THREE.Vector2(1.6, 1.2), new THREE.Vector2(-1.6, 1.2),
+  ]);
+  outer.holes.push(new THREE.Path([
+    new THREE.Vector2(-W / 2, -H / 2), new THREE.Vector2(-W / 2, H / 2), new THREE.Vector2(W / 2, H / 2), new THREE.Vector2(W / 2, -H / 2),
+  ]));
+  return new THREE.ShapeGeometry(outer);
+}
+
+// Sparks that burst out of a window when it opens.
+const burstVert = /* glsl */ `
+attribute vec3 vel; attribute float seed;
+uniform float age;
+varying float vA;
+void main() {
+  float t = age * (0.7 + seed * 0.6);
+  vec3 p = position + vel * (1.0 - exp(-t * 2.2)) + vec3(0.0, -0.12 * t * t, 0.0);
+  vA = clamp(1.0 - t / 1.8, 0.0, 1.0);
+  vec4 mv = modelViewMatrix * vec4(p, 1.0);
+  gl_PointSize = (40.0 + 60.0 * seed) / -mv.z;
+  gl_Position = projectionMatrix * mv;
+}`;
+const burstFrag = /* glsl */ `
+varying float vA;
+void main() {
+  float d = length(gl_PointCoord - 0.5);
+  float a = smoothstep(0.5, 0.0, d);
+  gl_FragColor = vec4(mix(vec3(1.0, 0.55, 0.25), vec3(1.0, 0.95, 0.8), a), a * a * vA);
+}`;
+function burstPoints() {
+  const N = 260, pos = [], vel = [], seed = [];
+  for (let i = 0; i < N; i++) {
+    // Start on the rim of the opening, fly outward and toward the viewer.
+    const t = Math.random() * 4, side = Math.floor(t), f = t - side;
+    const p = [[-W / 2 + f * W, H / 2], [W / 2, H / 2 - f * H], [W / 2 - f * W, -H / 2], [-W / 2, -H / 2 + f * H]][side];
+    pos.push(p[0], p[1], 0.01);
+    const out = new THREE.Vector3(p[0], p[1], 0).normalize();
+    vel.push(out.x * (0.15 + Math.random() * 0.35), out.y * (0.15 + Math.random() * 0.35), 0.15 + Math.random() * 0.6);
+    seed.push(Math.random());
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute("vel", new THREE.Float32BufferAttribute(vel, 3));
+  g.setAttribute("seed", new THREE.Float32BufferAttribute(seed, 1));
+  return g;
+}
 
 const screenVert = /* glsl */ `
 varying vec2 vUv;
@@ -80,7 +179,7 @@ export class Portal {
       uniforms: { color: { value: new THREE.Color(0xffb36b) }, strength: { value: 0.6 }, time: { value: 0 } },
     });
     const glow = new THREE.Mesh(new THREE.PlaneGeometry(W + 0.5, H + 0.5), this.glowMat);
-    glow.position.z = -0.005;
+    glow.position.z = 0.004; // just in front of the wall opening
     this.group.add(glow);
 
     // Caption panel under the portal (status, then the storyteller's line).
@@ -91,8 +190,37 @@ export class Portal {
       new THREE.PlaneGeometry(W, W * (192 / 1024)),
       new THREE.MeshBasicMaterial({ map: this.captionTex, transparent: true, depthWrite: false }),
     );
-    cap.position.y = -H / 2 - 0.2;
+    cap.position.set(0, -H / 2 - 0.2, 0.01);
     this.group.add(cap);
+
+    // Depth: the picture sits inside the wall, behind an opening, with lit tunnel walls.
+    // (Added after the caption: the in-headset toast borrows children[2].)
+    this.screen.position.z = -DEPTH;
+    const back = new THREE.Mesh(new THREE.PlaneGeometry(W, H), new THREE.MeshBasicMaterial({ color: 0x05060c }));
+    back.position.z = -DEPTH - 0.005;
+    this.group.add(back);
+    this.tunnelMat = new THREE.ShaderMaterial({
+      vertexShader: tunnelVert,
+      fragmentShader: tunnelFrag,
+      side: THREE.DoubleSide,
+      uniforms: { map: this.screenMat.uniforms.map, hasVideo: this.screenMat.uniforms.hasVideo, reveal: this.screenMat.uniforms.reveal },
+    });
+    this.group.add(new THREE.Mesh(tunnelGeometry(), this.tunnelMat));
+    this.mask = new THREE.Mesh(maskGeometry(), new THREE.MeshBasicMaterial({ colorWrite: false }));
+    this.mask.renderOrder = -20; // before everything, so it hides what's "inside the wall"
+    this.group.add(this.mask);
+
+    this.burstMat = new THREE.ShaderMaterial({
+      vertexShader: burstVert,
+      fragmentShader: burstFrag,
+      uniforms: { age: { value: 0 } },
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    });
+    this.burst = new THREE.Points(burstPoints(), this.burstMat);
+    this.burst.frustumCulled = false;
+    this.group.add(this.burst);
     this.setCaption("The world is forming…", "status");
 
     this.listener = listener;
@@ -165,6 +293,8 @@ export class Portal {
     this.glowMat.uniforms.time.value = t;
     const age = (performance.now() - this.created) / 1000;
     this.screenMat.uniforms.reveal.value = Math.min(1, age / 1.4);
+    this.burstMat.uniforms.age.value = age;
+    if (this.burst.visible && age > 3) this.burst.visible = false;
   }
 
   dispose() {

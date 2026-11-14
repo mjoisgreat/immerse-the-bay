@@ -44,6 +44,18 @@ npm run stt            # second terminal: local Whisper speech-to-text on :8790
   vote every 20 seconds.
 * **Co-narrators:** the console's invite link lets a friend type or speak lines into the story.
 
+## Demo setup for judges
+
+* **Theater view** (`/theater.html?room=…`, linked from the headset start card and the console): a full-screen
+  page for a TV or projector next to the headset. Live window frames cross-fade large with a slow drift, the
+  narration runs as subtitles, character lines appear as captions, the director's choices and the top audience
+  ideas are shown, and a QR code lets anyone join from their phone to suggest and vote.
+* **First-time guide:** entering MR shows a "Living Window" title card, then a narrator voice walks a new
+  person through it: open a window, tell the story, touch it or step inside.
+* **Windows cut into your wall:** each picture sits 32 cm inside the wall behind an opening (a depth-only mask
+  over passthrough), with tunnel walls lit by the scene's own colours, so moving your head gives real parallax.
+  Sparks burst from the rim when a window opens.
+
 ## Interactive story
 
 * **Choices:** after every beat the director offers 2–3 options for what happens next (gentle, surprising,
@@ -62,6 +74,8 @@ A button panel floats just below your gaze and follows you when you turn or walk
 pull the trigger (or pinch): **Hold to talk**, **New window**, **Step inside / Step out**, **Close window**,
 **Reset story** (tap twice: starts the story over from its seed and closes all windows). The same buttons sit
 at the bottom of the screen on desktop, plus **Room info**; the director console has Reset too.
+**Hide buttons** (or click a thumbstick, or press H on desktop) leaves just a small **☰ Buttons** handle; point at it
+to bring them back.
 
 
 | Action | Hands | Touch controllers |
@@ -73,11 +87,13 @@ at the bottom of the screen on desktop, plus **Room info**; the director console
 | Step inside a portal | Walk through it, or pinch it and pull it toward you | Walk through it, or press B / Y |
 | Step back out | Walk back ~60 cm, or pinch the blue ring | Walk back, or press B / Y |
 
-**Step inside:** the portal's live video wraps around you and your room fades away. Below the horizon the
-picture is projected onto your real floor, so walking around gives real parallax underfoot; glowing motes in
-the world's colours drift around you, and the edges blur softly instead of ending. The director is told you're
-inside and reframes that world as an eye-level, first-person shot with things happening around you. Your lines
-keep steering it, and other portals float inside as doors (walk into one to switch).
+**Step inside:** the portal's video becomes the world around you, shown with the same perspective the camera
+had (as if you stand exactly where it stood), so straight lines stay straight and scale feels right: no
+stretching or warping. It fills your view ahead; past its edges a soft, blurred glow of the scene fills your
+peripheral vision. The director is told you're inside and asks Orbis for an eye-level 20 mm wide-angle view
+that matches, a light sharpen keeps the video crisp, and motes drift around you at arm's length. The buttons
+tuck away automatically while you're inside. Your lines keep steering it, and other portals float inside as
+doors (walk into one to switch).
 On desktop: double-click a portal (or press E) to go in, Esc to come out.
 
 ## How it works

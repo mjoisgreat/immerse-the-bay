@@ -126,7 +126,7 @@ export async function snapshotPost(store, body) {
   if (role !== "owner") return err(403, "owner only");
   const id = String(body.id || "").slice(0, 4);
   const data = String(body.data || "");
-  if (!/^[A-F]$/.test(id) || !data.startsWith("data:image/jpeg;base64,") || data.length > 80_000) return err(400, "bad snapshot");
+  if (!/^[A-F]$/.test(id) || !data.startsWith("data:image/jpeg;base64,") || data.length > 140_000) return err(400, "bad snapshot");
   await store.setSnapshot(room, id, data);
   return ok({ ok: true });
 }

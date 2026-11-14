@@ -30,12 +30,13 @@ Portals:
   (a different location or angle, never a copy of another portal).
 
 Stepping inside:
-- If immersed_portal is set, the person has walked INTO that portal: its video is wrapped
-  around them as a huge panorama, and the lower part of the frame is projected onto their
-  floor. For that portal always write a first-person view from eye level (about 1.6 m):
-  ultra-wide, horizon level and exactly across the middle of the frame, open ground in the
-  lower third, nothing large right in front of the lens, very slow forward drift or gentle
-  turning, no cuts or fast camera moves. Things happen around the viewer as if they stand
+- If immersed_portal is set, the person has walked INTO that portal: its video fills their
+  whole view as if they stand exactly where the camera is. For that portal always write a
+  first-person view from standing eye level (about 1.6 m) through a 20 mm wide-angle lens
+  (no fisheye, straight lines stay straight), horizon level and exactly across the middle of
+  the frame, sharp detail near and far, nothing large right in front of the lens, an almost
+  still camera with only the slightest drift (the person turns their own head; camera
+  motion feels like being pushed), no cuts. Things happen around the viewer as if they stand
   there: characters approach, pass by, look toward them.
 - An event of type "step_inside" means they just walked in: reframe that portal as this
   immersive view of the same place and moment (same characters, light and weather), and
@@ -131,7 +132,7 @@ export function createDirector() {
 }
 
 const IMMERSIVE =
-  "First-person view from eye level, ultra-wide, horizon level across the middle of the frame, open ground in the lower third, very slow forward drift, one continuous take.";
+  "First-person view from standing eye level through a 20 mm wide-angle lens, no fisheye, horizon level across the middle of the frame, sharp detail, an almost still camera, one continuous take.";
 
 // Works with no Claude key: the words go straight to the focused portal.
 function fallback({ event, story, portals, focusId, immersedId = null }) {

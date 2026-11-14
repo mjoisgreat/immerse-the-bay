@@ -2,7 +2,7 @@ import * as THREE from "three";
 
 // A floating button panel for the headset. It rests below your gaze, follows you lazily when you
 // turn or walk away, and is pressed by pointing (controller trigger or hand pinch).
-const BW = 0.15, BH = 0.085, GAP = 0.012;
+const BW = 0.135, BH = 0.08, GAP = 0.01;
 
 function drawButton(canvas, { icon, label, state }) {
   const g = canvas.getContext("2d");
@@ -74,13 +74,56 @@ export class Toolbar {
       this.group.add(mesh);
       this.choiceMeshes.push(mesh);
     }
+
+    // When hidden, only a small "☰ Buttons" handle remains; point at it to bring them back.
+    this.collapsed = false;
+    this.handleCanvas = Object.assign(document.createElement("canvas"), { width: 360, height: 110 });
+    this.handleTex = new THREE.CanvasTexture(this.handleCanvas);
+    this.handleTex.colorSpace = THREE.SRGBColorSpace;
+    this.handle = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.13, 0.04),
+      new THREE.MeshBasicMaterial({ map: this.handleTex, transparent: true, depthTest: false, opacity: 0.85 }),
+    );
+    this.handle.renderOrder = 20;
+    this.handle.userData.button = "__show";
+    this.handle.visible = false;
+    this.group.add(this.handle);
+    this._drawHandle();
+  }
+
+  _drawHandle() {
+    const g = this.handleCanvas.getContext("2d"), w = 360, h = 110;
+    g.clearRect(0, 0, w, h);
+    g.fillStyle = "rgba(16,20,34,0.8)";
+    g.strokeStyle = "rgba(255,179,107,0.6)";
+    g.lineWidth = 4;
+    g.beginPath();
+    g.roundRect(3, 3, w - 6, h - 6, 50);
+    g.fill();
+    g.stroke();
+    g.fillStyle = "#fff3e0";
+    g.textAlign = "center";
+    g.textBaseline = "middle";
+    const n = this.choices.length;
+    g.font = "600 40px system-ui, sans-serif";
+    g.fillText(n ? `☰  ${n} choices` : "☰  Buttons", w / 2, h / 2 + 2);
+    this.handleTex.needsUpdate = true;
+  }
+
+  setCollapsed(on) {
+    this.collapsed = Boolean(on);
+    for (const m of this.meshes) m.visible = !this.collapsed;
+    this.choiceMeshes.forEach((m, i) => (m.visible = !this.collapsed && Boolean(this.choices[i])));
+    this.handle.visible = this.collapsed;
+    this._drawHandle();
   }
 
   /** Shows the director's options (or hides them with an empty list). */
   setChoices(list) {
     this.choices = list || [];
+    this._drawHandle();
     this.choiceMeshes.forEach((m, i) => {
-      m.visible = Boolean(this.choices[i]);
+      m.visible = !this.collapsed && Boolean(this.choices[i]);
       m.userData.hovered = false;
       if (m.visible) this._drawChoice(m);
     });
@@ -139,10 +182,12 @@ export class Toolbar {
   }
 
   get targets() {
+    if (this.collapsed) return [this.handle];
     return [...this.meshes, ...this.choiceMeshes.filter((m) => m.visible)];
   }
 
   press(id, ctrl) {
+    if (id === "__show") return this.setCollapsed(false);
     this.buttons.get(id)?.press?.(ctrl);
   }
 
