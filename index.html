@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Living Window</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #0b0e16; color: #f3ead8; font-family: Georgia, serif; overflow: hidden; }
+      canvas { display: block; }
+      #overlay { position: fixed; inset: 0; display: grid; place-items: center; pointer-events: none; }
+      .card { pointer-events: auto; max-width: 30rem; margin: 1rem; padding: 2rem; text-align: center;
+        background: rgba(12, 14, 24, 0.82); border: 1px solid #ffb36b55; border-radius: 1.25rem; }
+      h1 { margin: 0 0 .5rem; font-weight: 500; letter-spacing: .02em; }
+      p { margin: .25rem 0 1.25rem; opacity: .8; line-height: 1.5; }
+      button { font: inherit; font-size: 1.15rem; padding: .8rem 1.6rem; border-radius: 999px; border: 0; cursor: pointer;
+        background: linear-gradient(135deg, #ffd08a, #ff9a5a); color: #1b1206; }
+      button:disabled { opacity: .55; cursor: default; }
+      #status { position: fixed; left: 50%; bottom: 1rem; transform: translateX(-50%); padding: .5rem 1rem; border-radius: 999px;
+        background: rgba(12, 14, 24, 0.75); font-size: .95rem; max-width: 90vw; text-align: center; }
+      #hint { font-size: .85rem; opacity: .6; margin-top: 1rem; }
+    </style>
+  </head>
+  <body>
+    <div id="overlay">
+      <div class="card">
+        <h1>Living Window</h1>
+        <p>Tell a story out loud, and your room becomes it, live.</p>
+        <button id="enter">Enter Living Window</button>
+        <div id="hint">Desktop: click empty space to open a portal, drag to look, hold Space to talk.</div>
+      </div>
+    </div>
+    <div id="status">Ready</div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
