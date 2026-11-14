@@ -3,7 +3,7 @@
 import crypto from "node:crypto";
 import { createDirector } from "./director.js";
 import { reduce, allowed, askDirector, applyDirection, summary, MAX_PORTALS } from "./core.js";
-import { mintOrbisToken, endOrbisSession, transcribe } from "./services.js";
+import { mintOrbisToken, endOrbisSession, transcribe, speak } from "./services.js";
 
 const director = createDirector();
 const hash = (v) => crypto.createHash("sha256").update(String(v)).digest("hex");
@@ -97,6 +97,17 @@ export async function token(store, body) {
 export async function sessionCleanup(body) {
   await endOrbisSession(body?.sessionId, body?.jwt);
   return { status: 204, body: null };
+}
+
+/** Character voices: only the room's headset may spend speech credits. */
+export async function voice(store, body) {
+  const room = roomOf(body.room);
+  const { role } = await roleOf(store, room, body.cred);
+  if (role !== "owner") return err(403, "owner only");
+  const text = String(body.text || "").trim().slice(0, 300);
+  if (!text) return err(400, "text required");
+  const audio = await speak(text, String(body.speaker || "").slice(0, 60), String(body.voice || "").slice(0, 200));
+  return { status: 200, body: audio, type: "audio/mpeg" };
 }
 
 /** Speech-to-text for people allowed to narrate (owner, console, co-narrators). */

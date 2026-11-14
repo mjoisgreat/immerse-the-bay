@@ -10,6 +10,7 @@ if (!room) location.replace("/community.html");
 
 $("#roomPill").textContent = room;
 let state = null;
+let canNarrate = false;
 const link = createLink(room, {
   onMessage(m) {
     if (m.t === "state") render((state = m));
@@ -19,7 +20,11 @@ const link = createLink(room, {
 
 // Am I a co-narrator (invite link)?
 link.request({ t: "whoami" }).then((me) => {
-  if (["co", "owner", "console"].includes(me.role)) $("#coPanel").hidden = false;
+  if (["co", "owner", "console"].includes(me.role)) {
+    $("#coPanel").hidden = false;
+    canNarrate = true;
+    if (state) render(state);
+  }
 });
 
 function render(s) {
@@ -33,7 +38,19 @@ function render(s) {
     ? "Crowd Mode is on: the top-voted idea becomes the next scene every 20 seconds."
     : "The storyteller picks from the most-voted ideas.";
 
-  const feed = (s.log || []).filter((l) => ["director", "voice", "guest", "crowd"].includes(l.kind));
+  const choices = s.choices || [];
+  $("#nextBox").hidden = !choices.length;
+  $("#nextLabel").textContent = canNarrate ? "Pick what happens next" : "What could happen next (the storyteller picks)";
+  $("#choices").innerHTML = choices
+    .map((c, i) =>
+      canNarrate
+        ? `<button class="ghost" data-choose="${i}" style="font-style:italic">→ ${esc(c)}</button>`
+        : `<span class="pill" style="font-style:italic">${esc(c)}</span>`,
+    )
+    .join("");
+
+  const kinds = { voice: "storyteller", guest: "co-narrator", crowd: "crowd", choice: "chosen", touch: "touch" };
+  const feed = (s.log || []).filter((l) => ["director", "speech", ...Object.keys(kinds)].includes(l.kind));
   $("#feed").innerHTML = feed.length
     ? feed
         .slice()
@@ -41,7 +58,9 @@ function render(s) {
         .map((l) =>
           l.kind === "director"
             ? `<li class="story">${esc(l.text.replace(/\s*\(\d+ ms.*\)$/, ""))}</li>`
-            : `<li><b>${{ voice: "storyteller", guest: "co-narrator", crowd: "crowd" }[l.kind]}</b>${esc(l.text)}</li>`,
+            : l.kind === "speech"
+              ? `<li class="story" style="font-style:normal">💬 ${esc(l.text)}</li>`
+              : `<li><b>${kinds[l.kind]}</b>${esc(l.text)}</li>`,
         )
         .join("")
     : `<li class="muted">Nothing yet.</li>`;
@@ -88,6 +107,10 @@ $("#suggest").addEventListener("submit", async (e) => {
   if (!text) return;
   $("#idea").value = "";
   await link.request({ t: "suggest", text });
+});
+$("#choices").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-choose]");
+  if (b) link.request({ t: "choose", index: Number(b.dataset.choose) });
 });
 $("#suggs").addEventListener("click", (e) => {
   const b = e.target.closest("[data-vote]");

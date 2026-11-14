@@ -12,6 +12,7 @@ export function initialState() {
     portals: [], // [{ id, prompt, status }]
     focusId: null,
     immersedId: null, // the portal the storyteller has stepped inside, if any
+    choices: [], // what could happen next, offered by the director
     rendererId: null, // the owner's headset page that currently drives the streams
     meta: { title: "", shared: false, crowd: false },
     suggestions: [], // [{ id, text, voters: [voterId], at }]
@@ -21,9 +22,9 @@ export function initialState() {
 }
 
 /** Who may send which message. Roles come from the room's credentials (see api.js). */
-const OWNER_ONLY = new Set(["hello", "portal_sync", "portal_added", "portal_removed", "portal_status", "heartbeat", "immerse"]);
+const OWNER_ONLY = new Set(["hello", "portal_sync", "portal_added", "portal_removed", "portal_status", "heartbeat", "immerse", "touch"]);
 const CONSOLE = new Set(["focus", "close_portal", "manual_prompt", "set_seed", "set_meta", "use_suggestion", "dismiss_suggestion", "reset_story"]);
-const NARRATE = new Set(["utterance"]);
+const NARRATE = new Set(["utterance", "choose"]);
 const ANYONE = new Set(["whoami", "suggest", "vote"]);
 
 export function allowed(role, t) {
@@ -90,6 +91,23 @@ export function reduce(s, m, ctx = {}) {
       if (p) p.status = String(m.status).slice(0, 20);
       break;
     }
+    case "choose": {
+      // Someone picked one of the director's "what happens next" options.
+      const text = (s.choices || [])[Number(m.index)];
+      if (!text) break;
+      s.choices = [];
+      director = narrate(s, text, "choice");
+      break;
+    }
+    case "touch": {
+      // The storyteller reached into a world; the frame (with the spot marked) goes to the director only.
+      const image = String(m.image || "");
+      if (!find(s, m.id) || !image.startsWith("data:image/jpeg;base64,") || image.length > 150_000) break;
+      s.focusId = m.id;
+      pushLog(s, "touch", `Reached into window ${m.id}`);
+      director = { type: "touch", portal_id: m.id, image: image.slice("data:image/jpeg;base64,".length) };
+      break;
+    }
     case "immerse": {
       // The storyteller stepped inside a portal (or back out into the room).
       const id = m.id && find(s, m.id) ? m.id : null;
@@ -127,6 +145,7 @@ export function reduce(s, m, ctx = {}) {
       const seed = s.story.seed;
       s.story = { seed, bible: `Setting: ${seed}.`, beats: [] };
       s.suggestions = [];
+      s.choices = [];
       s.log = [];
       s.immersedId = null;
       pushLog(s, "story", "The story was reset");
@@ -205,7 +224,10 @@ export function applyDirection(s, out, ms) {
   const updates = out.updates.filter((u) => find(s, u.portal_id));
   for (const u of updates) find(s, u.portal_id).prompt = u.prompt;
   pushLog(s, "director", `${out.narration} (${ms} ms, ${updates.length} portal updates)`);
-  return [{ t: "direction", narration: out.narration, updates }];
+  s.choices = (out.choices || []).map((c) => String(c).slice(0, 80)).filter(Boolean).slice(0, 3);
+  const speech = out.speech?.line ? { ...out.speech, portal_id: find(s, out.speech.portal_id) ? out.speech.portal_id : s.focusId } : null;
+  if (speech) pushLog(s, "speech", `${speech.speaker}: ${speech.line}`);
+  return [{ t: "direction", narration: out.narration, updates, choices: s.choices, speech }];
 }
 
 /** What the gallery shows for a room. */

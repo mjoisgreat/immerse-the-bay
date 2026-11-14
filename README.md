@@ -44,6 +44,18 @@ npm run stt            # second terminal: local Whisper speech-to-text on :8790
   vote every 20 seconds.
 * **Co-narrators:** the console's invite link lets a friend type or speak lines into the story.
 
+## Interactive story
+
+* **Choices:** after every beat the director offers 2–3 options for what happens next (gentle, surprising,
+  bold). They float above the button panel in the headset and appear on desktop, the console and for
+  co-narrators on the watch page. Pick one, or just say something else.
+* **Characters talk to you:** when a character is present, the director gives them a line spoken directly to
+  you (often a question you can answer out loud). It's voiced with OpenAI TTS (same character, same voice) and
+  plays from their window, or all around you when you're inside it.
+* **Touch the world:** tap a window (quick trigger/pinch; hold to move it instead), or point at the world and pull
+  the trigger when you're inside it. The frame with the touched spot marked goes to Claude, which works out what
+  you touched and makes it respond. On desktop: click the focused window.
+
 ## Controls in the headset
 
 A button panel floats just below your gaze and follows you when you turn or walk away. Point at a button and

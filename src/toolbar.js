@@ -52,6 +52,66 @@ export class Toolbar {
     });
     this.anchor = new THREE.Vector3();
     this.placed = false;
+
+    // "What happens next?" cards in a row above the buttons.
+    this.choiceMeshes = [];
+    this.choices = [];
+    const CW = (total - 2 * GAP) / 3, CH = 0.07;
+    for (let i = 0; i < 3; i++) {
+      const canvas = Object.assign(document.createElement("canvas"), { width: 512, height: 140 });
+      const tex = new THREE.CanvasTexture(canvas);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      const mesh = new THREE.Mesh(
+        new THREE.PlaneGeometry(CW, CH),
+        new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthTest: false }),
+      );
+      mesh.renderOrder = 20;
+      mesh.position.set(-total / 2 + CW / 2 + i * (CW + GAP), BH / 2 + GAP + CH / 2, 0);
+      mesh.userData.choice = i;
+      mesh.userData.canvas = canvas;
+      mesh.userData.tex = tex;
+      mesh.visible = false;
+      this.group.add(mesh);
+      this.choiceMeshes.push(mesh);
+    }
+  }
+
+  /** Shows the director's options (or hides them with an empty list). */
+  setChoices(list) {
+    this.choices = list || [];
+    this.choiceMeshes.forEach((m, i) => {
+      m.visible = Boolean(this.choices[i]);
+      m.userData.hovered = false;
+      if (m.visible) this._drawChoice(m);
+    });
+  }
+
+  _drawChoice(m) {
+    const text = this.choices[m.userData.choice];
+    const g = m.userData.canvas.getContext("2d");
+    const w = 512, h = 140;
+    g.clearRect(0, 0, w, h);
+    g.fillStyle = m.userData.hovered ? "rgba(255,154,90,0.95)" : "rgba(40,30,60,0.9)";
+    g.strokeStyle = "#ffd08a";
+    g.lineWidth = 5;
+    g.beginPath();
+    g.roundRect(4, 4, w - 8, h - 8, 28);
+    g.fill();
+    g.stroke();
+    g.fillStyle = m.userData.hovered ? "#1b1206" : "#fff3e0";
+    g.textAlign = "center";
+    g.textBaseline = "middle";
+    g.font = "italic 500 34px Georgia, serif";
+    const words = text.split(/\s+/), lines = [];
+    let line = "";
+    for (const wd of words) {
+      const t = line ? `${line} ${wd}` : wd;
+      if (g.measureText(t).width > w - 50 && line) lines.push(line), (line = wd);
+      else line = t;
+    }
+    lines.push(line);
+    lines.slice(0, 2).forEach((l, i, a) => g.fillText(l, w / 2, h / 2 + (i - (a.length - 1) / 2) * 40));
+    m.userData.tex.needsUpdate = true;
   }
 
   set(id, patch) {
@@ -72,6 +132,14 @@ export class Toolbar {
 
   hover(meshes) {
     for (const [id, b] of this.buttons) this.set(id, { hovered: meshes.includes(b.mesh) });
+    for (const m of this.choiceMeshes) {
+      const h = m.visible && meshes.includes(m);
+      if (h !== m.userData.hovered) (m.userData.hovered = h), this._drawChoice(m);
+    }
+  }
+
+  get targets() {
+    return [...this.meshes, ...this.choiceMeshes.filter((m) => m.visible)];
   }
 
   press(id, ctrl) {

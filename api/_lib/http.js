@@ -30,6 +30,7 @@ export function route(routes, { needsStore = true } = {}) {
       if (needsStore && !store) return res.status(500).json({ error: "Redis is not configured (add Upstash in Vercel)" });
       const r = await fn(req, store);
       if (r.body === null) return res.status(r.status).end();
+      if (Buffer.isBuffer(r.body)) return res.status(r.status).setHeader("Content-Type", r.type || "application/octet-stream").end(r.body);
       res.status(r.status).json(r.body);
     } catch (e) {
       res.status(e.status || 500).json({ error: e.message || "error" });

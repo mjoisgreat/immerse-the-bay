@@ -41,6 +41,22 @@ Stepping inside:
   immersive view of the same place and moment (same characters, light and weather), and
   make the narration a short line that welcomes them into the world.
 
+Making it interactive (this matters most):
+- choices: always offer 2 or 3 short options (max 8 words each) for what could happen next,
+  each pulling the story in a clearly different direction (one gentle, one surprising, one
+  bold). The person can pick one, say something else, or ignore them.
+- speech: when a character is present and it fits, give ONE line of dialogue (max 20 words)
+  spoken by a character directly TO the person, in second person: greeting them, asking
+  them a question, warning them, reacting to what they did. Questions invite them to answer
+  out loud, so ask good ones. Include the character's name, the portal they are in, and a
+  short voice description (age, accent, mood) for the voice actor. Use null when no
+  character would speak; aim for a line in roughly half the beats.
+- An event of type "touch" comes with a frame from that portal: the person reached out and
+  touched the spot marked by the glowing ring. Work out what is there and make the world
+  respond to their touch, physically and visibly (it moves, glows, opens, wakes up, a
+  character notices). If the ring is on empty sky or ground, something small and magical
+  happens right there. Never mention the ring itself.
+
 Keep the story bible short (under 120 words): setting, characters with fixed visual
 descriptions, current time of day and mood. The narration is one short line (under 15
 words) shown as a subtitle, in the voice of a storyteller.
@@ -52,6 +68,10 @@ const Direction = z.object({
   narration: z.string(),
   bible: z.string(),
   updates: z.array(z.object({ portal_id: z.string(), prompt: z.string() })),
+  choices: z.array(z.string()),
+  speech: z
+    .object({ speaker: z.string(), portal_id: z.string(), line: z.string(), voice: z.string() })
+    .nullable(),
 });
 
 export function createDirector() {
@@ -70,6 +90,16 @@ export function createDirector() {
       portals: portals.map((p) => ({ portal_id: p.id, current_prompt: p.prompt || null })),
     };
 
+    // A touch event carries the frame as an image; it is sent to Claude but kept out of the JSON.
+    const { image, ...plainEvent } = event;
+    payload.event = plainEvent;
+    const content = image
+      ? [
+          { type: "image", source: { type: "base64", media_type: "image/jpeg", data: image } },
+          { type: "text", text: JSON.stringify(payload) },
+        ]
+      : JSON.stringify(payload);
+
     try {
       const response = await client.beta.messages.parse({
         model: MODEL,
@@ -78,7 +108,7 @@ export function createDirector() {
         fallbacks: "default",
         output_config: { effort: "low", format: zodOutputFormat(Direction) },
         system: SYSTEM,
-        messages: [{ role: "user", content: JSON.stringify(payload) }],
+        messages: [{ role: "user", content }],
       });
       if (response.stop_reason === "refusal") {
         console.warn("[director] refusal", response.stop_details?.category);
@@ -107,18 +137,30 @@ const IMMERSIVE =
 function fallback({ event, story, portals, focusId, immersedId = null }) {
   const style =
     "Cinematic, one continuous unbroken take, slow gentle camera drift, soft volumetric light, rich detail.";
+  const extra = { choices: [], speech: null };
   if (event.type === "step_inside") {
     const p = portals.find((x) => x.id === event.portal_id);
     const base = (p?.prompt || story.seed).replace(style, "");
     return {
+      ...extra,
       narration: "You step through, and the world closes around you.",
       bible: story.bible,
       updates: [{ portal_id: event.portal_id, prompt: `${base} ${IMMERSIVE}` }],
     };
   }
+  if (event.type === "touch") {
+    const p = portals.find((x) => x.id === event.portal_id);
+    return {
+      ...extra,
+      narration: "Where you touch, the world shimmers and wakes.",
+      bible: story.bible,
+      updates: [{ portal_id: event.portal_id, prompt: `${p?.prompt || story.seed} A soft ripple of golden light spreads from one spot, and the scene gently stirs.` }],
+    };
+  }
   if (event.type === "portal_added") {
     const base = story.beats.at(-1) || story.seed;
     return {
+      ...extra,
       narration: "A new window opens onto the story.",
       bible: story.bible,
       updates: [{ portal_id: event.portal_id, prompt: `${base}. A different corner of the same world. ${style}` }],
@@ -127,6 +169,7 @@ function fallback({ event, story, portals, focusId, immersedId = null }) {
   const target = focusId || portals[0]?.id;
   const look = target && target === immersedId ? IMMERSIVE : style;
   return {
+    ...extra,
     narration: event.text,
     bible: story.bible,
     updates: target ? [{ portal_id: target, prompt: `${story.seed}. ${event.text}. ${look}` }] : [],

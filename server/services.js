@@ -69,6 +69,28 @@ export async function transcribe(pcm) {
   return (await r.json()).text || "";
 }
 
+const VOICES = ["ash", "ballad", "coral", "echo", "fable", "nova", "onyx", "sage", "shimmer", "verse"];
+/** Character dialogue as speech (mp3). The same speaker name always gets the same voice. */
+export async function speak(text, speaker = "", style = "") {
+  const key = process.env.OPENAI_API_KEY;
+  if (!key) throw new HttpError(500, "OPENAI_API_KEY is not set");
+  let h = 0;
+  for (const c of speaker.toLowerCase()) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  const r = await fetch("https://api.openai.com/v1/audio/speech", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "gpt-4o-mini-tts",
+      voice: VOICES[h % VOICES.length],
+      input: text,
+      instructions: `You are a character in a magical story, speaking directly to a listener. Voice: ${style || "warm, expressive"}. Perform it with feeling.`,
+      response_format: "mp3",
+    }),
+  });
+  if (!r.ok) throw new HttpError(502, `OpenAI speech failed (${r.status})`);
+  return Buffer.from(await r.arrayBuffer());
+}
+
 async function transcribeOpenAI(pcm) {
   const key = process.env.OPENAI_API_KEY;
   if (!key) throw new HttpError(500, "OPENAI_API_KEY is not set");

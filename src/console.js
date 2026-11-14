@@ -76,6 +76,9 @@ function render(s) {
   if (document.activeElement !== $("#title")) $("#title").value = s.meta?.title || "";
   $("#shared").checked = Boolean(s.meta?.shared);
   $("#crowd").checked = Boolean(s.meta?.crowd);
+  $("#choices").innerHTML = (s.choices || [])
+    .map((c, i) => `<button class="ghost" data-choose="${i}" style="font-style:italic">→ ${esc(c)}</button>`)
+    .join("");
   $("#log").innerHTML = s.log
     .slice()
     .reverse()
@@ -119,6 +122,7 @@ document.addEventListener("click", (e) => {
   if (b.dataset.focus) send({ t: "focus", id: b.dataset.focus });
   if (b.dataset.close) send({ t: "close_portal", id: b.dataset.close });
   if (b.dataset.use) send({ t: "use_suggestion", id: b.dataset.use });
+  if (b.dataset.choose) send({ t: "choose", index: Number(b.dataset.choose) });
   if (b.dataset.dismiss) send({ t: "dismiss_suggestion", id: b.dataset.dismiss });
   if (b.dataset.apply) {
     const ta = document.querySelector(`textarea[data-id="${b.dataset.apply}"]`);

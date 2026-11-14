@@ -216,6 +216,7 @@ const link = createLink(ROOM, {
     if (m.t === "direction") applyDirection(m);
     else if (m.t === "state") {
       roomState = m;
+      if (!sameChoices(m.choices || [])) showChoices(m.choices || []);
       if (m.focusId && m.focusId !== focusId && portals.has(m.focusId)) setFocus(m.focusId, false);
     } else if (m.t === "close_portal") closePortal(m.id);
     else if (m.t === "reset") resetLocal();
@@ -250,7 +251,9 @@ setInterval(() => {
   }
 }, 8000);
 
-function applyDirection({ narration, updates }) {
+function applyDirection({ narration, updates, choices, speech }) {
+  showChoices(choices || []);
+  if (speech?.line) playVoice(speech);
   for (const u of updates) {
     const p = portals.get(u.portal_id);
     if (!p) continue;
@@ -323,7 +326,7 @@ const handFactory = new XRHandModelFactory();
 
 function targets() {
   const ui = immersion.inside ? [micOrb, exitOrb] : [micOrb];
-  if (renderer.xr.isPresenting) ui.push(...toolbar.meshes);
+  if (renderer.xr.isPresenting) ui.push(...toolbar.targets);
   return [...ui, ...[...portals.values()].filter((p) => p.portal.group.visible).map((p) => p.portal.screen)];
 }
 
@@ -369,9 +372,12 @@ function onSelectStart(ctrl) {
     ctrl.userData.button = hit.object.userData.button;
     return toolbar.press(ctrl.userData.button, ctrl);
   }
+  if (hit?.object.userData.choice !== undefined) return pickChoice(hit.object.userData.choice);
   const portal = hit?.object.userData.portal;
   if (portal) {
     setFocus(portal.id);
+    // A quick tap touches the world at that spot; holding and dragging moves the window.
+    ctrl.userData.tap = { at: performance.now(), uv: hit.uv.clone(), point: hit.point.clone() };
     // Remember where it was: pulling it into your face steps inside and puts the window back.
     const at = portal.group.getWorldPosition(new THREE.Vector3());
     ctrl.userData.grabFrom = {
@@ -383,6 +389,8 @@ function onSelectStart(ctrl) {
     ctrl.userData.grabbed = portal;
     return;
   }
+  // Inside a world, pointing at it and pulling the trigger touches it.
+  if (immersion.inside) return touchWorld(ray.origin.clone(), ray.direction.clone());
   openPortal(ray.origin.clone(), ray.direction.clone());
 }
 
@@ -396,6 +404,17 @@ function onSelectEnd(ctrl) {
     stopTalking();
   }
   const p = ctrl.userData.grabbed;
+  const tap = ctrl.userData.tap;
+  ctrl.userData.tap = null;
+  if (p && tap && performance.now() - tap.at < 280) {
+    // It was a tap, not a move: put the window back exactly and touch the world there.
+    scene.attach(p.group);
+    const from = ctrl.userData.grabFrom;
+    if (from) p.group.position.copy(from.pos), p.group.quaternion.copy(from.quat);
+    ctrl.userData.grabbed = null;
+    touchPortal(p, tap.uv, tap.point);
+    return;
+  }
   if (p) {
     scene.attach(p.group);
     const eye = new THREE.Vector3();
@@ -466,6 +485,108 @@ function checkWalking() {
   if (immersion.walkedBack(eye)) stepOut();
 }
 
+// ---------- Interaction: touch the world, pick what happens next, characters speak ----------
+const touchCanvas = Object.assign(document.createElement("canvas"), { width: 512, height: 288 });
+let lastTouch = 0;
+function touchPortal(portal, uv, point) {
+  const entry = [...portals.values()].find((x) => x.portal === portal);
+  const v = entry?.stream.video;
+  if (!v || entry.stream.status !== "streaming" || v.readyState < 2) return flash("This world is still forming…");
+  if (performance.now() - lastTouch < 4000) return flash("The world is still answering your last touch…");
+  lastTouch = performance.now();
+  const g = touchCanvas.getContext("2d");
+  g.drawImage(v, 0, 0, 512, 288);
+  const x = uv.x * 512, y = (1 - uv.y) * 288;
+  g.strokeStyle = "#ff3df0";
+  g.shadowColor = "#ff3df0";
+  g.shadowBlur = 12;
+  g.lineWidth = 5;
+  g.beginPath();
+  g.arc(x, y, 22, 0, Math.PI * 2);
+  g.stroke();
+  g.shadowBlur = 0;
+  send({ t: "touch", id: portal.id, image: touchCanvas.toDataURL("image/jpeg", 0.75) });
+  if (point) ripple(point);
+  buzz(0.35, 40);
+  flash("You reach into the world…", 6000);
+}
+function touchWorld(origin, dir) {
+  const uv = immersion.uvFromDirection(dir);
+  if (!uv) return flash("Nothing to touch there; reach toward the scene.");
+  touchPortal(immersion.portal, uv, origin.addScaledVector(dir, 3));
+}
+
+// A glowing ring where you touched, expanding and fading.
+const ripples = [];
+function ripple(point) {
+  const m = new THREE.Mesh(
+    new THREE.RingGeometry(0.06, 0.075, 48),
+    new THREE.MeshBasicMaterial({ color: 0xffd08a, transparent: true, depthTest: false, blending: THREE.AdditiveBlending }),
+  );
+  m.position.copy(point);
+  m.lookAt(camera.getWorldPosition(new THREE.Vector3()));
+  m.renderOrder = 15;
+  m.userData.born = performance.now();
+  scene.add(m);
+  ripples.push(m);
+}
+function updateRipples() {
+  for (let i = ripples.length - 1; i >= 0; i--) {
+    const m = ripples[i], age = (performance.now() - m.userData.born) / 900;
+    m.scale.setScalar(1 + age * 4);
+    m.material.opacity = Math.max(0, 1 - age);
+    if (age >= 1) scene.remove(m), m.geometry.dispose(), m.material.dispose(), ripples.splice(i, 1);
+  }
+}
+
+// "What happens next?" options from the director.
+let currentChoices = [];
+const sameChoices = (list) => list.length === currentChoices.length && list.every((c, i) => c === currentChoices[i]);
+function showChoices(list) {
+  currentChoices = list;
+  toolbar.setChoices(list);
+  $("#choices").innerHTML = list.map((c, i) => `<button data-choice="${i}">${c.replace(/[&<>"]/g, "")}</button>`).join("");
+}
+function pickChoice(i) {
+  const text = currentChoices[i];
+  if (!text) return;
+  showChoices([]);
+  send({ t: "choose", index: i });
+  flash(`“${text}”`, 4000);
+}
+$("#choices").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-choice]");
+  if (b) pickChoice(Number(b.dataset.choice));
+});
+
+// Characters speak their lines aloud, from their window (or all around you when you're inside it).
+let voice = null;
+async function playVoice({ speaker, line, voice: style, portal_id }) {
+  const target = portals.get(portal_id) || portals.get(focusId);
+  target?.portal.setCaption(`${speaker}: “${line}”`, "story");
+  try {
+    const r = await fetch("/api/voice", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ room: ROOM, cred: credFor(ROOM), text: line, speaker, voice: style }),
+    });
+    if (!r.ok) throw new Error(`voice ${r.status}`);
+    const buf = await listener.context.decodeAudioData(await r.arrayBuffer());
+    if (listener.context.state === "suspended") await listener.context.resume();
+    voice?.stop?.();
+    voice?.removeFromParent();
+    const inside = immersion.inside && target && immersion.portal === target.portal;
+    voice = target && !inside ? new THREE.PositionalAudio(listener) : new THREE.Audio(listener);
+    if (voice.setRefDistance) voice.setRefDistance(2), (target?.portal.group || scene).add(voice);
+    else scene.add(voice);
+    voice.setBuffer(buf);
+    voice.setVolume(1.4);
+    voice.play();
+  } catch (e) {
+    console.warn("[voice]", e.message);
+  }
+}
+
 // ---------- Buttons (floating panel in the headset, bar at the bottom on desktop) ----------
 function openInFront() {
   const origin = camera.getWorldPosition(new THREE.Vector3());
@@ -498,6 +619,7 @@ function resetPressed() {
 // The server confirmed a reset: close everything and start fresh.
 function resetLocal() {
   immersion.reset();
+  showChoices([]);
   for (const id of [...portals.keys()]) closePortal(id);
   flash("Story reset. Open a window to begin again.", 5000);
 }
@@ -516,13 +638,14 @@ function updateToolbar() {
   if (!toolbar.group.visible) return;
   toolbar.update();
   const hits = [];
+  const panel = toolbar.targets;
   for (let i = 0; i < 2; i++) {
     const c = renderer.xr.getController(i);
     if (!c.visible && !c.parent) continue;
     tmpMat.identity().extractRotation(c.matrixWorld);
     hoverRay.ray.origin.setFromMatrixPosition(c.matrixWorld);
     hoverRay.ray.direction.set(0, 0, -1).applyMatrix4(tmpMat);
-    const h = hoverRay.intersectObjects(toolbar.meshes, false)[0];
+    const h = hoverRay.intersectObjects(panel, false)[0];
     if (h) hits.push(h.object);
   }
   toolbar.hover(hits);
@@ -550,6 +673,7 @@ bar.step.onclick = toggleStep;
 bar.close.onclick = closeFocused;
 bar.reset.onclick = resetPressed;
 bar.info.onclick = () => ($("#overlay").hidden = !$("#overlay").hidden);
+$("#bar").hidden = false; // only clickable once everything is wired up
 
 // ---------- Desktop controls (for building and testing without the headset) ----------
 let yaw = 0, pitch = 0, dragging = false, moved = 0;
@@ -561,7 +685,11 @@ addEventListener("pointerup", (e) => {
   raycaster.setFromCamera(ndc, camera);
   const hit = raycaster.intersectObjects(targets(), false)[0];
   if (hit?.object.userData.exit) stepOut();
-  else if (hit?.object.userData.portal) setFocus(hit.object.userData.portal.id);
+  else if (hit?.object.userData.portal) {
+    const p = hit.object.userData.portal;
+    if (p.id === focusId) touchPortal(p, hit.uv, hit.point); // click the focused window to touch it
+    else setFocus(p.id);
+  } else if (immersion.inside) touchWorld(raycaster.ray.origin.clone(), raycaster.ray.direction.clone());
   else if (!hit) openPortal(raycaster.ray.origin.clone(), raycaster.ray.direction.clone());
 });
 renderer.domElement.addEventListener("dblclick", (e) => {
@@ -629,6 +757,7 @@ renderer.setAnimationLoop(() => {
   previewRoom.visible = !renderer.xr.isPresenting && !immersion.active;
   exitOrb.visible = immersion.inside && renderer.xr.isPresenting;
   updateToolbar();
+  updateRipples();
   if (!renderer.xr.isPresenting) syncButtons();
   micOrb.position.y = -0.2 + Math.sin(t * 2) * 0.004;
   // The orb and in-view caption are headset UI; on desktop, Space and the status bar do the job.

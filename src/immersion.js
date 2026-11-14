@@ -207,6 +207,14 @@ export class Immersion {
     portal.group.visible = true;
   }
 
+  /** Where a world-space direction lands in the video (u right, v up), or null if past its edges. */
+  uvFromDirection(dir) {
+    const d = dir.clone().applyQuaternion(this.world.quaternion.clone().invert()).normalize();
+    const u = 0.5 + Math.atan2(d.x, -d.z) / PHI;
+    const v = 0.5 + Math.asin(Math.max(-1, Math.min(1, d.y))) / THETA;
+    return u >= 0 && u <= 1 && v >= 0 && v <= 1 ? { x: u, y: v } : null;
+  }
+
   // Stepped back out the way you came?
   walkedBack(eye) {
     if (!this.inside || Number.isNaN(this.entryEye.x)) return false;

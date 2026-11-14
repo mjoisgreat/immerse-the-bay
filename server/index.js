@@ -8,7 +8,12 @@ const PORT = Number(process.env.PORT || 8787);
 const app = express();
 const store = memoryStore();
 
-const send = (res, r) => (r.body === null ? res.status(r.status).end() : res.status(r.status).json(r.body));
+const send = (res, r) =>
+  r.body === null
+    ? res.status(r.status).end()
+    : Buffer.isBuffer(r.body)
+      ? res.status(r.status).type(r.type || "application/octet-stream").send(r.body)
+      : res.status(r.status).json(r.body);
 const wrap = (fn) => async (req, res) => {
   try {
     res.set("Cache-Control", "no-store");
@@ -31,6 +36,7 @@ app.post(
 );
 app.get("/api/snapshot", wrap((req) => api.snapshotGet(store, req.query)));
 app.post("/api/snapshot", json, wrap((req) => api.snapshotPost(store, req.body || {})));
+app.post("/api/voice", json, wrap((req) => api.voice(store, req.body || {})));
 app.get("/api/community", wrap(() => api.community(store)));
 app.use(express.static("dist"));
 
