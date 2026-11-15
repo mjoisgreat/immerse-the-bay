@@ -6,7 +6,7 @@ import globals from "globals";
 const CONFUSING = ["toolbar", "status", "name", "event", "top", "parent", "self", "length", "close", "open", "stop", "find", "print", "focus", "blur", "origin", "menubar", "statusbar", "scrollbars", "locationbar", "personalbar", "frames", "opener", "closed", "external", "scroll"];
 
 export default [
-  { ignores: ["dist/", "public/", "node_modules/"] },
+  { ignores: ["dist/", "public/", "node_modules/", ".venv/"] },
   {
     files: ["**/*.js", "**/*.mjs"],
     languageOptions: { ecmaVersion: "latest", sourceType: "module", globals: { ...globals.browser, ...globals.node, ...Object.fromEntries(CONFUSING.map((n) => [n, "off"])) } },

@@ -133,28 +133,30 @@ export function describeLine(l) {
 
 /**
  * A story log on `log` (with its jump button). `all` also shows the system lines and the director's
- * timings (the console); without it, only the story itself (the watch page).
+ * timings (the console); without it, only the story itself (the watch page). `all` can be a function,
+ * so a page can switch between the two (the console's Everything / Story tabs).
  */
 export function storyFeed(log, jump, { all = false, empty = "Nothing yet." } = {}) {
   const seen = new Set(), update = stickyLog(log, jump, { newestFirst: true });
   const key = (l) => `${l.at}|${l.kind}|${l.text}`;
   let first = true;
   return function render(s) {
-    const lines = (s.log || []).filter((l) => all || isStoryLine(l));
+    const everything = typeof all === "function" ? all() : all;
+    const lines = (s.log || []).filter((l) => everything || isStoryLine(l));
     const html = lines.length
       ? [...lines]
           .reverse() // newest at the top
           .map((l) => {
             const { who, chip, color, title, text, note, narr, sys } = describeLine(l);
             const cls = narr ? " narr" : sys ? " sys" : "";
-            const timing = note && all ? `<span class="note">${esc(note)}</span>` : ""; // how long the director took
+            const timing = note && everything ? `<span class="note">${esc(note)}</span>` : ""; // how long the director took
             const fresh = !first && !seen.has(key(l)) ? " fresh" : "";
             return `<div class="msg${cls}${fresh}"><span class="ts">${l.at ? clock(l.at) : ""}</span><span class="chip role" title="${title}" style="background:color-mix(in srgb, ${color} 35%, #18181b)">${chip}</span><b class="who" style="color:${color}">${esc(who)}</b><span class="colon">:</span> <span class="text">${esc(text)}</span>${timing}</div>`;
           })
           .join("")
       : `<div class="chatWelcome">${esc(empty)}</div>`;
     const hasNew = lines.some((l) => !seen.has(key(l)));
-    for (const l of lines) seen.add(key(l));
+    for (const l of s.log || []) seen.add(key(l)); // all of them, so switching tabs doesn't count as new lines
     update(html, { hasNew });
     first = false;
   };
