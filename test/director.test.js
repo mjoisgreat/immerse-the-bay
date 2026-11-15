@@ -43,7 +43,7 @@ test("proposing a story to Bonnie opens a window for it, without saying 'window'
   assert.match(c.reply, /Santa Claus/);
   assert.equal((await ask("Bonnie lets go to the moon")).companion.open_window, "the moon");
   assert.equal((await ask("Bonnie, take us to a candy kingdom on the left")).companion.place, "left");
-  assert.equal((await ask("I want to meet a friendly dragon")).companion.open_window, "a friendly dragon");
+  assert.equal((await ask("Bonnie, I want to meet a friendly dragon")).companion.open_window, "a friendly dragon");
 });
 test("chatter and changes to the current world do not open a window", async () => {
   for (const text of ["Bonnie, let's go with me", "Bonnie, can we dance?", "Bonnie, follow me", "Bonnie, let's go", "Bonnie, take me home"]) {
@@ -125,4 +125,17 @@ test("a new window opens onto exactly the world it was given, nothing else", asy
   assert.equal(out.updates.length, 1);
   assert.ok(out.updates[0].prompt.startsWith("A tin-can moon base."), out.updates[0].prompt);
   assert.ok(!out.updates[0].prompt.includes("fishing village"));
+});
+
+test("backup: a new window needs her name; looking at her while telling the story keeps steering", async () => {
+  // Looking at Bonnie (addressed) but not naming her: no new window.
+  assert.equal((await ask("I want to see the dragon fly over the lake")).companion?.open_window ?? null, null);
+  assert.equal((await ask("Let's go to the lighthouse")).companion?.open_window ?? null, null);
+});
+
+test("backup: where to put the window is not part of its world", async () => {
+  assert.equal((await ask("Bonnie, take us to a candy kingdom on the left")).companion.open_window, "a candy kingdom");
+  assert.equal((await ask("Bonnie, let's go to the moon over there")).companion.open_window, "the moon");
+  assert.equal((await ask("Bonnie, open a window onto a snowy village behind me")).companion.open_window, "a snowy village");
+  assert.equal((await ask("Bonnie, take us to a candy kingdom on the left")).companion.place, "left");
 });

@@ -355,7 +355,10 @@ function fallback({ event, story, portals, focusId, immersedId = null, companion
   // Small talk with the companion leaves the story alone.
   // Just its name ("Bonnie?") is a call for attention, not a story change.
   const calling = addressed && !said.replace(named, "").replace(/[^\p{L}\p{N}]/gu, "");
-  const chat = calling ? { reply: "Yes? I'm listening!", gesture: "wave", move: "none" } : addressed ? smallTalk(said) : null;
+  // Proposing a new adventure only opens a window when they say her name (looking at her while telling the
+  // story, "I want to see the dragon", must keep steering the current window).
+  const byName = new RegExp(`\\b${name}\\b`, "i").test(said);
+  const chat = calling ? { reply: "Yes? I'm listening!", gesture: "wave", move: "none" } : addressed ? smallTalk(said, { byName }) : null;
   if (chat) return { narration: "", bible: story.bible, updates: [], choices: [], speech: null, companion: chat };
   const extra = {
     choices: CHOICES[choiceTurn++ % CHOICES.length],
@@ -414,18 +417,25 @@ const CHATTER = [
 ];
 let chatterTurn = 0;
 /** A reply if `text` is small talk (a greeting, a question, a move), or null if it asks for a story change. */
-function smallTalk(text) {
+// "a candy kingdom on the left" -> "a candy kingdom": where to put the window isn't part of its world.
+function worldOnly(text) {
+  return String(text)
+    .replace(/[,\s]+(?:(?:on|to|at|over)\s+(?:the|my|your|our)\s+(?:left|right)(?:\s+side)?|over there|over here|up ahead|ahead of (?:me|us)|in front(?: of (?:me|us))?|behind (?:me|us)|by the wall|right here|here|there)\b.*$/i, "")
+    .trim();
+}
+
+function smallTalk(text, { byName = true } = {}) {
   // "open a window onto a jungle", "go over there to the left and open a portal".
   const place = /\bleft\b/i.test(text) ? "left" : /\bright\b/i.test(text) ? "right" : /\bbehind|\bback\b/i.test(text) ? "behind"
     : /\b(there|over|ahead|front|wall)\b/i.test(text) ? "ahead" : "here";
   if (/\b(open|make|create)\b.*\b(window|portal)\b|\b(window|portal)\b.*\bopen\b/i.test(text)) {
-    const world = /\b(?:onto|into|of|with|showing|that shows|looking (?:at|onto))\s+(.+?)[.!?]*$/i.exec(text)?.[1] || "";
+    const world = worldOnly(/\b(?:onto|into|of|with|showing|that shows|looking (?:at|onto))\s+(.+?)[.!?]*$/i.exec(text)?.[1] || "");
     return { reply: world ? "On it! Opening a window." : "Sure! Opening a window. Tell me which world.", gesture: "thumbs_up", move: "none", open_window: world, place };
   }
   // A new place or character proposed to her, no window mentioned: "let's go with Santa Claus", "take us to the
   // moon", "I want to meet a dragon". That is an adventure for a new window, so she opens one for it.
   const idea = /\b(?:let'?s|let us)\s+go\s+(?:with|to|into|on|visit|see|meet)\s+(.+?)[.!?]*$|\b(?:take|bring)\s+(?:us|me)\s+(?:to|into|on)\s+(.+?)[.!?]*$|\b(?:i|we)\s+(?:want|wanna)\s+to\s+(?:go\s+(?:to|with|into|on)|visit|meet|see|explore)\s+(.+?)[.!?]*$/i.exec(text);
-  const proposed = (idea?.[1] || idea?.[2] || idea?.[3] || "").trim();
+  const proposed = byName ? worldOnly(idea?.[1] || idea?.[2] || idea?.[3] || "") : "";
   if (proposed && !/^(me|you|bonnie|pip|us|home|back|inside|outside|now|there|here|first|together)$/i.test(proposed)) {
     return { reply: `Ooh, yes! Opening a window to ${proposed.slice(0, 60)}.`, gesture: "jump", move: "none", open_window: proposed, place };
   }
