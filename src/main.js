@@ -485,8 +485,8 @@ function onSelectStart(ctrl) {
   if (hit?.object.userData.choice !== undefined) return pickChoice(hit.object.userData.choice);
   // Pick the companion up (pointing at it, or reaching out and touching it). A quick tap toggles
   // following (see onSelectEnd); holding carries it, and letting go throws it.
-  if (hit?.object.userData.companion || buddyTouched(ctrl)) {
-    if (buddy.grab(ctrl)) ctrl.userData.heldBuddy = true;
+  if (hit?.object.userData.companion || buddyTouched(ctrl) || (!hit?.object.userData.portal && buddyAimed(ray))) {
+    if (buddy.grab(ctrl)) (ctrl.userData.heldBuddy = true), (buddyQuietUntil = performance.now() + 1500);
     return;
   }
   const portal = hit?.object.userData.portal;
@@ -514,12 +514,41 @@ function onSelectStart(ctrl) {
     ctrl.userData.grabbed = portal;
     return;
   }
-  // Inside a world, pointing at it and pulling the trigger touches it.
-  if (immersion.inside) return touchWorld(ray.origin.clone(), ray.direction.clone());
-  // In a 3D world, pointing at the ground and pinching (or the trigger) teleports you there.
-  const floor = loco.enabled && loco.floorHit(ray);
+  // Empty space: touch the world you're inside, teleport (pointing at the ground in a 3D world), or open
+  // a window. Decided on release, and only for a quick, still tap: a throwing swing, a slipped grab or a
+  // pinch while Bonnie is in the air never opens a window or moves you.
+  ctrl.userData.pendingTap = {
+    at: performance.now(),
+    from: ctrl.getWorldPosition(new THREE.Vector3()),
+    origin: ray.origin.clone(),
+    dir: ray.direction.clone(),
+  };
+}
+
+// Bonnie was just grabbed or thrown, or is flying / getting up: empty-space pinches are ignored.
+let buddyQuietUntil = 0;
+const buddyBusy = () => performance.now() < buddyQuietUntil || (buddy.phys && buddy.phys.state !== "held");
+const TAP_MS = 450, TAP_MOVE = 0.08; // metres the hand may drift during a tap
+function finishTap(ctrl) {
+  const t = ctrl.userData.pendingTap;
+  ctrl.userData.pendingTap = null;
+  if (!t) return;
+  const still = performance.now() - t.at < TAP_MS && ctrl.getWorldPosition(new THREE.Vector3()).distanceTo(t.from) < TAP_MOVE;
+  if (!still || buddyBusy()) return;
+  if (immersion.inside) return touchWorld(t.origin, t.dir);
+  const floor = loco.enabled && loco.floorHit(new THREE.Ray(t.origin, t.dir));
   if (floor) return loco.teleport(floor), buzz(0.3, 30);
-  openPortal(ray.origin.clone(), ray.direction.clone());
+  openPortal(t.origin, t.dir);
+}
+
+// Does a pointing ray pass close to Bonnie? (A near miss still grabs her: she's small and moves.)
+function buddyAimed(ray) {
+  if (!buddy.visible || !buddy.ready) return false;
+  const c = buddy.centerWorld();
+  const along = c.clone().sub(ray.origin).dot(ray.direction);
+  if (along < 0 || along > 6) return false;
+  const miss = ray.distanceToPoint(c);
+  return miss < Math.max(0.18, along * Math.tan(THREE.MathUtils.degToRad(6))); // 18 cm, or 6° far away
 }
 
 // Two-hand resize in progress: { portal, holder (hand carrying the window), ctrl (second hand), dist, scale }.
@@ -533,9 +562,11 @@ function updateResize() {
 function onSelectEnd(ctrl) {
   if (ctrl.userData.heldBuddy) {
     ctrl.userData.heldBuddy = false;
+    buddyQuietUntil = performance.now() + 1500; // the throw's follow-through must not open a window
     if (buddy.release() === "tap") toggleBuddyFollow();
     return;
   }
+  if (ctrl.userData.pendingTap) return finishTap(ctrl);
   if (ctrl.userData.resizing) {
     ctrl.userData.resizing = null;
     resize = null; // the other hand keeps holding the window, now at its new size
@@ -896,7 +927,7 @@ function buddyTouched(ctrl) {
   if (!buddy.visible || !renderer.xr.isPresenting) return false;
   const c = buddy.centerWorld();
   const tip = ctrl.userData.hand?.joints?.["index-finger-tip"];
-  return ctrl.getWorldPosition(tmpV).distanceTo(c) < 0.32 || Boolean(tip?.visible && tip.getWorldPosition(tmpV).distanceTo(c) < 0.32);
+  return ctrl.getWorldPosition(tmpV).distanceTo(c) < 0.4 || Boolean(tip?.visible && tip.getWorldPosition(tmpV).distanceTo(c) < 0.4);
 }
 buddy.physicsEnv = () => {
   // A rough room around you (so it can't fly off forever), and the open windows.

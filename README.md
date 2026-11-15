@@ -188,13 +188,17 @@ to bring them back.
 |---|---|---|
 | Open a portal | Pinch at empty space | Trigger at empty space |
 | Focus and move a portal | Pinch on it, drag, release | Trigger on it, drag, release |
-| Pick up and throw Bonnie | Pinch and hold on Bonnie (or touching it), swing, release | Trigger and hold on Bonnie, swing, release |
+| Pick up and throw Bonnie | Pinch and hold on Bonnie (or near it, or touching it), swing, release | Trigger and hold on Bonnie, swing, release |
 | Resize a portal | Pinch it with both hands, then move the hands apart / together | n/a |
 | Call Bonnie | Snap your fingers | The **Bonnie** button |
 | Talk | Raise a hand to your mouth (or press and hold **Hold to talk** on the panel) | Hold A or X |
 | Close a portal | Shake both hands | Grip while pointing at it |
 | Step inside a portal | Part your hands like curtains, walk through it, or pinch it and pull it toward you | Walk through it, or press B / Y |
 | Step back out | Bring your hands together or shake them, walk back ~60 cm, or pinch the blue ring | Walk back, or press B / Y |
+
+Pinching empty space opens a window (or teleports you, pointing at the ground in a 3D world) only on a quick, still
+tap, decided when you let go. Swinging to throw Bonnie, a pinch that slips off her, or pinching while she's in the
+air (and for 1.5 s after a grab or throw) never opens a window.
 
 **Step inside:** the portal's video becomes the world around you, shown with the same perspective the camera
 had (as if you stand exactly where it stood), so straight lines stay straight and scale feels right: no
