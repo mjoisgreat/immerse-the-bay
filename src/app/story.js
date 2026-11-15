@@ -241,12 +241,40 @@ $("#choices").addEventListener("click", (e) => {
 // new window). Answer by voice (hold to talk) or by typing; skip it and the first thing you say
 // defines the world instead. Nothing is ever taken from an earlier story.
 export const ASK = { story: "What world is this story set in?", window: "What world is behind this window?" };
+const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+let ideasShown = []; // seeds offered so far, so "more" brings new ones
+function showIdeas(list) {
+  ideasShown = [...ideasShown, ...list.map((x) => x.seed)];
+  $("#askIdeas").innerHTML =
+    list.map(({ label, seed }) => `<button type="button" class="ghost" data-seed="${esc(seed)}" title="${esc(seed)}">${esc(label)}</button>`).join("") +
+    `<button type="button" class="ghost" data-more>✨ More ideas</button>`;
+}
+/** Asks the director's model for fresh world ideas; on any failure the chips stay as they are. */
+async function moreIdeas() {
+  const more = $("#askIdeas [data-more]");
+  if (more) (more.disabled = true), (more.textContent = "Thinking…");
+  try {
+    const r = await fetch("/api/ideas", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ room: ROOM, cred: credFor(ROOM), already: ideasShown }),
+    });
+    const { ideas } = r.ok ? await r.json() : {};
+    if (state.asking?.kind === "window" && ideas?.length) return showIdeas(ideas);
+  } catch {
+    /* keep what is shown */
+  }
+  const m = $("#askIdeas [data-more]");
+  if (m) (m.disabled = false), (m.textContent = "✨ More ideas");
+}
 export function askWorld(kind) {
   state.asking = { kind };
-  // Three random starter worlds for a new window, as chips to tap.
-  const ideas = kind === "window" ? [...PRESETS].sort(() => Math.random() - 0.5).slice(0, 3) : [];
   $("#askQ").textContent = ASK[kind];
-  $("#askIdeas").innerHTML = ideas.map(([label, seed]) => `<button type="button" class="ghost" data-seed="${seed.replace(/"/g, "&quot;")}">${label}</button>`).join("");
+  if (kind === "window") {
+    // Three random starter worlds to tap right away, then fresh ones from the model (✨ asks for more).
+    showIdeas([...PRESETS].sort(() => Math.random() - 0.5).slice(0, 3).map(([label, seed]) => ({ label, seed })));
+    moreIdeas();
+  } else $("#askIdeas").innerHTML = "";
   $("#ask").hidden = false;
   const xr = renderer.xr.isPresenting;
   if (kind === "window") getWindow()?.portal.setCaption(ASK.window, "status");
@@ -257,6 +285,7 @@ export function askWorld(kind) {
 export function clearAsk(quiet = false) {
   if (!state.asking) return;
   state.asking = null;
+  ideasShown = [];
   $("#ask").hidden = true;
   $("#askText").value = "";
   if (quiet) flash("", 1);
@@ -282,6 +311,7 @@ $("#askSkip").onclick = skipWorld;
 $("#askIdeas").addEventListener("click", (e) => {
   const b = e.target.closest("button[data-seed]");
   if (b) answerWorld(b.dataset.seed);
+  else if (e.target.closest("button[data-more]")) moreIdeas();
 });
 
 // ---------- Reset and New story ----------

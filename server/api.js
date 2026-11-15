@@ -125,6 +125,15 @@ export async function voice(store, body) {
   return { status: 200, body: audio, type: "audio/mpeg" };
 }
 
+/** Fresh world ideas for the window question, from the director's model (empty: the page keeps its presets). */
+export async function ideas(store, body) {
+  const room = roomOf(body.room);
+  const { role } = await roleOf(store, room, body.cred);
+  if (role !== "owner") return err(403, "owner only");
+  const already = Array.isArray(body.already) ? body.already : [];
+  return ok({ ideas: await director.ideas(already) });
+}
+
 /** Speech-to-text for people allowed to narrate (owner, console, co-narrators). */
 export async function speech(store, headers, pcm) {
   const room = roomOf(headers["x-room"]);
