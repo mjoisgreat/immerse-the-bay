@@ -1,6 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { resizedScale, MIN_SCALE, MAX_SCALE } from "../src/portalresize.js";
+import { resizedScale, carriedPosition, MIN_SCALE, MAX_SCALE } from "../src/portalresize.js";
+
+test("a window held with both hands moves with the midpoint of the hands", () => {
+  const near = (got, want) => got.forEach((v, i) => assert.ok(Math.abs(v - want[i]) < 1e-9, `${got} vs ${want}`));
+  near(carriedPosition([1, 1.5, -2], [0, 1.2, -0.5], [0.3, 1.0, -0.8]), [1.3, 1.3, -2.3]);
+  near(carriedPosition([1, 1.5, -2], [0, 1.2, -0.5], [0, 1.2, -0.5]), [1, 1.5, -2]);
+});
 
 test("hands twice as far apart make the window twice as big", () => {
   assert.equal(resizedScale(1, 0.3, 0.6), 2);

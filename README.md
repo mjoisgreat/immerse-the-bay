@@ -3,7 +3,7 @@
 **A campfire story you can step into.**
 One person speaks, the room becomes the story, and everyone watching shapes what happens next, live.
 
-You wear a Meta Quest 3S and still see your real room. Pinch at a wall and a portal opens onto a
+You wear a Meta Quest 3S and still see your real room. Draw a square in the air and a portal opens onto a
 living world streamed live by Visko Orbis, with its own spatial sound. Raise a hand to your mouth
 like a microphone (or hold the A/X button) and narrate. An AI story director (Claude) turns your words into Orbis
 prompts, and the world changes within about 2 seconds without cutting away. You can open up to
@@ -163,7 +163,8 @@ fallback. Besides pointing and pinching (open, move, tap to touch, press buttons
 | Turn your left palm toward your face and hold | Show / hide the buttons | Thumbstick click |
 | Snap your fingers (either hand) | Call the companion: Bonnie appears, or hops back over to you if she is already here | The **Bonnie** button |
 | Pinch a window and drag | Move it (a quick tap touches the world instead) | Trigger on it, drag |
-| Pinch the same window with your other hand, then move your hands apart or together | Resize it (40 % to 250 % of its size) | n/a |
+| Pinch the same window with your other hand, then move your hands apart or together | Pick it up with both hands: it is carried by the midpoint of your hands and resized by the distance between them (40 % to 250 %) | n/a |
+| Pinch the companion with both hands | Pick her up and carry her between your hands; let go to drop or throw her (one hand still works as before) | n/a |
 
 Every gesture answers so you know it registered: your palms glow, a short tone plays, and controllers buzz.
 The two-hand gestures share a 1.5 s cooldown and are ignored while you talk; parting has to end with the hands
@@ -174,6 +175,11 @@ the window you happen to be pointing at. Tuning constants sit at the top of `src
 is in `src/portalresize.js`.
 
 ## Controls in the headset
+
+**How-to card:** a moment after you enter the headset, a card floats in front of you listing every action and
+the gesture for it (talk, open / move / resize a window, pick up a window or the companion with both hands,
+step in and out, close a window, call the companion, show the buttons). Pinch it to close it; it also fades
+after a minute or when you step inside a world. The rows live in `src/gesturecard.js`.
 
 A button panel floats just below your gaze and follows you when you turn or walk away. Point at a button and
 pull the trigger (or pinch): **Hold to talk**, **New window**, **Step inside / Step out**, **Hide buttons**,
