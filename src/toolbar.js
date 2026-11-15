@@ -8,7 +8,7 @@ import * as THREE from "three";
 const MW = 0.05, MH = 0.05; // the button: a small circle you can still aim at with a controller ray or a pinch
 const RW = 0.25, RH = 0.042, RG = 0.008; // list rows, stacked above the button
 const CW_TOTAL = 0.9, CH = 0.075, GAP = 0.01; // "what happens next" cards, above the button while the list is shut
-const MAX_ROWS = 5;
+const MAX_ROWS = 7; // the longest list (outside a world: reset, Stanford, Moon, Wide, cheat sheet, exit VR) needs 6 rows
 const DIST = 0.7; // it rests this far ahead of you...
 const LEFT = 0.2, DROP = 0.16; // ...this far to the left of your gaze and this far below it
 const DEAD = 0.45; // radians (about 26°): while you look within this, it stays still
