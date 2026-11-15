@@ -29,6 +29,11 @@
       <div>
         <section>
           <h2>The windows</h2>
+          <div class="liveview" id="liveBox" hidden>
+            <video id="liveVideo" playsinline autoplay muted></video>
+            <div class="liveBar"><span class="liveTag">● LIVE</span><span id="liveWhich"></span><button type="button" class="ghost" id="liveSound">🔊 Tap for sound</button></div>
+          </div>
+          <p class="muted liveNote" id="liveNote" hidden></p>
           <div class="snaps" id="snaps"><div class="empty">Waiting for the storyteller to open a window…</div></div>
           <div class="narration" id="narration"></div>
           <div id="nextBox" hidden style="margin-top:.8rem">

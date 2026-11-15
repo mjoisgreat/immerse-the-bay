@@ -84,6 +84,20 @@ in `server/core.js` (`state.window`, `state.story`, `state.prompts`).
   "here: Quest · 2 phones · laptop". The list never carries timestamps, so the state only changes when someone
   comes or goes. Helpers are in `src/people.js`, the card in `src/joincard.js` and `src/app/join.js`.
 
+### Watching live
+
+Friends on the watch page see the window **live, with sound** (about a second
+behind), passed on peer to peer by the storyteller's own device (`src/app/livecast.js`): the window's video
+is a private Reactor session, so that device is the only place a live copy can come from.
+
+- Up to **4 live viewers** at once (each one costs the storyteller's device a video encoder, on a Quest
+  alongside VR). Everyone else, and anyone whose network blocks a direct connection, sees the window's
+  picture refreshing about once a second instead (the headset snapshots faster while anyone is watching).
+- Sound starts after a tap (browsers require it).
+- Some networks (phone carriers, VPNs, strict firewalls) block direct connections. Setting `TURN_URL`,
+  `TURN_USERNAME` and `TURN_CREDENTIAL` (see `.env.example`) adds a TURN relay so those viewers get live
+  video too; without it they get the pictures.
+
 ## Demo setup for judges
 
 * **Theater view** (`/theater.html?room=…`, linked from the headset start card and the console): a full-screen

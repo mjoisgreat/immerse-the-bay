@@ -276,3 +276,27 @@ test("a shared story without a title is named after the window's world", () => {
   s.story.seed = "an enormous sprawling underwater city of glass domes and coral towers lit by lanterns";
   assert.ok(autoTitle(s).length <= 60 && autoTitle(s).endsWith("…"));
 });
+
+test("live viewing: offers and answers pass through the room, addressed and checked", () => {
+  const s = initialState();
+  const viewer = { role: "audience", voter: "v1" }, owner = { role: "owner", voter: "o1" };
+  const ev = (m, ctx) => reduce(s, { ...m }, ctx).events.filter((e) => e.t === "rtc");
+  assert.deepEqual(ev({ t: "rtc", kind: "join", to: "host", from: "abc123" }, viewer), [{ t: "rtc", kind: "join", to: "host", from: "abc123" }]);
+  const offer = ev({ t: "rtc", kind: "offer", to: "abc123", from: "host", sdp: "v=0..." }, owner);
+  assert.equal(offer.length, 1);
+  assert.equal(offer[0].sdp, "v=0...");
+  // A viewer can't pretend to be the storyteller's device; offers need an SDP; junk is dropped.
+  assert.deepEqual(ev({ t: "rtc", kind: "offer", to: "x1", from: "host", sdp: "v=0" }, viewer), []);
+  assert.deepEqual(ev({ t: "rtc", kind: "answer", to: "host", from: "abc123" }, viewer), []);
+  assert.deepEqual(ev({ t: "rtc", kind: "nope", to: "host", from: "abc123" }, viewer), []);
+  assert.deepEqual(ev({ t: "rtc", kind: "join", to: "host", from: "bad id!" }, viewer), []);
+  assert.deepEqual(ev({ t: "rtc", kind: "answer", to: "host", from: "abc123", sdp: "x".repeat(20001) }, viewer), []);
+});
+
+import { iceServers } from "../server/api.js";
+test("live viewing: STUN always, TURN only when it's fully configured", () => {
+  assert.equal(iceServers({}).length, 1);
+  assert.equal(iceServers({ TURN_URL: "turn:x:3478" }).length, 1); // no credentials: not used
+  const both = iceServers({ TURN_URL: "turn:x:3478, turns:x:5349", TURN_USERNAME: "u", TURN_CREDENTIAL: "p" });
+  assert.deepEqual(both[1], { urls: ["turn:x:3478", "turns:x:5349"], username: "u", credential: "p" });
+});

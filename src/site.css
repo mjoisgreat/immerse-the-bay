@@ -95,3 +95,13 @@ h2 .count { color: var(--warm2); letter-spacing: 0; }
 .ideasEmpty { text-align: center; color: var(--muted); padding: 1.2rem .5rem; }
 .ideasEmpty .big { font-size: 1.8rem; margin-bottom: .3rem; }
 .ideasEmpty p { margin: 0; }
+
+/* ---------- Live view (watch page) ---------- */
+.liveview { position: relative; border-radius: 12px; overflow: hidden; background: #000; border: 1px solid var(--line); margin-bottom: .8rem; }
+.liveview video { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; background: #000; }
+.liveBar { position: absolute; left: 0; right: 0; bottom: 0; display: flex; align-items: center; gap: .6rem; padding: .5rem .6rem;
+  background: linear-gradient(transparent, rgba(0, 0, 0, .65)); font-size: .85rem; }
+.liveTag { background: #e5392b; color: #fff; font-weight: 700; font-size: .72rem; letter-spacing: .06em; padding: .15rem .5rem; border-radius: 6px; }
+.liveBar #liveWhich { color: #fff; opacity: .85; flex: 1; }
+.liveBar button { background: rgba(0, 0, 0, .45); color: #fff; border-color: rgba(255, 255, 255, .3); padding: .3rem .7rem; font-size: .82rem; }
+.liveNote { font-size: .85rem; margin: 0 0 .6rem; }

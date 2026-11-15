@@ -34,10 +34,11 @@ export function initialState() {
 const OWNER_ONLY = new Set(["hello", "window_sync", "window_opened", "window_closed", "window_status", "heartbeat", "immerse", "touch", "companion"]);
 const CONSOLE = new Set(["close_window", "manual_prompt", "set_seed", "set_meta", "use_suggestion", "dismiss_suggestion", "reset_story"]);
 const NARRATE = new Set(["utterance", "choose"]);
-const ANYONE = new Set(["whoami", "suggest", "vote", "here"]);
+const ANYONE = new Set(["whoami", "suggest", "vote", "here", "rtc"]);
 
 // Presence: every page says "here" every ~10 s with what kind of device it is. Someone who has been quiet for
 // PRESENCE_TTL is gone. Stale people are dropped when reading (livePeople), so a leave doesn't need a write.
+export const RTC_KINDS = ["join", "offer", "answer", "bye", "full"];
 export const KINDS = ["quest", "phone", "computer", "screen"]; // screen = the theater view on a TV
 export const PRESENCE_TTL = 25_000;
 const MAX_PEOPLE = 24;
@@ -133,6 +134,20 @@ function step(s, m, ctx) {
   if (OWNER_ONLY.has(m.t)) s.lastActive = Date.now();
 
   switch (m.t) {
+    case "rtc": {
+      // Live viewing: a viewer and the storyteller's device set up a peer-to-peer link (WebRTC offer/answer)
+      // through the room. Nothing is stored; the event reaches the page it's addressed to (`to`).
+      const kind = RTC_KINDS.includes(m.kind) ? m.kind : null;
+      const id = (v) => (typeof v === "string" && /^[a-z0-9-]{1,40}$/i.test(v) ? v : null);
+      const to = id(m.to), from = id(m.from);
+      if (!kind || !to || !from || to === from) break;
+      // Only the storyteller's device speaks as "host"; anyone may ask it for a live view.
+      if (from === "host" && ctx.role !== "owner") break;
+      const sdp = typeof m.sdp === "string" && m.sdp.length <= 20_000 ? m.sdp : undefined;
+      if ((kind === "offer" || kind === "answer") && !sdp) break;
+      events.push({ t: "rtc", kind, to, from, ...(sdp && { sdp }) });
+      break;
+    }
     case "here": {
       // Presence: this device is in the room. Not story activity, so it never touches lastActive.
       if (!ctx.voter) break;
