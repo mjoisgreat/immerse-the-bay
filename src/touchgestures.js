@@ -14,7 +14,7 @@
 export const HOLD_MS = 420; // press this long without moving to pick up / start drawing
 export const MOVE_TOL = 10; // px a finger may drift and still count as still
 export const DOUBLE_MS = 300; // max gap between the two taps of a double tap
-export const FLICK_MS = 260, FLICK_PX = 90; // a flick: this far up, this fast
+export const FLICK_MS = 350, FLICK_PX = 90; // a flick: this far up, this fast
 
 export class TouchGestureRecognizer {
   // (Timers wrapped: a browser's setTimeout called as this object's method throws "Illegal invocation".)

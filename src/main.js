@@ -1879,6 +1879,9 @@ addEventListener("keyup", (e) => {
 const haptic = (ms = 12) => navigator.vibrate?.(ms);
 const screenRay = (x, y) => (raycaster.setFromCamera(new THREE.Vector2((x / innerWidth) * 2 - 1, -(y / innerHeight) * 2 + 1), camera), raycaster.ray);
 let carry = null, drawing = null, pinchResize = null, flickArmed = null;
+// Where one finger came down: the window under it, and the view then. A flick also drags the view
+// (it can't be told apart until the finger lifts), so a flick puts the view back and acts on that window.
+let touchStart = null;
 const DRAW_AT = 0.6; // metres: you "draw in the air" at arm's length, as in the headset
 const touch = new TouchGestureRecognizer({
   claims: () => buddyDrag > 0, // a finger on Bonnie picks her up (pointerdown above): carry and throw
@@ -1931,9 +1934,14 @@ const touch = new TouchGestureRecognizer({
     trail.end(false);
     flash(strokeHint(r.reason), 4000);
   },
-  onFlick(_dir, x, y) {
-    const p = hitAt(x, y)?.object.userData.portal;
-    if (!p || immersion.inside) return;
+  onFlick() {
+    const start = touchStart;
+    if (start) {
+      if (camView.orienting) camView.offset = start.offset;
+      else (yaw = start.yaw), (pitch = start.pitch), camera.rotation.set(pitch, yaw, 0, "YXZ");
+    }
+    const p = start?.portal;
+    if (!p || immersion.inside || !portals.has(p.id)) return;
     if (flickArmed?.id === p.id && performance.now() - flickArmed.at < 3000) {
       flickArmed = null;
       haptic(40);
@@ -1966,7 +1974,11 @@ const touch = new TouchGestureRecognizer({
   },
   onTwoFingerTap: () => (haptic(), setButtonsHidden(!document.body.classList.contains("clean"))),
 });
-renderer.domElement.addEventListener("pointerdown", (e) => touch.down(e));
+renderer.domElement.addEventListener("pointerdown", (e) => {
+  if (e.pointerType === "touch" && touch.pts.size === 0)
+    touchStart = { portal: hitAt(e.clientX, e.clientY)?.object.userData.portal, yaw, pitch, offset: camView.offset };
+  touch.down(e);
+});
 addEventListener("pointercancel", (e) => {
   touch.up(e);
   dragging = touch.pts.size > 0;
