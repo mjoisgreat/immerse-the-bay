@@ -50,7 +50,6 @@ function start() {
       }
       if (m.t === "direction") {
         if (m.narration) setNarration(m.narration);
-        if (m.speech?.line) showSpeech(m.speech);
         if (m.companion?.reply) showSpeech({ speaker: m.companion.name, line: m.companion.reply });
         if (m.choices) renderChoices(m.choices);
       }

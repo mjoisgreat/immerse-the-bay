@@ -1,7 +1,6 @@
 // app/story.js: direction, crowd mode, snapshots, touching the world, idea cards, the world question, reset / new story.
 import * as THREE from "three";
 import { stopSides } from "./wide.js";
-import { CameraView } from "../cameraview.js";
 import { credFor } from "../identity.js";
 import { hueOf, topIdeaOf, nextIdeaOf } from "../chat.js";
 import { LAYER } from "../layers.js";
@@ -11,10 +10,7 @@ import { ROOM, send } from "./room.js";
 import { buzz, flash } from "./feedback.js";
 import { buddy, buddyIdle, buddyChangesWorld, buddyReply } from "./buddy.js";
 import { syncButtons, toolbar } from "./buttons.js";
-import { NARRATOR, guide } from "./guide.js";
-import { closeWindow, getWindow, immersion, setWorld } from "./portals.js";
-import { playVoice, speak } from "./talk.js";
-import { PRESETS } from "../presets.js";
+import { closeWindow, getWindow, immersion } from "./portals.js";
 import { liveViewers } from "./livecast.js";
 import { steerSides } from "./wide.js";
 
@@ -42,7 +38,7 @@ function prepareIdea(round, id) {
 setInterval(() => {
   const rs = state.roomState;
   toolbar.setCountdown(rs?.meta?.crowd && rs.suggestions?.length ? rs.crowdAt || 0 : 0);
-  if (state.retired || state.talking || state.wantTalk || state.asking || !rs?.meta?.crowd || !rs.suggestions?.length) return;
+  if (state.retired || state.talking || state.wantTalk || !rs?.meta?.crowd || !rs.suggestions?.length) return;
   if (!rs.story?.seed || !rs.crowdAt) return; // the idea steers the window's story, which needs a world first
   const now = Date.now(), top = nextIdeaOf(rs.suggestions);
   if (now < rs.crowdAt) {
@@ -124,8 +120,7 @@ setInterval(() => {
   );
 }, 250);
 
-export function applyDirection({ narration, prompt, choices, speech, companion }) {
-  if (state.guideStep === 1 && state.roomState?.log?.some((l) => ["voice", "choice", "guest", "crowd"].includes(l.kind))) setTimeout(() => guide(2), 6000);
+export function applyDirection({ narration, prompt, choices, companion }) {
   showChoices(choices || []);
   // The companion and the story are one mind: the same answer may carry its reply. One voice at a time.
   const replied = Boolean(companion?.reply && buddy.visible);
@@ -133,7 +128,6 @@ export function applyDirection({ narration, prompt, choices, speech, companion }
     buddyReply(companion, !narration);
     if (typeof companion.world === "string") buddyChangesWorld(companion.world);
   } else if (buddy.listening) buddyIdle();
-  if (speech?.line && !replied) playVoice(speech);
   const w = getWindow();
   if (w && prompt) {
     if (w.stream.status === "idle") w.stream.start(prompt);
@@ -266,53 +260,6 @@ $("#choices").addEventListener("click", (e) => {
   if (b) pickChoice(Number(b.dataset.choice));
 });
 
-// ---------- The world question ----------
-// "What world is this story set in?" (New story) and "What world is behind this window?" (every
-// new window). Answer by voice (hold to talk) or by typing; skip it and the first thing you say
-// defines the world instead. Nothing is ever taken from an earlier story.
-export const ASK = { story: "What world is this story set in?", window: "What world is behind this window?" };
-export function askWorld(kind) {
-  state.asking = { kind };
-  // Three random starter worlds for a new window, as chips to tap.
-  const ideas = kind === "window" ? [...PRESETS].sort(() => Math.random() - 0.5).slice(0, 3) : [];
-  $("#askQ").textContent = ASK[kind];
-  $("#askIdeas").innerHTML = ideas.map(([label, seed]) => `<button type="button" class="ghost" data-seed="${seed.replace(/"/g, "&quot;")}">${label}</button>`).join("");
-  $("#ask").hidden = false;
-  const xr = renderer.xr.isPresenting;
-  if (kind === "window") getWindow()?.portal.setCaption(ASK.window, "status");
-  flash(`${ASK[kind]} ${xr ? "Raise a hand to your mouth (or hold A) and say it." : CameraView.touch ? "Type it, or hold 🎙 and say it." : "Type it, or hold Space and say it."}`, 600000);
-  if (xr) speak(ASK[kind], ...NARRATOR);
-  if (!xr && $("#overlay").hidden) $("#askText").focus();
-}
-export function clearAsk(quiet = false) {
-  if (!state.asking) return;
-  state.asking = null;
-  $("#ask").hidden = true;
-  $("#askText").value = "";
-  if (quiet) flash("", 1);
-}
-export function answerWorld(text) {
-  const a = state.asking;
-  text = String(text || "").trim();
-  if (!a || !text) return;
-  clearAsk();
-  flash(`“${text}”`, 5000);
-  setWorld(text); // the window's story starts there (a new story's first window opens onto it)
-}
-export function skipWorld() {
-  if (!state.asking) return;
-  clearAsk();
-  flash("No world chosen. The first thing you say will become the world.", 7000);
-}
-$("#ask").addEventListener("submit", (e) => {
-  e.preventDefault();
-  answerWorld($("#askText").value);
-});
-$("#askSkip").onclick = skipWorld;
-$("#askIdeas").addEventListener("click", (e) => {
-  const b = e.target.closest("button[data-seed]");
-  if (b) answerWorld(b.dataset.seed);
-});
 
 // ---------- Reset and New story ----------
 // One tap arms the button, which then reads "Tap again to confirm" until you do (or press any
@@ -333,28 +280,24 @@ export function disarm() {
 /** Reset: the window closes and the story, ideas and seed are forgotten. */
 export function resetPressed() {
   if (!confirmTap("reset")) return true; // waiting for the second tap: the menu stays open
-  clearAsk();
   send({ t: "reset_story" });
   flash("Clearing the story…", 4000);
 }
-/** New story: a reset, then "what world is this story set in?". */
+/** New story: a reset; the next window gets its world from whatever you ask Bonnie for. */
 export function newStoryPressed() {
   if (!confirmTap("newstory")) return;
-  clearAsk();
-  send({ t: "reset_story", ask: true });
-  flash("Starting a new story…", 4000);
+  send({ t: "reset_story" });
+  flash("Starting a new story. Tell Bonnie what world you want.", 6000);
 }
 // The server confirmed a reset: close everything. Nothing of the old story is kept, its seed included.
-export function resetLocal({ ask = false, seed = "" } = {}) {
+export function resetLocal({ seed = "" } = {}) {
   state.armed = null;
   syncButtons();
   immersion.reset();
-  clearAsk();
   showChoices([]);
   closeWindow();
   stopSides(); // the wide view's side streams too
   state.pendingSeed = seed;
-  if (ask) return askWorld("story");
   flash(seed ? `New story: ${seed}. Open a window to begin.` : "Story cleared. Open a window to begin a new one.", 8000);
 }
 

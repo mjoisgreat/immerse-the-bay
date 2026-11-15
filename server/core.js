@@ -173,6 +173,7 @@ function step(s, m, ctx) {
         s.story = newStory(); // a new page has no window yet; the same page reconnecting keeps its story
         s.prompts = [];
         s.choices = [];
+        s.chat = []; // her memory of earlier exchanges belongs to the earlier page
       }
       s.rendererId = m.rid ?? null;
       s.window = null;
@@ -196,6 +197,7 @@ function step(s, m, ctx) {
       s.story = newStory();
       s.prompts = [];
       s.choices = [];
+      s.chat = [];
       pushLog(s, "window", "Window opened");
       if (s.nextSeed) director = openWorld(s, s.nextSeed);
       s.nextSeed = "";
@@ -206,6 +208,7 @@ function step(s, m, ctx) {
       s.prompts = [];
       s.choices = [];
       s.immersed = false;
+      s.chat = [];
       pushLog(s, "window", "Window closed");
       break;
     case "window_status":
@@ -248,7 +251,8 @@ function step(s, m, ctx) {
       const text = String(m.text || "").trim().slice(0, 300);
       if (!text) break;
       // `addressed`: the storyteller was looking at the companion while they spoke.
-      const addressed = Boolean(m.addressed && ctx.role === "owner");
+      // With no window or no world yet there is only Bonnie to ask, so the owner's words are for her.
+      const addressed = Boolean(ctx.role === "owner" && (m.addressed || !s.window || !s.story.seed));
       director = tell(s, text, ctx.role === "co" ? "guest" : "voice", addressed);
       if (director && addressed) director.addressed = true;
       break;
@@ -277,7 +281,7 @@ function step(s, m, ctx) {
       s.chat = [];
       s.log = [];
       pushLog(s, "story", s.nextSeed ? `New story: ${s.nextSeed}` : "The story was reset");
-      events.push({ t: "reset", ask: Boolean(m.ask) && !s.nextSeed, seed: s.nextSeed });
+      events.push({ t: "reset", seed: s.nextSeed });
       break;
     }
     case "set_seed": {
@@ -417,14 +421,17 @@ export function askDirector(director, s, event) {
  */
 export function applyDirection(s, out, ms, seq = 0, event = null) {
   upgrade(s);
+  // A reply to an older request than one already applied is dropped whole: its prompt would make the scene
+  // jump back, and its words (Bonnie's answer, world, choices) would land on top of the newer answer.
+  if (seq && seq < (s.appliedSeq || 0)) return [];
   const companion = out.companion?.reply
     ? {
         name: s.companion?.id === "pip" ? "Pip" : "Bonnie",
         reply: String(out.companion.reply).slice(0, 300),
         gesture: out.companion.gesture || "none",
         move: out.companion.move || "none",
-        // Asked for a new landscape: `world` is the world to show ("" = ask the storyteller). Only present
-        // when she was asked, so ordinary replies are unchanged.
+        // Asked for a new landscape: `world` is the world to show. Only present when she was asked, so
+        // ordinary replies are unchanged. (With a world already showing she sends a transition prompt too.)
         ...(typeof out.companion.world === "string" && { world: cleanSeed(out.companion.world) }),
       }
     : null;
@@ -434,29 +441,35 @@ export function applyDirection(s, out, ms, seq = 0, event = null) {
     const i = s.story.beats.lastIndexOf(event.text);
     if (i !== -1) s.story.beats.splice(i, 1);
   }
-  // A reply to an older request than one already applied: its prompt is out of date (applying it
-  // would make the scene jump back), so drop it.
-  const stale = seq && seq < (s.appliedSeq || 0);
-  if (seq && !stale) s.appliedSeq = seq;
-  const prompt = s.window && !stale && out.prompt ? out.prompt : null;
+  if (seq) s.appliedSeq = seq;
+  const prompt = s.window && out.prompt ? out.prompt : null;
+  // A new world asked for while one is showing comes with a transition prompt: the story moves there in
+  // one continuous shot (no restart, so the client is not told to reopen the window).
+  const norm = (v) => String(v || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  // Naming the world that is already showing (she often does when it opens) changes nothing.
+  if (companion?.world && s.story.seed && norm(companion.world) === norm(s.story.seed)) delete companion.world;
+  const transition = Boolean(prompt && s.story.seed && companion?.world);
   if (prompt) {
     s.window.prompt = prompt;
     remember(s, prompt);
     // A world that began from a line said to the companion: that scene is its seed.
     if (!s.story.seed) s.story = newStory(cleanSeed(event?.text || prompt));
   }
+  if (transition) {
+    s.story = newStory(companion.world);
+    pushLog(s, "world", `The window moves on to: ${companion.world}`);
+    delete companion.world;
+  }
   if (s.window && !chatOnly) {
     s.story.bible = out.bible || s.story.bible;
     s.choices = (out.choices || []).map((c) => String(c).slice(0, 80)).filter(Boolean).slice(0, 3);
     pushLog(s, "director", `${out.narration} (${ms} ms${prompt ? ", new prompt" : ""})`);
   }
-  const speech = out.speech?.line && s.window ? { speaker: out.speech.speaker, line: out.speech.line, voice: out.speech.voice } : null;
-  if (speech) pushLog(s, "speech", `${speech.speaker}: ${speech.line}`);
   if (companion) {
     pushLog(s, "speech", `${companion.name}: ${companion.reply}`);
     s.chat = [...(s.chat || []), { you: event?.type === "utterance" ? event.text : null, reply: companion.reply }].slice(-8);
   }
-  return [{ t: "direction", narration: s.window ? out.narration : "", prompt, choices: s.choices, speech, companion }];
+  return [{ t: "direction", narration: s.window ? out.narration : "", prompt, choices: s.choices, companion }];
 }
 
 /** A story's title when nobody named it: the window's world ("A misty pine forest at dawn"). */

@@ -8,7 +8,6 @@ import { $, camera, listener, renderer, say, scene } from "./stage.js";
 import { state } from "./state.js";
 import { ROOM, send } from "./room.js";
 import { buzz, flash } from "./feedback.js";
-import { ASK, askWorld, clearAsk } from "./story.js";
 import { sides, stopSides } from "./wide.js";
 import { resolveWindow } from "../windowplace.js";
 
@@ -60,8 +59,8 @@ export function settlePortal(portal) {
 }
 
 /**
- * Opens the window, which asks "what world is behind this window?" unless a world was chosen ahead of time
- * (New story, the console) or is given here.
+ * Opens the window. It starts empty (it shows "Tell Bonnie what to show here") unless a world was chosen
+ * ahead of time (the console) or is given here; otherwise Bonnie makes its world from what you ask her for.
  * opts.at: where it goes ([x, y, z] where you drew it, or {x, y, z}), facing you; else in front of you
  * (along opts.origin / opts.dir if given, else where you look); opts.scale: its size (a drawn window);
  * opts.world: the world it starts in (no question asked).
@@ -99,11 +98,9 @@ export function openWindow({ at = null, origin = null, dir = null, world = null,
   current = { portal, stream };
   send({ t: "window_opened" }); // with a world chosen ahead, the server asks the director for its first scene
   if (world) {
-    clearAsk();
     portal.setCaption("The world is forming…", "status");
     send({ t: "set_seed", seed: world });
-  } else if (hasWorld) clearAsk();
-  else askWorld("window");
+  } else if (!hasWorld) portal.setCaption(labelFor("asking"), "status"); // empty until Bonnie makes its world
 }
 
 export function closeWindow() {
@@ -113,7 +110,6 @@ export function closeWindow() {
   stream.close();
   portal.dispose();
   current = null;
-  if (state.asking?.kind === "window") clearAsk();
   send({ t: "window_closed" });
 }
 
@@ -124,13 +120,12 @@ export function closeWindow() {
  */
 export function setWorld(world) {
   if (!current) return openWindow({ world });
-  clearAsk();
   current.portal.setCaption("The world is forming…", "status");
   send({ t: "set_seed", seed: world });
 }
 
 export const labelFor = (s) =>
-  ({ asking: ASK.window, connecting: "Opening a window…", retrying: "Waiting for a free world…", reconnecting: "Reconnecting…", closed: "" })[s] ??
+  ({ asking: "Tell Bonnie what to show here", connecting: "Opening a window…", retrying: "Waiting for a free world…", reconnecting: "Reconnecting…", closed: "" })[s] ??
   s;
 
 addEventListener("pagehide", () => {

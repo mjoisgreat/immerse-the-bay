@@ -4,6 +4,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
+import { CHATTER, FALLBACK, TRICKS } from "../src/lines.js";
 
 const MODEL = "claude-opus-5-5";
 // OpenAI alternative. Set OPENAI_MODEL / OPENAI_REASONING_EFFORT to change them.
@@ -55,8 +56,21 @@ How Orbis prompts work (follow these strictly):
 
 The window (this matters):
 - There is exactly one window, with one story: its world is \`window.world\`, in the person's own
-  words. Everything you write (the prompt, the bible, the narration, the choices, a character's
-  speech) belongs to that world.
+  words. Everything you write (the prompt, the bible, the narration, the choices, a companion line)
+  belongs to that world.
+- Suggestions for the window's world: the person may ask you for an idea while the window is asking
+  "what world is behind this window?" ("Bonnie, any ideas?", "surprise me", "suggest something").
+  Never offer one unasked. Then put one vivid idea (two at most) into your reply, in your own voice
+  and attitude, and invite them to say yes or name their own. Make each idea fresh and surprising (a
+  place, a time of day, a mood in a few words) and never repeat one from your recent conversation.
+  Examples of the kind of thing to offer: a lantern-lit fishing village on a misty mountain lake at
+  dusk; a giant's overgrown library where the bookshelves are mossy cliffs; a tiny moon base of tin
+  cans and string lights with Earth rising; an underwater city of glowing coral towers. Invent new
+  ones rather than reusing these. While you only offer, set prompt to null, narration to an empty
+  string, choices to an empty list and companion.world to null (the window only gets
+  a world once they answer). If they then say yes (or "sure", "that one") to what you offered, set
+  companion.world to exactly the world you offered, written as a short vivid description, and say
+  you are on it. If they name their own world, set companion.world to theirs.
 - An event of type "world" means the window has just been given its world: the event's
   \`world\` is the person's answer to "what world is behind this window?" (or a new landscape
   they asked for, which replaces the old one). Write its opening shot (an establishing view of
@@ -82,12 +96,6 @@ Making it interactive (this matters most):
 - choices: always offer 2 or 3 short options (max 8 words each) for what could happen next,
   each pulling the story in a clearly different direction (one gentle, one surprising, one
   bold). The person can pick one, say something else, or ignore them.
-- speech: when a character is present and it fits, give ONE line of dialogue (max 20 words)
-  spoken by a character directly TO the person, in second person: greeting them, asking
-  them a question, warning them, reacting to what they did. Questions invite them to answer
-  out loud, so ask good ones. Include the character's name and a
-  short voice description (age, accent, mood) for the voice actor. Use null when no
-  character would speak; aim for a line in roughly half the beats.
 - An event of type "touch" comes with a frame from the window: the person reached out and
   touched the spot marked by the glowing ring. Work out what is there and make the world
   respond to their touch, physically and visibly (it moves, glows, opens, wakes up, a
@@ -105,6 +113,14 @@ You, in the room (the companion field):
 - You are being spoken TO when the event has addressed: true (they were looking at you while
   they talked), when they say your name, or when their words are clearly meant for you (a
   greeting, a question about you, asking you to follow or stay). Then always reply.
+- With no window open, or a window that has no world yet, everything they say is for you: they
+  are asking you for a world (or chatting). Make it: set world to a short vivid description of
+  what they asked for (or, if they only said something like "surprise me", something you
+  invent), and answer with a witty, in-character one-liner. They never have to answer a
+  question first; if they ask for a world without saying which, pick a good one yourself.
+- An event of type "step_inside" means they just walked into the world: always make a short,
+  witty comment about being in there (what you "see" through your visor), whatever the
+  usual rule says about staying quiet.
 - Otherwise they are narrating the story. Stay quiet (companion: null) for most beats and
   reply only when you have something worth saying, such as a short reaction to a big moment
   or to a touch, a new world or stepping inside; roughly one beat in four. Narrating a
@@ -128,21 +144,24 @@ You, in the room (the companion field):
   place ("show me a desert", "take us to the moon", "make it a rainforest", "let's go with Santa
   Claus", "I want to meet a dragon"), set world to the world they want, as a short vivid
   description ("a misty pine forest at dawn"), or to an empty string "" if they asked for a
-  new world without saying which (you will then ask them). Use the words they used (the Santa
-  Claus they asked for, not another character) and do not carry anything over from the world
-  before it. They can ask whether or not a window is open: with none open, the window opens
+  new world without saying which (rarely: prefer to pick one yourself). Use the words they used (the Santa
+  Claus they asked for, not another character) and do not carry story details over from the world
+  before it (a transition shot only bridges the two). They can ask whether or not a window is open: with none open, the window opens
   onto that world. But a change inside the world they are already looking at ("make it snow",
   "add a dragon here", "now it's night") is not a new world: steer it with the prompt as usual
-  and leave world null. If it is unclear whether they mean a new world or a change to the
+  and leave world null. When a world is already showing and they want a different one, do
+  not cut: set world to the new place AND write prompt as a transition, one continuous shot
+  that starts from what the window shows now and gradually, cinematically becomes the new
+  world (the camera drifts, the light and landscape melt into it), described in full the usual
+  way. With no world showing yet, leave prompt null: the new world gets its own opening shot. If it is unclear whether they mean a new world or a change to the
   current one, change the current one. If you set a world, say so in your reply, in character ("On it, taking
-  us to the desert!"), and leave prompt null and narration an empty string: the new world gets
-  its own opening shot.
+  us to the desert!"), with a witty, specific remark.
 - Just chatting: when their words are only for you and change nothing in the story ("hi
   Bonnie", "what's your favourite food?", "follow me"), leave the story alone: prompt is null,
-  narration is an empty string, choices is an empty list, speech is null, and the
+  narration is an empty string, choices is an empty list, and the
   bible is returned unchanged. Do not invent a story change to go with small talk.
-- Only one voice can play at a time: never give both a companion reply and a character's
-  speech in the same answer. If you were spoken to, the reply wins.
+- You are the only voice in the experience: there is no narrator and no character voices. The
+  subtitle (narration) is text only. Everything the person says goes through you.
 
 Keep the story bible short (under 120 words): setting, characters with fixed visual
 descriptions, current time of day and mood. The narration is one short line (under 15
@@ -156,9 +175,6 @@ const Direction = z.object({
   bible: z.string(),
   prompt: z.string().nullable(), // the window's new Orbis prompt, or null to leave it as it is
   choices: z.array(z.string()),
-  speech: z
-    .object({ speaker: z.string(), line: z.string(), voice: z.string() })
-    .nullable(),
   companion: z
     .object({
       reply: z.string(),
@@ -169,12 +185,10 @@ const Direction = z.object({
     .nullable(),
 });
 
-/** One voice per beat, and no companion lines when the companion isn't in the room. */
+/** No companion lines when the companion isn't in the room. */
 function tidy(out, { event, companion }) {
-  let c = companion?.present && out.companion?.reply?.trim() ? out.companion : null;
-  let speech = out.speech?.line?.trim() ? out.speech : null;
-  if (c && speech) event.addressed ? (speech = null) : (c = null);
-  return { ...out, companion: c, speech };
+  const c = companion?.present && out.companion?.reply?.trim() ? out.companion : null;
+  return { ...out, companion: c };
 }
 
 /** The window's prompt only counts when there is a window and it says something. */
@@ -356,12 +370,16 @@ function fallback({ event, story, window, immersed = false, companion = null }) 
   // Proposing a new adventure only changes the world when they say her name (looking at her while telling the
   // story, "I want to see the dragon", must keep steering the current world).
   const byName = new RegExp(`\\b${name}\\b`, "i").test(said);
-  const chat = calling ? { reply: "Yes? You have my undivided attention. Use it wisely.", gesture: "wave", move: "none" } : addressed ? smallTalk(said, { byName }) : null;
-  if (chat) return { narration: "", bible: story.bible, prompt: null, choices: [], speech: null, companion: chat };
+  // No world yet: whatever they say is the world they want (a plain fallback for Bonnie's real answer).
+  if (!story.seed && event.type === "utterance" && addressed && !calling) {
+    const world = worldOnly(said.replace(named, "")) || said.replace(named, "").trim();
+    return { narration: "", bible: story.bible, prompt: null, choices: [], companion: { reply: FALLBACK.world, gesture: "thumbs_up", move: "none", world } };
+  }
+  const chat = calling ? { reply: FALLBACK.calling, gesture: "wave", move: "none" } : addressed ? smallTalk(said, { byName }) : null;
+  if (chat) return { narration: "", bible: story.bible, prompt: null, choices: [], companion: chat };
   const extra = {
     choices: CHOICES[choiceTurn++ % CHOICES.length],
-    speech: null,
-    companion: addressed ? { reply: "Fine, fine. Watch the window, I'm working.", gesture: "thumbs_up", move: "none" } : null,
+    companion: addressed ? { reply: FALLBACK.busy, gesture: "thumbs_up", move: "none" } : null,
   };
   const scene = sceneOf(window?.prompt, story.seed);
   if (event.type === "step_inside") {
@@ -393,13 +411,6 @@ function fallback({ event, story, window, immersed = false, companion = null }) 
 }
 
 // The companion without Claude: understands the basic moves and questions, and doesn't repeat itself.
-const CHATTER = [
-  "Bold of you to stop there. What happens next?",
-  "Cute. Now give me something worthy of my windows.",
-  "Hmm. Are we stepping into one of these worlds, or just admiring my work?",
-  "Ha! Didn't see that coming, and I see everything. Favourite part so far?",
-  "I'm all ears. Literally. Look at them. Go on.",
-];
 let chatterTurn = 0;
 /** A reply if `text` is small talk (a greeting, a question, a move), or null if it asks for a story change. */
 // "a candy kingdom on the left" -> "a candy kingdom": where to put the window isn't part of its world.
@@ -415,7 +426,7 @@ function smallTalk(text, { byName = true } = {}) {
   if (wants) {
     const said = worldOnly(/\b(?:onto|into|of|with|to|showing|that shows|looking (?:at|onto))\s+(.+?)[.!?]*$/i.exec(text)?.[1] || "");
     return {
-      reply: said ? "Fine. New world, coming right up. You're welcome." : "A new world, sure. Which one, though? I'm good, not psychic.",
+      reply: said ? FALLBACK.newWorld : FALLBACK.whichWorld,
       gesture: "thumbs_up", move: "none", world: said,
     };
   }
@@ -435,15 +446,15 @@ function smallTalk(text, { byName = true } = {}) {
     : /\bspin\b|twirl|pirouette/i.test(text) ? "spin" : /\bclap\b/i.test(text) ? "clap"
     : /show off|something cool|a trick|cool stuff|cool move/i.test(text) ? ["flip", "cartwheel", "spin", "moonwalk"][chatterTurn % 4] : null;
   if (trick) {
-    const say = { flip: "Backflip. Try to keep up.", cartwheel: "A cartwheel? Please. Watch a professional.", moonwalk: "Smooth. Like, illegally smooth.", spin: "Pirouette. Applause is customary.", clap: "Slow clap. You earned it. Barely." }[trick];
+    const say = TRICKS[trick];
     chatterTurn++;
     return { reply: say, gesture: trick, move: "none" };
   }
   const hello = /\b(hi|hello|hey)\b/i.test(text);
   const question = /\?\s*$/.test(text);
   if (!(follow || stay || come || dance || hello || question)) return null;
-  const reply = follow ? "Lead on. I'll pretend this was my idea." : stay ? "Fine. I'll stand here looking fabulous." : come ? "Coming. Short legs, big entrance."
-    : dance ? "Oh, you want a show? Clear the floor." : hello ? "Oh, hi. Took you long enough. Missed me?" : CHATTER[chatterTurn++ % CHATTER.length];
+  const reply = follow ? FALLBACK.follow : stay ? FALLBACK.stay : come ? FALLBACK.come
+    : dance ? FALLBACK.dance : hello ? FALLBACK.hello : CHATTER[chatterTurn++ % CHATTER.length];
   return {
     reply,
     gesture: dance ? "dance" : follow || come || hello ? "wave" : stay ? "yes" : "think",

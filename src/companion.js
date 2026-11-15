@@ -568,8 +568,9 @@ export class Companion {
     this.bubble = new THREE.Sprite(
       new THREE.SpriteMaterial({ map: this.bubbleTex, transparent: true, depthWrite: false, depthTest: false }),
     );
-    this.bubble.scale.set(0.9, 0.3, 1);
-    this.bubble.position.y = this.height + 0.26;
+    this.bubble.center.set(0.5, 0); // grows up from the tail, which stays just over her head
+    this.bubble.position.y = this.height + 0.08;
+    this._sizeBubble(2.5);
     this.bubble.renderOrder = LAYER.SPEECH_BUBBLE; // always readable, even in front of a window's caption
     this.bubble.visible = false;
     this.root.add(this.bubble);
@@ -638,6 +639,15 @@ export class Companion {
    */
   goTo(point, done, timeoutMs = 15000) {
     this.errand = { point: new THREE.Vector3(point.x, 0, point.z), done, until: performance.now() + timeoutMs };
+  }
+
+  /**
+   * Keeps the bubble readable at any distance: its world size grows with distance almost as fast as the view
+   * shrinks it (apparent size ~ distance^-0.15), within limits, so it looks nearly the same size near or far.
+   */
+  _sizeBubble(dist) {
+    const k = THREE.MathUtils.clamp(Math.pow(dist / 2.5, 0.85), 0.5, 3);
+    this.bubble.scale.set(0.9 * k, 0.3 * k, 1);
   }
 
   /** Shows text above its head for `ms` (or until replaced). Empty text hides it. */
@@ -796,6 +806,7 @@ export class Companion {
     const eye = this._eye();
     const toUser = _toUser.set(eye.x - this.root.position.x, 0, eye.z - this.root.position.z);
     const distUser = toUser.length();
+    this._sizeBubble(eye.distanceTo(this.root.position));
     const moving = () => this.rig.current === "Walking" || this.rig.current === "Running";
     if (this.phys) return this._updatePhysics(dt, now, toUser);
 

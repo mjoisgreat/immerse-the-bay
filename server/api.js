@@ -79,7 +79,7 @@ export async function relayPost(store, body) {
   if (body.t === "prepare_suggestion") return ok(await prepare(store, room, String(body.id || "")));
 
   const ctx = { role, voter: typeof body.voter === "string" ? body.voter.slice(0, 40) : null };
-  const { event, snapshot } = await store.withLock(room, async () => {
+  const { event } = await store.withLock(room, async () => {
     const s = await store.getState(room);
     const { events, director: ev } = reduce(s, body, ctx);
     // Number each director request, so a slow reply can't overwrite a newer one.
@@ -92,20 +92,53 @@ export async function relayPost(store, body) {
     await store.setState(room, s);
     await store.pushEvents(room, events);
     await store.touchPublic(room, s.meta.shared);
-    return { event: ev?.ready ? null : ev, snapshot: s };
+    return { event: ev?.ready ? null : ev };
   });
 
-  if (event) {
+  if (event) await thinkInTurn(store, room, event);
+  return ok({ ok: true, role });
+}
+
+// The director answers one request at a time per room, in the order they came: each starts from the story as
+// the one before it left it, so a spoken line and the next one build on each other. A touch builds on whatever
+// was said before it, but a spoken line overrides a touch: any touch still waiting or being answered when
+// someone speaks is dropped, and its answer never lands. (One server process; on serverless instances this is
+// best effort.)
+const turns = new Map(); // room -> { speech: Promise, touches: Set<event>, waiting: number }
+function thinkInTurn(store, room, event) {
+  const q = turns.get(room) || { speech: Promise.resolve(), touches: new Set(), waiting: 0 };
+  turns.set(room, q);
+  const touch = event.type === "touch";
+  // Another touch while one is pending is skipped: its frame would be of the same scene.
+  if (touch && q.touches.size) return Promise.resolve();
+  if (!touch) for (const t of q.touches) t.cancelled = true;
+  if (touch) q.touches.add(event);
+  q.waiting++;
+  const ask = async () => {
+    const snapshot = await store.getState(room); // after everything answered so far
     const started = Date.now();
     const out = await askDirector(director, snapshot, event);
+    if (event.cancelled) return; // someone spoke in the meantime
     await store.withLock(room, async () => {
       const fresh = await store.getState(room); // others may have changed it while the director thought
       const more = applyDirection(fresh, out, Date.now() - started, event.seq, event);
       await store.setState(room, fresh);
       await store.pushEvents(room, more);
     });
-  }
-  return ok({ ok: true, role });
+  };
+  const run = async () => {
+    try {
+      if (touch) await q.speech.catch(() => {}); // a touch waits for the words before it, not for other touches
+      if (!event.cancelled) await ask();
+    } finally {
+      q.touches.delete(event);
+      if (--q.waiting === 0) turns.delete(room);
+    }
+  };
+  if (touch) return run();
+  const result = q.speech.catch(() => {}).then(run);
+  q.speech = result;
+  return result;
 }
 
 /**

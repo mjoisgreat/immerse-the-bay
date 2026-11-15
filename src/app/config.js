@@ -1,8 +1,9 @@
 // app/config.js: constants the toolbar and the gesture card need while this app starts up (leaf module).
+import { BONNIE_VOICE } from "../lines.js";
 export const USE_PIP = new URLSearchParams(location.search).get("companion") === "pip";
 export const BUDDY = USE_PIP
   ? { id: "pip", name: "Pip", icon: "🤖", voice: "a small, bright, curious robot companion; quick and playful, warm, a little mischievous" }
-  : { id: "bunny", name: "Bonnie", icon: "🐰", voice: "a bright young voice dripping with sass; quick, dry and dramatic, eye-rolling diva energy with a warm heart underneath, deadpan on the one-liners" };
+  : { id: "bunny", name: "Bonnie", icon: "🐰", voice: BONNIE_VOICE };
 
 // The hub world: the Moon by default. `?backdrop=stanford-church` (Memorial Church, from a 360° video),
 // `?backdrop=stanford-golden` (golden-hour Main Quad) or `?backdrop=stanford` (the photo-based one)

@@ -6,7 +6,8 @@
 import * as THREE from "three";
 import { LAYER } from "../layers.js";
 import { renderer, scene } from "./stage.js";
-import { buddy, buddyInView, callBuddy } from "./buddy.js";
+import { HEART } from "../lines.js";
+import { buddy, buddyInView, buddySay, callBuddy } from "./buddy.js";
 import { buzz, chime, flash } from "./feedback.js";
 
 const POOL = 40;
@@ -89,7 +90,7 @@ export function heartsFor(at) {
     const head = headTop(new THREE.Vector3(), top);
     if (buddy.visible) {
       buddy.gesture("jump");
-      buddy.say("Aww! ❤️ I love you too!", 4000);
+      buddySay(HEART, 4000);
     }
     chime("love");
     buzz(0.4, 80);

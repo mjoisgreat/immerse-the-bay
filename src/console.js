@@ -1,7 +1,6 @@
 import "./site.css";
 import { createLink } from "./link.js";
 import { peopleSummary, startPresence } from "./people.js";
-import { PRESETS } from "./presets.js";
 import { urlRoom, cleanRoom, credFor, owned, consolePins, savePin, voterId, esc } from "./identity.js";
 import { hueOf, clock, topIdeaOf, nextIdeaOf, stickyLog, storyFeed, countdownHtml, countdownBar, startCountdowns } from "./chat.js";
 
@@ -169,7 +168,6 @@ document.addEventListener("click", (e) => {
       setTimeout(() => (b.textContent = "Copy"), 1200);
     });
   }
-  if (b.dataset.preset) send({ t: "set_seed", seed: PRESETS[b.dataset.preset][1] });
 });
 
 $("#say").addEventListener("submit", (e) => {
@@ -219,6 +217,5 @@ document.addEventListener("click", (e) => {
   b.className = "";
   b.style.background = "var(--bad)";
 });
-$("#presets").innerHTML = PRESETS.map(([label, seed], i) => `<button class="ghost" data-preset="${i}" title="${esc(seed)}">${esc(label)}</button>`).join("");
 
 start();

@@ -9,8 +9,6 @@ export const state = {
   talking: false,
   wantTalk: false, // the button is held (the mic may still be starting)
   buddyWait: 0,
-  guideStep: -1,
-  asking: null, // { kind: "story" | "window" }: the world question being asked
   pendingSeed: "", // a world chosen ahead of time for the next window (also kept by the server)
   armed: null, // "reset" | "newstory" | "close"
   yaw: 0,

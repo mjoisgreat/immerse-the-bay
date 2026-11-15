@@ -3,14 +3,14 @@ import * as THREE from "three";
 import { PushToTalk, micMessage } from "../voice.js";
 import { CameraView } from "../cameraview.js";
 import { speechHeaders } from "../link.js";
+import { BONNIE_VOICE } from "../lines.js";
+import VOICE_LINES from "../voiceLines.json";
 import { credFor } from "../identity.js";
 import { listener, renderer, scene } from "./stage.js";
 import { state } from "./state.js";
 import { ROOM, send } from "./room.js";
 import { buzz, chime, flash } from "./feedback.js";
 import { buddy, buddyIdle } from "./buddy.js";
-import { getWindow, immersion } from "./portals.js";
-import { answerWorld } from "./story.js";
 
 // ---------- Voice ----------
 // On phones the mic is let go of shortly after each turn: while it's open, iPhones play everything
@@ -72,10 +72,6 @@ export async function stopTalking() {
       if (talkingToBuddy) buddy.react({ gesture: "none", move: "none" });
       return flash(`Didn't catch that. ${howToTalk()}`, 5000);
     }
-    if (state.asking) {
-      if (talkingToBuddy) buddy.react({ gesture: "none", move: "none" });
-      return answerWorld(text);
-    }
     flash(`“${text}”`, 4000);
     // Everything you say goes to the same mind: it steers the story and answers as the companion.
     // Looking at the companion while you talk tells it your words are meant for it.
@@ -93,24 +89,29 @@ export async function stopTalking() {
 
 // Characters speak their lines aloud, from their window (or all around you when you're inside it).
 let voice = null;
+const voiceCache = new Map(); // key -> decoded audio
 let voiceEnd = null; // onEnd of the line playing now
-export async function playVoice({ speaker, line, voice: style }) {
-  const target = getWindow();
-  target?.portal.setCaption(`${speaker}: “${line}”`, "story");
-  // From the character's window, or all around you when you're inside that world.
-  const inside = immersion.inside && target && immersion.portal === target.portal;
-  await speak(line, speaker, style, inside ? null : target?.portal.group);
-}
 /** Speaks a line in a character's voice, from `anchor` (an object in the room) or all around you. */
 export async function speak(line, speaker, style, anchor = null, { onStart, onEnd } = {}) {
   try {
-    const r = await fetch("/api/voice", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ room: ROOM, cred: credFor(ROOM), text: line, speaker, voice: style }),
-    });
-    if (!r.ok) throw new Error(`voice ${r.status}`);
-    const buf = await listener.context.decodeAudioData(await r.arrayBuffer());
+    // Lines she says again and again ("Ta-da!", "Coming!") are fetched once and then play at once.
+    const key = `${speaker}|${style}|${line}`;
+    let buf = voiceCache.get(key);
+    if (!buf) {
+      // A fixed line of Bonnie's has a recorded file (npm run voice-lines): no speech request, no wait.
+      const file = speaker === "Bonnie" && style === BONNIE_VOICE ? VOICE_LINES[line] : null;
+      let r = file ? await fetch(`/voice/bonnie/${file}`).catch(() => null) : null;
+      if (!r?.ok)
+        r = await fetch("/api/voice", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ room: ROOM, cred: credFor(ROOM), text: line, speaker, voice: style }),
+        });
+      if (!r.ok) throw new Error(`voice ${r.status}`);
+      buf = await listener.context.decodeAudioData(await r.arrayBuffer());
+      voiceCache.set(key, buf);
+      if (voiceCache.size > 60) voiceCache.delete(voiceCache.keys().next().value);
+    }
     if (listener.context.state === "suspended") await listener.context.resume();
     // A new line interrupts the previous one; let its speaker know it stopped.
     const interrupted = voiceEnd;
@@ -119,10 +120,10 @@ export async function speak(line, speaker, style, anchor = null, { onStart, onEn
     voice?.removeFromParent();
     interrupted?.();
     voice = anchor ? new THREE.PositionalAudio(listener) : new THREE.Audio(listener);
-    if (anchor) voice.setRefDistance(2), anchor.add(voice);
+    if (anchor) voice.setRefDistance(4), voice.setRolloffFactor(0.5), anchor.add(voice);
     else scene.add(voice);
     voice.setBuffer(buf);
-    voice.setVolume(1.4);
+    voice.setVolume(3);
     const mine = voice;
     voiceEnd = onEnd || null;
     voice.onEnded = () => {
