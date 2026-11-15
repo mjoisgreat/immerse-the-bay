@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { CameraView, headingOf } from "./cameraview.js";
+import { sparkRenderer } from "./sparks.js";
 import { $, DESKTOP_BG, camera, listener, previewRoom, renderer, scene } from "./app/stage.js";
 import { state } from "./app/state.js";
 import { RID, ROOM, handlers, link, send, showPeople } from "./app/room.js";
@@ -156,12 +157,15 @@ startPresence((m) => state.joined && send(m), { kind: thisDeviceKind(), getName:
 state.started = true; // every module has loaded: the background timers may run now
 document.addEventListener("click", () => listener.context.state === "suspended" && listener.context.resume());
 
+scene.add(sparkRenderer); // every window's rim sparks, in a few batched draw calls
+
 // ---------- Loop ----------
 const clock = new THREE.Clock();
 renderer.setAnimationLoop(() => {
   const dt = Math.min(clock.getDelta(), 0.1);
   const t = clock.elapsedTime;
   getWindow()?.portal.update(t);
+  sparkRenderer.update(dt);
   checkWalking();
   if (!renderer.xr.isPresenting && camView.update(camera, state.yaw)) state.yaw = headingOf(camera.quaternion);
   // Over the real world (headset, or the camera view) the step-inside world is drawn first, so the

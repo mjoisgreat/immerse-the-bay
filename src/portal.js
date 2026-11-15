@@ -1,58 +1,12 @@
 import * as THREE from "three";
 import { LAYER } from "./layers.js";
+import { RimSparks } from "./sparks.js";
+import { rimRadiusGLSL } from "./rimshape.js";
 
-import { WIN_W as W, WIN_H as H, WIN_DEPTH as DEPTH } from "./windowplace.js"; // metres, 16:9 like Orbis output; how far the picture sits "inside" the wall
+import { WIN_W as W, WIN_H as H } from "./windowplace.js"; // metres, 16:9 like Orbis output
 
-// The tunnel walls between the wall opening and the picture: light from the world spills onto them.
-const tunnelVert = /* glsl */ `
-attribute vec2 videoUv; attribute float front;
-varying vec2 vVideoUv; varying float vFront;
-void main() { vVideoUv = videoUv; vFront = front; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`;
-const tunnelFrag = /* glsl */ `
-uniform sampler2D map; uniform float hasVideo; uniform float reveal; uniform float fade;
-varying vec2 vVideoUv; varying float vFront;
-void main() {
-  vec3 spill = texture2D(map, vVideoUv, 3.0).rgb;
-  vec3 dark = vec3(0.03, 0.035, 0.07);
-  vec3 lit = mix(vec3(0.25, 0.16, 0.10), spill, hasVideo);
-  vec3 col = mix(lit * 0.75, dark, smoothstep(0.0, 1.0, vFront)); // bright near the picture, dark at the rim
-  col += vec3(1.0, 0.7, 0.42) * pow(vFront, 12.0) * 0.35; // warm lip at the opening
-  gl_FragColor = vec4(col * (0.4 + 0.6 * reveal), fade);
-}`;
-
-function tunnelGeometry() {
-  const x = W / 2, y = H / 2, d = -DEPTH, e = 0.02;
-  // Each side: front-a, front-b, back-b, back-a, plus which video edge lights it.
-  const sides = [
-    [[-x, y], [x, y], (t) => [t, 1 - e]],
-    [[x, -y], [-x, -y], (t) => [1 - t, e]],
-    [[-x, -y], [-x, y], (t) => [e, t]],
-    [[x, y], [x, -y], (t) => [1 - e, 1 - t]],
-  ];
-  const pos = [], uv = [], front = [], idx = [];
-  sides.forEach(([a, b, edge], i) => {
-    const N = 12; // segments along each side, so the spill follows the picture
-    for (let k = 0; k <= N; k++) {
-      const t = k / N, px = a[0] + (b[0] - a[0]) * t, py = a[1] + (b[1] - a[1]) * t;
-      pos.push(px, py, 0, px, py, d);
-      uv.push(...edge(t), ...edge(t));
-      front.push(1, 0);
-      if (k < N) {
-        const o = (i * (N + 1) + k) * 2;
-        idx.push(o, o + 1, o + 2, o + 1, o + 3, o + 2);
-      }
-    }
-  });
-  const g = new THREE.BufferGeometry();
-  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
-  g.setAttribute("videoUv", new THREE.Float32BufferAttribute(uv, 2));
-  g.setAttribute("front", new THREE.Float32BufferAttribute(front, 1));
-  g.setIndex(idx);
-  return g;
-}
-
-// A wall around the opening that only writes depth: the real room (passthrough) hides the tunnel
-// and the recessed picture except through the hole, so it looks cut into your wall, with parallax.
+// A wall around the opening that only writes depth: the real room (passthrough) hides what is behind
+// so the picture looks cut into your wall.
 function maskGeometry() {
   const outer = new THREE.Shape([
     new THREE.Vector2(-1.6, -1.2), new THREE.Vector2(1.6, -1.2), new THREE.Vector2(1.6, 1.2), new THREE.Vector2(-1.6, 1.2),
@@ -63,78 +17,30 @@ function maskGeometry() {
   return new THREE.ShapeGeometry(outer);
 }
 
-// Sparks that burst out of a window when it opens.
-const burstVert = /* glsl */ `
-attribute vec3 vel; attribute float seed;
-uniform float age;
-varying float vA;
-void main() {
-  float t = age * (0.7 + seed * 0.6);
-  vec3 p = position + vel * (1.0 - exp(-t * 2.2)) + vec3(0.0, -0.12 * t * t, 0.0);
-  vA = clamp(1.0 - t / 1.8, 0.0, 1.0);
-  vec4 mv = modelViewMatrix * vec4(p, 1.0);
-  gl_PointSize = (40.0 + 60.0 * seed) / -mv.z;
-  gl_Position = projectionMatrix * mv;
-}`;
-const burstFrag = /* glsl */ `
-varying float vA;
-void main() {
-  float d = length(gl_PointCoord - 0.5);
-  float a = smoothstep(0.5, 0.0, d);
-  gl_FragColor = vec4(mix(vec3(1.0, 0.55, 0.25), vec3(1.0, 0.95, 0.8), a), a * a * vA);
-}`;
-function burstPoints() {
-  const N = 260, pos = [], vel = [], seed = [];
-  for (let i = 0; i < N; i++) {
-    // Start on the rim of the opening, fly outward and toward the viewer.
-    const t = Math.random() * 4, side = Math.floor(t), f = t - side;
-    const p = [[-W / 2 + f * W, H / 2], [W / 2, H / 2 - f * H], [W / 2 - f * W, -H / 2], [-W / 2, -H / 2 + f * H]][side];
-    pos.push(p[0], p[1], 0.01);
-    const out = new THREE.Vector3(p[0], p[1], 0).normalize();
-    vel.push(out.x * (0.15 + Math.random() * 0.35), out.y * (0.15 + Math.random() * 0.35), 0.15 + Math.random() * 0.6);
-    seed.push(Math.random());
-  }
-  const g = new THREE.BufferGeometry();
-  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
-  g.setAttribute("vel", new THREE.Float32BufferAttribute(vel, 3));
-  g.setAttribute("seed", new THREE.Float32BufferAttribute(seed, 1));
-  return g;
-}
-
 const screenVert = /* glsl */ `
 varying vec2 vUv;
 void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`;
 
-// Live video when available, a swirling "world forming" effect while connecting,
-// an iris that opens on creation, and feathered edges so it reads as a window.
+// See-through until the world's video arrives, then it fades in (`shown`, 0..1). A square iris opens on
+// creation, and the edges are feathered and burning so it reads as a hole in space.
 const screenFrag = /* glsl */ `
-uniform sampler2D map; uniform float hasVideo; uniform float time; uniform float reveal; uniform float fade;
+uniform sampler2D map; uniform float shown; uniform float time; uniform float reveal; uniform float fade;
 varying vec2 vUv;
 float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7))) * 43758.5453); }
+${rimRadiusGLSL(W, H)}
 float noise(vec2 p){ vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);
   return mix(mix(hash(i),hash(i+vec2(1,0)),f.x), mix(hash(i+vec2(0,1)),hash(i+vec2(1,1)),f.x), f.y); }
 void main(){
-  vec2 p = (vUv - 0.5) * vec2(${(W / H).toFixed(4)}, 1.0);
-  float r = length(p), a = atan(p.y, p.x);
-  float swirl = noise(vec2(a * 2.0 + time * 0.6 - r * 6.0, r * 4.0 - time * 0.4));
-  vec3 forming = mix(vec3(0.05,0.07,0.18), vec3(0.95,0.62,0.30), smoothstep(0.35, 0.9, swirl)) * (1.2 - r);
-  vec3 col = mix(forming, texture2D(map, vUv).rgb, hasVideo);
-  float edge = min(min(vUv.x, 1.0 - vUv.x) * ${(W / H).toFixed(4)}, min(vUv.y, 1.0 - vUv.y));
-  float feather = smoothstep(0.0, 0.035, edge);
-  float iris = 1.0 - smoothstep(reveal * 1.2 - 0.05, reveal * 1.2, r);
-  gl_FragColor = vec4(col, feather * iris * fade);
-}`;
-
-const glowFrag = /* glsl */ `
-uniform vec3 color; uniform float strength; uniform float time; uniform float fade;
-varying vec2 vUv;
-float sdRoundRect(vec2 p, vec2 b, float r){ vec2 q = abs(p) - b + r; return length(max(q,0.0)) + min(max(q.x,q.y),0.0) - r; }
-void main(){
-  vec2 p = (vUv - 0.5) * vec2(${((W + 0.5) / (H + 0.5)).toFixed(4)}, 1.0);
-  float d = sdRoundRect(p, vec2(${(W / (H + 0.5) / 2).toFixed(4)}, ${(H / (H + 0.5) / 2).toFixed(4)}), 0.02);
-  float g = exp(-max(d, 0.0) * 28.0) * step(0.0, d);
-  float pulse = 0.95 + 0.05 * sin(time * 1.4); // a slow breath; a stronger, faster pulse reads as flicker in a headset
-  gl_FragColor = vec4(color, g * strength * pulse * fade);
+  vec3 col = texture2D(map, vUv).rgb;
+  // A wobbly oval iris (rimshape.js) that grows from the centre, its edge burning where the sparks are.
+  vec2 q = (vUv - 0.5) * vec2(${W.toFixed(4)}, ${H.toFixed(4)});
+  float ang = atan(q.y, q.x);
+  float e = rimRadius(ang, time) * reveal - length(q); // metres inside the edge
+  float n = noise(vec2(cos(ang), sin(ang)) * 6.0 + vec2(time * 2.0, -time * 1.5)); // (no seam where atan wraps)
+  float feather = smoothstep(0.0, 0.012 + 0.02 * n, e);
+  float iris = step(0.0, e);
+  col += vec3(1.0, 0.45, 0.12) * exp(-max(e, 0.0) * 55.0) * (0.5 + 0.7 * n);
+  gl_FragColor = vec4(col, feather * iris * fade * shown);
 }`;
 
 /** A rounded text panel (a window's caption, the in-headset toast). `mesh` is what you add to the scene. */
@@ -186,7 +92,7 @@ export class Portal {
       transparent: true,
       uniforms: {
         map: { value: this.texture },
-        hasVideo: { value: 0 },
+        shown: { value: 0 },
         time: { value: 0 },
         reveal: { value: 0 },
         fade: { value: 1 },
@@ -196,18 +102,7 @@ export class Portal {
     this.screen.userData.portal = this;
     this.group.add(this.screen);
 
-    this.glowMat = new THREE.ShaderMaterial({
-      vertexShader: screenVert,
-      fragmentShader: glowFrag,
-      transparent: true,
-      depthWrite: false,
-      blending: THREE.AdditiveBlending,
-      uniforms: { color: { value: new THREE.Color(0xffd08a) }, strength: { value: 0.9 }, time: { value: 0 }, fade: this.screenMat.uniforms.fade },
-    });
-    const glow = new THREE.Mesh(new THREE.PlaneGeometry(W + 0.5, H + 0.5), this.glowMat);
-    glow.position.z = 0.004; // just in front of the wall opening
-    glow.renderOrder = LAYER.WINDOW_GLOW; // fixed order: glow, then caption (see layers.js)
-    this.group.add(glow);
+    this.sparks = new RimSparks(this.group, W, H); // the burning rim (see sparks.js)
 
     // Caption panel under the portal (status, then the storyteller's line).
     this.caption = new Caption();
@@ -216,41 +111,10 @@ export class Portal {
     cap.renderOrder = LAYER.WINDOW_CAPTION;
     this.group.add(cap);
 
-    // Depth: the picture sits inside the wall, behind an opening, with lit tunnel walls.
-    this.screen.position.z = -DEPTH;
-    this.backMat = new THREE.MeshBasicMaterial({ color: 0x05060c, transparent: true });
-    const back = new THREE.Mesh(new THREE.PlaneGeometry(W, H), this.backMat);
-    back.position.z = -DEPTH - 0.005;
-    back.renderOrder = LAYER.WINDOW_BACK; // transparent (to fade), but always drawn before the picture
-    this.group.add(back);
-    this.tunnelMat = new THREE.ShaderMaterial({
-      vertexShader: tunnelVert,
-      fragmentShader: tunnelFrag,
-      side: THREE.DoubleSide,
-      transparent: true,
-      uniforms: {
-        map: this.screenMat.uniforms.map, hasVideo: this.screenMat.uniforms.hasVideo, reveal: this.screenMat.uniforms.reveal,
-        fade: this.screenMat.uniforms.fade,
-      },
-    });
-    const tunnel = new THREE.Mesh(tunnelGeometry(), this.tunnelMat);
-    tunnel.renderOrder = LAYER.WINDOW_BACK;
-    this.group.add(tunnel);
     this.mask = new THREE.Mesh(maskGeometry(), new THREE.MeshBasicMaterial({ colorWrite: false }));
     this.mask.renderOrder = LAYER.WALL_MASK; // hides what's "inside the wall"
     this.group.add(this.mask);
 
-    this.burstMat = new THREE.ShaderMaterial({
-      vertexShader: burstVert,
-      fragmentShader: burstFrag,
-      uniforms: { age: { value: 0 } },
-      transparent: true,
-      depthWrite: false,
-      blending: THREE.AdditiveBlending,
-    });
-    this.burst = new THREE.Points(burstPoints(), this.burstMat);
-    this.burst.frustumCulled = false;
-    this.group.add(this.burst);
     this.setCaption("The world is forming…", "status");
 
     this.listener = listener;
@@ -265,7 +129,7 @@ export class Portal {
     tex.generateMipmaps = true;
     this.texture = tex;
     this.screenMat.uniforms.map.value = tex;
-    const onFrame = () => (this.screenMat.uniforms.hasVideo.value = 1);
+    const onFrame = () => (this._videoReady = true);
     if (video.readyState >= 2) onFrame();
     else video.addEventListener("loadeddata", onFrame, { once: true });
   }
@@ -306,7 +170,6 @@ export class Portal {
     k = Math.max(0, Math.min(1, k));
     this.screenMat.uniforms.fade.value = k;
     this.caption.mesh.material.opacity = k;
-    this.backMat.opacity = k;
     this.group.visible = k > 0.001;
   }
 
@@ -316,11 +179,16 @@ export class Portal {
 
   update(t) {
     this.screenMat.uniforms.time.value = t;
-    this.glowMat.uniforms.time.value = t;
     const age = (performance.now() - this.created) / 1000;
-    this.screenMat.uniforms.reveal.value = Math.min(1, age / 1.4);
-    this.burstMat.uniforms.age.value = age;
-    if (this.burst.visible && age > 3) this.burst.visible = false;
+    const reveal = 1 - (1 - Math.min(1, age / 1.4)) ** 3; // ease out: bursts open, then settles
+    this.screenMat.uniforms.reveal.value = reveal;
+    // Fade the world in (about 1.2 s) once its video has frames; until then the window is see-through.
+    const dt = Math.min(0.1, Math.max(0, t - (this._lastT ?? t)));
+    this._lastT = t;
+    this._shownK = Math.min(1, (this._shownK ?? 0) + (this._videoReady ? dt / 1.2 : 0));
+    const shown = this._shownK * this._shownK * (3 - 2 * this._shownK);
+    this.screenMat.uniforms.shown.value = shown;
+    this.sparks.set(reveal, this.group.visible ? this.screenMat.uniforms.fade.value * 1.1 : 0, t);
     // Ease the sound between "from the window" and "all around you" (about half a second).
     const want = this.immersed ? 1 : 0;
     if (this.sound && this._audioK !== want) {
@@ -336,6 +204,7 @@ export class Portal {
     if (this._audioEl) this._audioEl.srcObject = null;
     this.texture.dispose();
     this.caption.dispose();
+    this.sparks.dispose();
   }
 }
 
