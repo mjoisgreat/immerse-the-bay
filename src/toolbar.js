@@ -118,7 +118,10 @@ export class Toolbar {
     this._drawHandle();
   }
 
-  /** Shows the director's options (or hides them with an empty list). */
+  /**
+   * Shows up to 3 "what happens next" cards (or hides them with an empty list). Each item is the
+   * director's option as a string, or an audience idea as { text, by, votes }.
+   */
   setChoices(list) {
     this.choices = list || [];
     this._drawHandle();
@@ -130,22 +133,38 @@ export class Toolbar {
   }
 
   _drawChoice(m) {
-    const text = this.choices[m.userData.choice];
+    const item = this.choices[m.userData.choice];
+    const crowd = typeof item === "object" && item !== null;
+    const text = crowd ? item.text : item;
+    const hovered = m.userData.hovered;
     const g = m.userData.canvas.getContext("2d");
     const w = 512, h = 140;
     g.clearRect(0, 0, w, h);
-    g.fillStyle = m.userData.hovered ? "rgba(255,154,90,0.95)" : "rgba(40,30,60,0.9)";
+    g.fillStyle = hovered ? "rgba(255,154,90,0.95)" : crowd ? "rgba(20,34,52,0.92)" : "rgba(40,30,60,0.9)";
     g.strokeStyle = "#ffd08a";
     g.lineWidth = 5;
     g.beginPath();
     g.roundRect(4, 4, w - 8, h - 8, 28);
     g.fill();
     g.stroke();
-    g.fillStyle = m.userData.hovered ? "#1b1206" : "#fff3e0";
+    // An audience idea carries who suggested it and how many people want it.
+    let top = 0;
+    if (crowd) {
+      g.textBaseline = "middle";
+      g.font = "700 26px system-ui, sans-serif";
+      g.textAlign = "left";
+      g.fillStyle = hovered ? "#1b1206" : "#ffb36b";
+      g.fillText((item.by || "A friend").toUpperCase(), 28, 34, w - 150);
+      g.textAlign = "right";
+      g.fillStyle = hovered ? "#1b1206" : "#ffd08a";
+      g.fillText(`▲ ${item.votes ?? 0}`, w - 28, 34);
+      top = 26;
+    }
+    g.fillStyle = hovered ? "#1b1206" : "#fff3e0";
     g.textAlign = "center";
     g.textBaseline = "middle";
-    g.font = "italic 500 34px Georgia, serif";
-    const words = text.split(/\s+/), lines = [];
+    g.font = `italic 500 ${crowd ? 30 : 34}px Georgia, serif`;
+    const words = String(text || "").split(/\s+/), lines = [];
     let line = "";
     for (const wd of words) {
       const t = line ? `${line} ${wd}` : wd;
@@ -153,7 +172,8 @@ export class Toolbar {
       else line = t;
     }
     lines.push(line);
-    lines.slice(0, 2).forEach((l, i, a) => g.fillText(l, w / 2, h / 2 + (i - (a.length - 1) / 2) * 40));
+    const gap = crowd ? 34 : 40;
+    lines.slice(0, 2).forEach((l, i, a) => g.fillText(l, w / 2, h / 2 + top / 2 + (i - (a.length - 1) / 2) * gap));
     m.userData.tex.needsUpdate = true;
   }
 

@@ -93,7 +93,7 @@ function render(s) {
   $("#suggs").innerHTML = sug.length
     ? sug
         .map(
-          (x) => `<div class="sugg"><span class="vote">▲ ${x.voters.length}</span><span class="text">${esc(x.text)}</span>
+          (x) => `<div class="sugg"><span class="vote">▲ ${x.voters.length}</span><span class="text">${esc(x.text)}${x.by ? ` <span class="muted">· ${esc(x.by)}</span>` : ""}</span>
           <button data-use="${esc(x.id)}">Use</button><button class="ghost" data-dismiss="${esc(x.id)}" aria-label="Dismiss">✕</button></div>`,
         )
         .join("")

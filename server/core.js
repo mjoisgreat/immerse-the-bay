@@ -15,7 +15,7 @@ export function initialState() {
     choices: [], // what could happen next, offered by the director
     rendererId: null, // the owner's headset page that currently drives the streams
     meta: { title: "", shared: false, crowd: false },
-    suggestions: [], // [{ id, text, voters: [voterId], at }]
+    suggestions: [], // [{ id, text, voters: [voterId], at, by? }] (by = the author's display name, optional)
     lastActive: Date.now(),
     log: [],
   };
@@ -181,7 +181,8 @@ export function reduce(s, m, ctx = {}) {
       if (!text || !ctx.voter) break;
       if (s.suggestions.filter((x) => x.voters[0] === ctx.voter).length >= 3) break; // 3 open ideas each
       if (s.suggestions.some((x) => x.text.toLowerCase() === text.toLowerCase())) break;
-      s.suggestions.push({ id: rid(), text, voters: [ctx.voter], at: Date.now() });
+      const by = cleanName(m.name);
+      s.suggestions.push({ id: rid(), text, voters: [ctx.voter], at: Date.now(), ...(by && { by }) });
       if (s.suggestions.length > MAX_SUGGESTIONS) {
         // Drop the least-voted, oldest idea.
         s.suggestions.sort(byVotes);
@@ -204,6 +205,7 @@ export function reduce(s, m, ctx = {}) {
       const x = m.id === "top" ? topSuggestion(s) : s.suggestions.find((y) => y.id === m.id);
       if (!x) break;
       s.suggestions = s.suggestions.filter((y) => y.id !== x.id);
+      s.choices = []; // the story moved on, so the director's old options are stale
       director = narrate(s, x.text, "crowd");
       break;
     }
@@ -217,6 +219,15 @@ function narrate(s, text, kind) {
   pushLog(s, kind, text);
   return { type: "utterance", text };
 }
+
+/** A display name for an idea's author: letters, digits, spaces and . ' - only, up to 20 characters. */
+export const cleanName = (v) =>
+  String(v || "")
+    .replace(/[^\p{L}\p{N} .'-]/gu, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 20)
+    .trim();
 
 const byVotes = (a, b) => b.voters.length - a.voters.length || a.at - b.at;
 export function topSuggestion(s) {
