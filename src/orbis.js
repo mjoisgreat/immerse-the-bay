@@ -92,7 +92,10 @@ export class OrbisStream extends EventTarget {
         this.dispatchEvent(new Event("audio"));
       }
     });
-    reactor.on("sessionIdChanged", (id) => (this.sessionId = id || this.sessionId));
+    reactor.on("sessionIdChanged", (id) => {
+      this.sessionId = id || this.sessionId;
+      if (this.closed) this._cleanupServerSide(); // closed while connecting: the session id arrives late, end it now
+    });
     reactor.on("message", (raw) => this._onMessage(unwrap(raw)));
     reactor.on("statusChanged", (s) => {
       if (s === "disconnected" && !this.closed && this.status === "streaming") {
@@ -109,7 +112,7 @@ export class OrbisStream extends EventTarget {
     ready.catch(() => {});
     await reactor.connect(this.jwt);
     await ready;
-    if (this.closed) return this._teardown();
+    if (this.closed) return this._teardown(reactor);
     await this._startGeneration();
   }
 
@@ -158,12 +161,11 @@ export class OrbisStream extends EventTarget {
     }
   }
 
-  async _teardown() {
-    const reactor = this.reactor;
-    this.reactor = null;
-    if (!reactor) return;
+  /** Disconnects and ends the server-side session. `reactor` may be one close() already detached mid-connect. */
+  async _teardown(reactor = this.reactor) {
+    if (this.reactor === reactor) this.reactor = null;
     try {
-      await reactor.disconnect();
+      await reactor?.disconnect();
     } catch {}
     this._cleanupServerSide();
   }
