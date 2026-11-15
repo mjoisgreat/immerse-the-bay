@@ -5,6 +5,8 @@ export const MAX_PORTALS = Number(process.env.MAX_PORTALS || 3);
 const MAX_SUGGESTIONS = 25;
 const MAX_BEATS = 20;
 const MAX_PROMPTS = 12;
+/** Where the companion can go to open a window, relative to where the storyteller is looking. */
+export const PLACES = ["here", "ahead", "left", "right", "behind"];
 
 // Every portal is its own story: its own world (seed), story bible, beats, choice chips and prompt
 // history, kept in `threads[portal id]`. Steering only ever touches the focused portal's thread.
@@ -354,7 +356,18 @@ export function applyDirection(s, out, ms, seq = 0, event = null) {
   const id = event ? (event.portal_id ?? null) : s.focusId;
   const th = find(s, id) ? thread(s, id) : null;
   const companion = out.companion?.reply
-    ? { name: s.companion?.id === "pip" ? "Pip" : "Bonnie", reply: String(out.companion.reply).slice(0, 300), gesture: out.companion.gesture || "none", move: out.companion.move || "none" }
+    ? {
+        name: s.companion?.id === "pip" ? "Pip" : "Bonnie",
+        reply: String(out.companion.reply).slice(0, 300),
+        gesture: out.companion.gesture || "none",
+        move: out.companion.move || "none",
+        // Asked to open a window: `open_window` is the world behind it ("" = ask the storyteller), `place` where
+        // she goes to do it. Only present when she was asked, so ordinary replies are unchanged.
+        ...(typeof out.companion.open_window === "string" && {
+          open_window: cleanSeed(out.companion.open_window),
+          place: PLACES.includes(out.companion.place) ? out.companion.place : "here",
+        }),
+      }
     : null;
   // Small talk with the companion: the story, its choices and its subtitle stay as they were.
   const chatOnly = Boolean(companion && !out.updates.length && !String(out.narration || "").trim());

@@ -18,6 +18,30 @@ test("speaking steers the current scene instead of resetting to the seed", async
   assert.ok(!prompt.includes("fishing village"));
 });
 
+// The backup companion understands "open a window" too (the world and the place come from her words).
+const ask = (text) =>
+  director.direct({ event: { type: "utterance", text, addressed: true }, story, portals: portal("A pier."), focusId: "A", companion: { id: "bunny", present: true } });
+test("asking Bonnie to open a window onto a world, over there", async () => {
+  const c = (await ask("Bonnie, go over there and open a window onto a misty pine forest")).companion;
+  assert.equal(c.open_window, "a misty pine forest");
+  assert.equal(c.place, "ahead");
+  assert.equal(c.move, "none");
+});
+test("asking for a window with no world, on the left, leaves the world to be asked", async () => {
+  const c = (await ask("Bonnie, open a window on my left")).companion;
+  assert.equal(c.open_window, "");
+  assert.equal(c.place, "left");
+});
+test("'go to the right and open a window' does not mistake the place for the world", async () => {
+  const c = (await ask("Bonnie, go to the right and open a window")).companion;
+  assert.equal(c.open_window, "");
+  assert.equal(c.place, "right");
+});
+test("ordinary small talk opens nothing", async () => {
+  const c = (await ask("Hi Bonnie")).companion;
+  assert.equal(c.open_window, undefined);
+});
+
 test("recent events stay in the scene, older ones fade out, nothing piles up", async () => {
   let prompt = "A wooden pier at night.";
   for (const text of ["A boat drifts by", "A fox appears", "It starts to snow", "Fireworks light the sky"]) {

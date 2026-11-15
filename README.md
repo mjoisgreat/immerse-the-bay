@@ -119,6 +119,15 @@ for the voice) with a matching gesture; while you're just narrating it mostly st
 and then. Small talk ("hi Bonnie", "follow me") leaves the story untouched. Its lines appear in the watch feed and
 on the theater view.
 
+**Bonnie opens windows for you.** Say "Bonnie, go over there and open a window onto a misty pine forest" (or just
+"Bonnie, open a window"). She answers, walks to the place you named (left, right, ahead / over there, behind, or
+beside you if you named none: always relative to where you are looking) and opens a window just behind her, facing
+you. With a world in your words it starts that world; without one she asks "what world is behind this window?" like
+any new window. Other windows are left alone, and at the window limit she tells you to close one first. The
+director returns `open_window` (the world, or `""` to ask) and `place` next to its `companion` reply; the backup
+director (no API key) understands the same phrases. The walking is `Companion.goTo()`; the place maths is in
+`src/errand.js`.
+
 Add `?companion=pip` to the headset URL to get Pip, the robot, instead ("RobotExpressive" by Tomás Laulhé
 (Quaternius), modifications by Don McCurdy, CC0, from the three.js examples).
 
