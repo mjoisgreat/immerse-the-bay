@@ -2,18 +2,28 @@ import * as THREE from "three";
 
 // Hand gestures (Quest hand tracking), on top of pinching:
 //  - Raise a hand to your mouth like a microphone → talk; lower it → send.
-//  - Clap → step into the window you're facing / step back out.
+//  - Part both hands like curtains → step into the focused window; bring them back together → step out.
+//  - Shake both hands in front of you (wipe away) → close the focused window (or step out when inside).
 //  - Turn your LEFT palm toward your face and hold it there → show / hide the buttons.
 // Detection is pure geometry on joint positions, kept separate from three.js so it can be tested.
 
 const MIC_ON = 0.13, MIC_OFF = 0.2; // metres from the mouth (hysteresis so it doesn't flicker)
-const MIC_HOLD_MS = 250;
-const CLAP_CLOSE = 0.09, CLAP_OPEN = 0.2, CLAP_WINDOW_MS = 450, CLAP_COOLDOWN_MS = 1200;
+const MIC_HOLD_MS = 350;
+const MIC_LOST_MS = 2500; // the talking hand went untracked this long (controllers picked up, session over): send
+// Two-hand gestures share one cooldown, so the return stroke of one can never fire another.
+const TWO_HAND_COOLDOWN_MS = 1500;
+// Parting / closing: palms go from TOGETHER to APART (or back) within the window, then stay for a beat.
+const TOGETHER = 0.2, APART = 0.42, PART_WINDOW_MS = 800, SETTLE_MS = 280;
+// Shake: each hand swings sideways and turns around a few times in quick succession.
+const SWING = 0.045, SHAKE_TURNS = 3, SHAKE_WINDOW_MS = 1400;
+const MOVED = 0.08; // both hands must travel at least this far in a parting / closing motion
+const GAP_MS = 300; // tracking gap after which half-finished two-hand motions are forgotten
 const PALM_HOLD_MS = 600;
 
 const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
 const len = (a) => Math.hypot(a[0], a[1], a[2]);
 const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
 const norm = (a) => {
   const l = len(a) || 1;
   return [a[0] / l, a[1] / l, a[2] / l];
@@ -23,16 +33,54 @@ const norm = (a) => {
  * Pure gesture state machine.
  * update(frame) where frame = { now, head: {pos, up, fwd}, hands: { left?, right? } } and each hand is
  * { palm: [x,y,z], palmNormal: [x,y,z] (pointing out of the palm) }. Returns a list of events:
- * "talk-start", "talk-end", "clap", "palm".
+ * "talk-start", "talk-end", "open", "close", "shake", "palm". `talkHand` is "left" | "right" while talking.
  */
 export class GestureDetector {
   constructor() {
     this.talking = false;
     this.nearSince = 0;
-    this.lastApart = -Infinity;
-    this.lastClap = -Infinity;
+    this.talkHand = null;
+    this.lastTwoHand = -Infinity;
+    this._resetTwoHand();
     this.palmSince = 0;
     this.palmArmed = true;
+  }
+
+  _resetTwoHand() {
+    this.lastTogether = -Infinity;
+    this.lastApart = -Infinity;
+    this.togetherAt = this.apartAt = null; // palm positions when last together / apart
+    this.pending = null; // { ev: "open" | "close", at } waiting out SETTLE_MS
+    const swing = () => ({ x: 0, last: null, dir: 0, ext: 0, turns: [] });
+    this.swing = { left: swing(), right: swing() };
+  }
+
+  /** Forget everything in progress. Returns ["talk-end"] if a talk was open, so the mic is never left on. */
+  reset() {
+    const events = this.talking ? ["talk-end"] : [];
+    this.talking = false;
+    this.talkHand = null;
+    this.nearSince = 0;
+    this.palmSince = 0;
+    this._resetTwoHand();
+    return events;
+  }
+
+  /**
+   * Counts recent left-right direction changes of one hand. Sideways travel is summed from the palm's own
+   * movement in the room, so shaking your head with your hands held still does not count.
+   */
+  _turns(side, palm, right, now) {
+    const s = this.swing[side];
+    if (s.last) s.x += dot(sub(palm, s.last), right);
+    s.last = palm;
+    const x = s.x;
+    if (s.dir === 0) {
+      if (Math.abs(x - s.ext) > SWING) (s.dir = Math.sign(x - s.ext)), (s.ext = x);
+    } else if ((x - s.ext) * s.dir > 0) s.ext = x;
+    else if ((s.ext - x) * s.dir > SWING) (s.dir = -s.dir), (s.ext = x), s.turns.push(now);
+    while (s.turns.length && now - s.turns[0] > SHAKE_WINDOW_MS) s.turns.shift();
+    return s.turns.length;
   }
 
   update({ now, head, hands }) {
@@ -44,29 +92,71 @@ export class GestureDetector {
     ];
 
     // Talk: either hand near the mouth.
-    const toMouth = Math.min(...[hands.left, hands.right].filter(Boolean).map((h) => len(sub(h.palm, mouth))), Infinity);
+    const dMouth = (h) => (h ? len(sub(h.palm, mouth)) : Infinity);
+    // While talking only the hand that started it counts; if it drops out of tracking (it is right
+    // under the headset) keep listening for a while rather than cutting the speaker off.
+    const talkHand = this.talking ? hands[this.talkHand] : null;
+    if (talkHand || !this.talking) this.talkSeen = now;
+    const toMouth = this.talking
+      ? talkHand ? dMouth(talkHand) : now - this.talkSeen > MIC_LOST_MS ? Infinity : 0
+      : Math.min(dMouth(hands.left), dMouth(hands.right));
     if (!this.talking) {
       if (toMouth < MIC_ON) {
         this.nearSince ||= now;
-        if (now - this.nearSince >= MIC_HOLD_MS) (this.talking = true), events.push("talk-start");
+        if (now - this.nearSince >= MIC_HOLD_MS) {
+          this.talking = true;
+          this.talkHand = dMouth(hands.left) < dMouth(hands.right) ? "left" : "right";
+          events.push("talk-start");
+        }
       } else this.nearSince = 0;
     } else if (toMouth > MIC_OFF) {
       this.talking = false;
+      this.talkHand = null;
       this.nearSince = 0;
       events.push("talk-end");
     }
 
-    // Clap: palms come together quickly (they were apart a moment ago), away from the face.
-    if (hands.left && hands.right && !this.talking) {
-      const apart = len(sub(hands.left.palm, hands.right.palm));
-      if (apart > CLAP_OPEN) this.lastApart = now;
-      const fast = now - this.lastApart < CLAP_WINDOW_MS;
-      const awayFromFace = len(sub(hands.left.palm, head.pos)) > 0.22;
-      if (apart < CLAP_CLOSE && fast && awayFromFace && now - this.lastClap > CLAP_COOLDOWN_MS) {
-        this.lastClap = now;
-        events.push("clap");
+    // Two-hand gestures: both hands raised in front of you, and not while talking.
+    const right = cross(head.fwd, head.up);
+    const inFront = (h) => {
+      if (!h) return false;
+      const r = sub(h.palm, head.pos);
+      return dot(r, head.fwd) > 0.15 && len(r) > 0.22 && dot(r, head.up) > -0.55;
+    };
+    if (now - (this.lastNow ?? now) > GAP_MS) this._resetTwoHand();
+    this.lastNow = now;
+    const moved = (at) => at && len(sub(hands.left.palm, at[0])) > MOVED && len(sub(hands.right.palm, at[1])) > MOVED;
+    const cooled = now - this.lastTwoHand > TWO_HAND_COOLDOWN_MS;
+    const fire = (ev) => {
+      this._resetTwoHand();
+      this.lastTwoHand = now;
+      events.push(ev);
+    };
+    if (this.talking) this._resetTwoHand();
+    else if (inFront(hands.left) && inFront(hands.right)) {
+      this.lastFront = now;
+      const lt = this._turns("left", hands.left.palm, right, now);
+      const rt = this._turns("right", hands.right.palm, right, now);
+      const sep = len(sub(hands.left.palm, hands.right.palm));
+      const at = [hands.left.palm, hands.right.palm];
+      if (sep < TOGETHER) (this.lastTogether = now), (this.togetherAt = at);
+      if (sep > APART) (this.lastApart = now), (this.apartAt = at);
+      const shaking = lt >= 2 || rt >= 2; // a wipe is under way: it must not read as parting
+      if (shaking) this.pending = null;
+      if (lt >= SHAKE_TURNS && rt >= SHAKE_TURNS) {
+        if (cooled) fire("shake");
+      } else if (this.pending) {
+        // The hands must stay where the motion ended for a beat (a shake swings straight back).
+        const held = this.pending.ev === "open" ? sep > APART * 0.85 : sep < TOGETHER + 0.05;
+        if (!held) this.pending = null;
+        else if (now >= this.pending.at) fire(this.pending.ev);
+      } else if (cooled && !shaking) {
+        if (sep > APART && now - this.lastTogether < PART_WINDOW_MS && moved(this.togetherAt)) this.pending = { ev: "open", at: now + SETTLE_MS };
+        else if (sep < TOGETHER && now - this.lastApart < PART_WINDOW_MS && moved(this.apartAt)) this.pending = { ev: "close", at: now + SETTLE_MS };
       }
-    }
+    } else if (this.pending && now - this.lastFront < GAP_MS) {
+      if (now >= this.pending.at) fire(this.pending.ev); // hands dropped right after the motion
+    } else this._resetTwoHand();
 
     // Left palm turned toward your face, in front of you, held still for a moment.
     const L = hands.left;
@@ -107,6 +197,24 @@ export class HandGestures {
       return hand;
     });
     this.seenHands = false;
+    // Feedback, added to the scene by the caller: a glow on each palm when a gesture registers,
+    // and a small mic badge by the hand you are talking into.
+    this.fx = new THREE.Group();
+    this.glows = ["left", "right"].map(() => {
+      const m = new THREE.Mesh(
+        new THREE.SphereGeometry(0.05, 16, 12),
+        new THREE.MeshBasicMaterial({ color: 0xffd08a, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthTest: false }),
+      );
+      m.visible = false;
+      m.renderOrder = 998;
+      this.fx.add(m);
+      return m;
+    });
+    this.glowAt = -Infinity;
+    this.mic = new THREE.Sprite(new THREE.SpriteMaterial({ map: micTexture(), transparent: true, depthTest: false }));
+    this.mic.renderOrder = 999;
+    this.mic.visible = false;
+    this.fx.add(this.mic);
     this._q = new THREE.Quaternion();
     this._v = new THREE.Vector3();
   }
@@ -120,20 +228,74 @@ export class HandGestures {
     return { palm, palmNormal: n };
   }
 
+  /** Flash both palms in a colour: "this gesture registered". */
+  pulse(color = 0xffd08a) {
+    for (const g of this.glows) g.material.color.set(color);
+    this.glowAt = performance.now();
+  }
+
+  _fx(now, hands, head) {
+    const k = (now - this.glowAt) / 550; // 0 → 1 over the pulse
+    ["left", "right"].forEach((side, i) => {
+      const g = this.glows[i], h = hands[side];
+      g.visible = Boolean(h) && k < 1;
+      if (!g.visible) return;
+      g.position.fromArray(h.palm);
+      g.scale.setScalar(1 + 1.8 * k);
+      g.material.opacity = 0.85 * (1 - k);
+    });
+    const h = hands[this.detector.talkHand];
+    this.mic.visible = Boolean(h && head);
+    if (this.mic.visible) {
+      // Just above and beyond the hand, so it sits at the bottom of your view rather than under your chin.
+      this.mic.position.fromArray(h.palm).addScaledVector(this._v.fromArray(head.fwd), 0.1).addScaledVector(this._v.fromArray(head.up), 0.06);
+      this.mic.scale.setScalar(0.045 * (1 + 0.12 * Math.sin(now / 140)));
+    }
+  }
+
   update() {
-    if (!this.renderer.xr.isPresenting) return;
+    if (!this.renderer.xr.isPresenting) {
+      for (const ev of this.detector.reset()) this.handlers[ev]?.(); // session over mid-sentence: send it
+      return this._fx(0, {}, null);
+    }
     const hands = {};
     for (const h of this.hands) {
       const data = this._read(h);
       if (data) hands[h.userData.handedness === "left" ? "left" : "right"] = data;
     }
-    if (!hands.left && !hands.right) return;
-    if (!this.seenHands) (this.seenHands = true), this.handlers.firstSeen?.();
+    if ((hands.left || hands.right) && !this.seenHands) (this.seenHands = true), this.handlers.firstSeen?.();
     const head = {
       pos: this.camera.getWorldPosition(new THREE.Vector3()).toArray(),
       up: new THREE.Vector3(0, 1, 0).applyQuaternion(this.camera.getWorldQuaternion(this._q)).toArray(),
       fwd: new THREE.Vector3(0, 0, -1).applyQuaternion(this.camera.getWorldQuaternion(this._q)).toArray(),
     };
-    for (const ev of this.detector.update({ now: performance.now(), head, hands })) this.handlers[ev]?.();
+    const now = performance.now();
+    for (const ev of this.detector.update({ now, head, hands })) this.handlers[ev]?.();
+    this._fx(now, hands, head);
   }
+}
+
+function micTexture() {
+  if (typeof document === "undefined") return null;
+  const c = document.createElement("canvas");
+  c.width = c.height = 128;
+  const g = c.getContext("2d");
+  g.fillStyle = "#e5392b";
+  g.beginPath();
+  g.arc(64, 64, 60, 0, Math.PI * 2);
+  g.fill();
+  g.strokeStyle = g.fillStyle = "#fff";
+  g.lineWidth = 8;
+  g.lineCap = "round";
+  g.beginPath(); // capsule
+  g.roundRect(50, 26, 28, 48, 14);
+  g.fill();
+  g.beginPath(); // cradle and stand
+  g.arc(64, 62, 26, 0.15 * Math.PI, 0.85 * Math.PI);
+  g.moveTo(64, 88);
+  g.lineTo(64, 104);
+  g.stroke();
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
 }

@@ -25,11 +25,60 @@ test("hand to mouth talks, lowering it sends", () => {
 test("a quick brush past the mouth is ignored", () => {
   assert.deepEqual(run([[5, rest], [6, atMouth], [5, rest]]), []);
 });
-test("a fast clap fires once", () => {
-  assert.deepEqual(run([[5, { left: lHand(0.2), right: rHand(0.2) }], [3, { left: lHand(0.08), right: rHand(0.08) }], [5, { left: lHand(0.03), right: rHand(0.03) }]]), ["clap"]);
+// Two-hand motions, frame by frame: sep(t) is the gap between the palms, shift(t) moves both sideways.
+const both = (sep, shift = 0) => ({ left: lHand(sep / 2 - shift), right: rHand(sep / 2 + shift) });
+const motion = (frames, f) => Array.from({ length: frames }, (_, i) => [1, f(i * 0.016)]);
+const ramp = (from, to, frames) => motion(frames, (t) => both(from + ((to - from) * t) / (frames * 0.016)));
+const wave = (t) => 0.1 * Math.sin(2 * Math.PI * 3 * t); // 3 Hz, 10 cm either way
+
+test("parting the hands like curtains opens, once", () => {
+  assert.deepEqual(run([[10, both(0.12)], ...ramp(0.12, 0.6, 15), [60, both(0.6)]]), ["open"]);
 });
-test("hands resting together don't clap", () => {
-  assert.deepEqual(run([[60, { left: lHand(0.03), right: rHand(0.03) }]]), []);
+test("bringing the hands back together closes", () => {
+  assert.deepEqual(run([[10, both(0.6)], ...ramp(0.6, 0.12, 15), [60, both(0.12)]]), ["close"]);
+});
+test("the return stroke right after opening is swallowed by the cooldown", () => {
+  assert.deepEqual(run([[10, both(0.12)], ...ramp(0.12, 0.6, 15), [25, both(0.6)], ...ramp(0.6, 0.12, 15), [30, both(0.12)]]), ["open"]);
+});
+test("slowly drifting apart is not an opening motion", () => {
+  assert.deepEqual(run([[10, both(0.12)], ...ramp(0.12, 0.6, 120), [60, both(0.6)]]), []);
+});
+test("hands held still, together or apart, do nothing", () => {
+  assert.deepEqual(run([[120, both(0.05)]]), []);
+  assert.deepEqual(run([[120, both(0.6)]]), []);
+});
+test("shaking both hands side by side fires one shake", () => {
+  assert.deepEqual(run(motion(80, (t) => both(0.3, wave(t)))), ["shake"]);
+});
+test("a mirrored wipe (hands swinging in and out) is a shake, never an open or close", () => {
+  assert.deepEqual(run(motion(80, (t) => both(0.33 + 2 * wave(t)))), ["shake"]);
+});
+test("shaking your head with your hands held up is not a shake", () => {
+  const d = new GestureDetector();
+  const out = [];
+  for (let i = 0; i < 150; i++) {
+    const yaw = 0.35 * Math.sin(2 * Math.PI * 2 * i * 0.016);
+    out.push(...d.update({ now: i * 16, head: { ...head, fwd: [Math.sin(yaw), 0, -Math.cos(yaw)] }, hands: both(0.3) }));
+  }
+  assert.deepEqual(out, []);
+});
+test("one hand pulling away from a still one (dragging a window) is not an opening motion", () => {
+  assert.deepEqual(run([[10, both(0.12)], ...motion(15, (t) => ({ left: lHand(0.06), right: rHand(0.06 + 2 * t) })), [60, { left: lHand(0.06), right: rHand(0.54) }]]), []);
+});
+test("losing the talking hand keeps listening, then sends; a half-made motion is dropped after a gap", () => {
+  assert.deepEqual(run([[30, atMouth], [60, { left: rest.left }], [30, atMouth], [200, {}]]), ["talk-start", "talk-end"]);
+  const d = new GestureDetector();
+  const out = [];
+  let t = 0;
+  for (const [, hands] of [[10, both(0.12)], ...ramp(0.12, 0.6, 15)]) out.push(...d.update({ now: (t += 16), head, hands }));
+  out.push(...d.update({ now: t + 10000, head, hands: both(0.6) }), ...d.update({ now: t + 10400, head, hands: both(0.6) }));
+  assert.deepEqual(out, []);
+});
+test("shaking only one hand is ignored", () => {
+  assert.deepEqual(run(motion(120, (t) => ({ left: lHand(0.15), right: rHand(0.15 + wave(t)) }))), []);
+});
+test("two-hand gestures are off while talking", () => {
+  assert.deepEqual(run([[30, atMouth], ...motion(80, (t) => ({ left: lHand(0.15 + wave(t)), right: atMouth.right }))]), ["talk-start"]);
 });
 test("left palm toggles once per raise", () => {
   assert.deepEqual(run([[5, rest], [80, leftPalmUp], [5, rest], [50, leftPalmUp]]), ["palm", "palm"]);

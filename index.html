@@ -15,7 +15,7 @@
       button { font: inherit; font-size: 1.15rem; padding: .8rem 1.6rem; border-radius: 999px; border: 0; cursor: pointer;
         background: linear-gradient(135deg, #ffd08a, #ff9a5a); color: #1b1206; }
       button:disabled { opacity: .55; cursor: default; }
-      #hint { font-size: .85rem; opacity: .6; margin-top: 1rem; }
+      #hint, #hint2 { font-size: .85rem; opacity: .6; margin-top: 1rem; }
       #roominfo { margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid #ffb36b33; text-align: left; }
       .kv { display: flex; justify-content: space-between; gap: 1rem; margin: .25rem 0; font-family: system-ui, sans-serif; }
       .kv span { opacity: .7; } .kv b { letter-spacing: .06em; color: #ffd08a; }
@@ -83,7 +83,8 @@
         <p class="tagline">A campfire story you can step into.</p>
         <p>One person speaks, the room becomes the story, and everyone watching shapes what happens next, live.</p>
         <button id="enter">Enter Living Window</button>
-        <div id="hint">Click empty space to open a window · drag to look · hold Space to talk · double-click a window to step inside · H shows or hides the buttons</div>
+        <div id="hint">In the headset, use your hands: raise one to your mouth to talk · part both like curtains to step inside · shake both to close a window (A/X, B/Y and grip do the same)</div>
+        <div id="hint2">On desktop: click empty space to open a window · drag to look · hold Space to talk · double-click a window to step inside · H shows or hides the buttons</div>
         <form id="demo">
           <select id="demoSeed" aria-label="Demo world"></select>
           <button class="ghost" id="prepare">Prepare demo</button>
