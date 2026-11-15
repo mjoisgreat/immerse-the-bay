@@ -32,6 +32,7 @@ export function initialState() {
     rendererId: null, // the owner's headset page that currently drives the streams
     meta: { title: "", shared: false, crowd: false },
     suggestions: [], // [{ id, text, voters: [voterId], at, by? }] (by = the author's display name, optional)
+    poll: null, // Twitch chat poll, run by the console: { stage: "collect"|"vote", ends, channel, pool, ideas: [{ n, text, short, by, votes }] }
     people: [], // who is here right now: [{ id, kind, role, name, at }], see "here" (clients get livePeople())
     lastActive: Date.now(),
     log: [],
@@ -40,7 +41,7 @@ export function initialState() {
 
 /** Who may send which message. Roles come from the room's credentials (see api.js). */
 const OWNER_ONLY = new Set(["hello", "portal_sync", "portal_added", "portal_removed", "portal_status", "heartbeat", "immerse", "touch", "companion"]);
-const CONSOLE = new Set(["focus", "close_portal", "manual_prompt", "set_seed", "set_meta", "use_suggestion", "dismiss_suggestion", "reset_story"]);
+const CONSOLE = new Set(["focus", "close_portal", "manual_prompt", "set_seed", "set_meta", "use_suggestion", "dismiss_suggestion", "reset_story", "poll", "poll_win"]);
 const NARRATE = new Set(["utterance", "choose"]);
 const ANYONE = new Set(["whoami", "suggest", "vote", "here", "rtc"]);
 
@@ -316,6 +317,20 @@ function step(s, m, ctx) {
       if (typeof m.crowd === "boolean") s.meta.crowd = m.crowd;
       break;
 
+    // ---- Twitch chat poll (the console reads the chat and runs the rounds; see src/twitchpoll.js) ----
+    case "poll":
+      s.poll = cleanPoll(m.poll);
+      break;
+    case "poll_win": {
+      // The chat voted: the winning idea becomes the next story line of the focused window.
+      const text = String(m.text || "").replace(/\s+/g, " ").trim().slice(0, 200);
+      if (!text) break;
+      const by = cleanName(m.by);
+      pushLog(s, "twitch", `${by || "Twitch chat"} won the vote: ${text}`);
+      director = tell(s, text, "crowd");
+      break;
+    }
+
     // ---- community ----
     case "suggest": {
       const text = String(m.text || "").replace(/\s+/g, " ").trim().slice(0, 140);
@@ -368,6 +383,25 @@ const cleanName = (v) =>
     .trim()
     .slice(0, 20)
     .trim();
+
+/** The poll as the clients see it: at most 5 options, short strings, numbers only where numbers belong. */
+function cleanPoll(p) {
+  if (!p || !["collect", "vote"].includes(p.stage)) return null;
+  const str = (v, n) => String(v || "").replace(/\s+/g, " ").trim().slice(0, n);
+  return {
+    stage: p.stage,
+    ends: Number(p.ends) || 0,
+    channel: str(p.channel, 30),
+    pool: Math.max(0, Math.floor(Number(p.pool) || 0)),
+    ideas: (Array.isArray(p.ideas) ? p.ideas : []).slice(0, 5).map((x, i) => ({
+      n: i + 1,
+      text: str(x.text, 200),
+      short: str(x.short || x.text, 40),
+      by: cleanName(x.by),
+      votes: Math.max(0, Math.floor(Number(x.votes) || 0)),
+    })),
+  };
+}
 
 const byVotes = (a, b) => b.voters.length - a.voters.length || a.at - b.at;
 function topSuggestion(s) {

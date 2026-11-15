@@ -7,8 +7,8 @@ export default defineConfig({
   plugins: [basicSsl()],
   server: {
     host: true,
-    port: 5173,
-    proxy: { "/api": "http://localhost:8787" },
+    port: Number(process.env.WEB_PORT || 5173),
+    proxy: { "/api": `http://localhost:${process.env.PORT || 8787}` },
   },
   build: {
     rollupOptions: { input: {

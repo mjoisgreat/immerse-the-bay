@@ -58,6 +58,26 @@
         </section>
       </div>
       <div>
+        <section id="twitch">
+          <h2>Twitch chat <span class="pill" id="twStatus">off</span></h2>
+          <form class="row" id="twForm">
+            <input id="twChannel" placeholder="Twitch channel (name or link)" autocomplete="off" />
+            <button id="twGo">Connect</button>
+          </form>
+          <div class="row" style="margin:.5rem 0;gap:1rem">
+            <label class="muted">Ideas for <input id="twCollect" type="number" min="10" max="600" value="45" style="width:4.5rem" /> s</label>
+            <label class="muted">Vote for <input id="twVote" type="number" min="5" max="300" value="25" style="width:4.5rem" /> s</label>
+          </div>
+          <div id="twStage" class="narration"></div>
+          <ol id="twOptions" style="margin:.4rem 0;padding-left:1.4rem"></ol>
+          <div class="row" style="gap:.4rem">
+            <button class="ghost" id="twNow" type="button">Start vote now</button>
+            <button class="ghost" id="twEnd" type="button">End vote now</button>
+          </div>
+          <p class="muted"><small>In chat: <code>!idea a whale sings opera</code> to suggest, <code>!vote 2</code> (or just <code>2</code>) to vote.
+            Each round draws 5 ideas at random (ideas sent by more people are likelier), chat votes, and the winner becomes the next story line.</small></p>
+          <div id="twFeed" class="muted" style="max-height:7rem;overflow:auto;font-size:.85em"></div>
+        </section>
         <section>
           <h2>Room</h2>
           <form class="row" id="titleForm" style="margin-bottom:.4rem">

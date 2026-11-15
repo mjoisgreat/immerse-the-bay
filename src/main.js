@@ -18,6 +18,7 @@ import { ptt, stopTalking } from "./app/talk.js";
 import { trail } from "./app/trail.js";
 import { heartsFor, updateHearts } from "./app/hearts.js";
 import { updateSides } from "./app/wide.js";
+import { updateWristPoll } from "./app/wristpoll.js";
 import { backdrop, loco, locoRays, toggleWorld } from "./app/world.js";
 import { WORLD_CYCLE } from "./app/config.js";
 import { checkWalking, gestures, pollButtons, updateResize, updateStrokes } from "./app/xrinput.js";
@@ -196,6 +197,7 @@ renderer.setAnimationLoop(() => {
   buddy.highlight(renderer.xr.isPresenting && !buddy.held && aimedAtBuddy());
   buddy.update(dt);
   updateRipples();
+  updateWristPoll();
   updateTitle();
   for (const { portal, stream } of portals.values()) {
     // The "hole in the wall" only makes sense over passthrough

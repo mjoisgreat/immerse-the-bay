@@ -25,5 +25,6 @@ export const LAYER = {
   TELEPORT_MARKER: 29,
   GESTURE_CARD: 30, // its close button is one above
   DRAW_TRAIL: 40,
+  WRIST_POLL: 45, // the Twitch vote above the wrist
   TOAST: 50, // on top of everything
 };

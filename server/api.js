@@ -73,6 +73,12 @@ export async function relayPost(store, body) {
     const extra = role === "owner" || role === "console" ? { invite: auth.invite } : {};
     return ok({ role, ...extra });
   }
+  if (body.t === "shorten") {
+    // Compact labels for the Twitch poll options (shown above the storyteller's wrist).
+    if (role !== "owner" && role !== "console") return err(403, "console only");
+    const texts = (Array.isArray(body.texts) ? body.texts : []).slice(0, 5).map((t) => String(t).slice(0, 200));
+    return ok({ labels: await director.shorten(texts) });
+  }
   if (role === "none") return err(403, "room has no owner yet"); // don't create state for rooms nobody claimed
   if (!allowed(role, body.t)) return err(403, `not allowed for ${role}`);
 

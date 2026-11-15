@@ -312,7 +312,44 @@ export function createDirector() {
     }
   }
 
-  return { direct, provider };
+  /**
+   * Compact labels (2 to 5 words) for chat ideas, for the small voting panel above the wrist.
+   * Falls back to cutting the text at a word boundary when there is no model or it is slow.
+   */
+  async function shorten(texts) {
+    const cut = texts.map(shortLabel);
+    if (!texts.length || provider !== "anthropic") return cut;
+    try {
+      const response = await client.beta.messages.parse(
+        {
+          model: SHORT_MODEL,
+          max_tokens: 400,
+          output_config: { format: zodOutputFormat(z.object({ labels: z.array(z.string()) })) },
+          system:
+            "You turn story ideas from a live Twitch chat into very short labels for a tiny voting panel in VR. " +
+            "For each idea, in order, write a label of 2 to 5 words (at most 32 characters) that keeps its core image or action. " +
+            "No quotes, no emoji, no trailing punctuation. Keep names and the funny part. Never refuse; if an idea is offensive, write a harmless neutral label.",
+          messages: [{ role: "user", content: JSON.stringify(texts) }],
+        },
+        { timeout: 6000, maxRetries: 0 },
+      );
+      const labels = response.parsed_output?.labels || [];
+      return texts.map((t, i) => shortLabel(labels[i] || t));
+    } catch (error) {
+      console.warn("[director] shorten:", error.message);
+      return cut;
+    }
+  }
+
+  return { direct, shorten, provider };
+}
+
+const SHORT_MODEL = "claude-haiku-5-5";
+/** At most 32 characters, cut at a word boundary. */
+function shortLabel(t) {
+  t = String(t || "").replace(/\s+/g, " ").trim().replace(/[.!?,;:]+$/, "");
+  if (t.length <= 32) return t;
+  return `${t.slice(0, 31).replace(/\s+\S*$/, "")}…`;
 }
 
 const IMMERSIVE =

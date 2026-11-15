@@ -4,6 +4,8 @@ import { peopleSummary, startPresence } from "./people.js";
 import { PRESETS } from "./presets.js";
 import { urlRoom, cleanRoom, credFor, owned, consolePins, savePin, voterId, esc } from "./identity.js";
 import { hueOf, clock, topIdeaOf, stickyLog } from "./chat.js";
+import { connectTwitch, channelOf } from "./twitch.js";
+import { TwitchPoll } from "./twitchpoll.js";
 
 const $ = (s) => document.querySelector(s);
 
@@ -234,5 +236,112 @@ document.addEventListener("click", (e) => {
   b.style.background = "var(--bad)";
 });
 $("#presets").innerHTML = PRESETS.map(([label, seed], i) => `<button class="ghost" data-preset="${i}" title="${esc(seed)}">${esc(label)}</button>`).join("");
+
+// ---------- Twitch chat: ideas, then a vote on 5 of them; the winner is the next story line ----------
+const TW_KEY = "lw.twitchChannel";
+const store = (k, v) => {
+  try {
+    return v === undefined ? localStorage.getItem(k) : localStorage.setItem(k, v);
+  } catch {
+    return null;
+  }
+};
+$("#twChannel").value = store(TW_KEY) || "mini_sonrixs";
+let tw = null; // { chat, poll, channel }
+let twPushed = "", twPushAt = 0;
+async function shortenIdeas(texts) {
+  const r = await fetch("/api/relay", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ t: "shorten", room, cred: credFor(room), texts }),
+  });
+  return (await r.json()).labels;
+}
+function twFeed(line) {
+  const box = $("#twFeed");
+  box.insertAdjacentHTML("beforeend", `<div>${line}</div>`);
+  while (box.children.length > 40) box.firstChild.remove();
+  box.scrollTop = box.scrollHeight;
+}
+function twPush(force = false) {
+  if (!tw) return;
+  const snap = JSON.stringify(tw.poll.snapshot(tw.channel));
+  if (snap === twPushed || (!force && Date.now() - twPushAt < 1000)) return;
+  twPushed = snap;
+  twPushAt = Date.now();
+  send({ t: "poll", poll: JSON.parse(snap) });
+}
+function twRender() {
+  const p = tw?.poll;
+  $("#twGo").textContent = tw ? "Disconnect" : "Connect";
+  $("#twChannel").disabled = Boolean(tw);
+  if (!p) return ($("#twStage").textContent = ""), ($("#twOptions").innerHTML = "");
+  const left = Math.max(0, Math.ceil((p.ends - Date.now()) / 1000));
+  $("#twStage").textContent =
+    p.stage === "collect" ? `Collecting ideas · ${p.pool.size} so far · vote in ${left} s`
+    : p.stage === "choosing" ? "Drawing 5 ideas…"
+    : p.stage === "vote" ? `Voting · ${left} s left · ${p.votes.size} votes · ${p.pool.size} ideas waiting for the next round`
+    : "";
+  const t = p.tally();
+  $("#twOptions").innerHTML = p.options
+    .map((x, i) => `<li><b>${esc(x.short)}</b> <span class="muted">— ${esc(x.text)} (${esc(x.by)}${x.supporters > 1 ? ` +${x.supporters - 1}` : ""})</span> <span class="pill">▲ ${t[i]}</span></li>`)
+    .join("");
+  $("#twNow").disabled = p.stage !== "collect" || p.pool.size === 0;
+  $("#twEnd").disabled = p.stage !== "vote";
+}
+function twConnect() {
+  const channel = channelOf($("#twChannel").value);
+  if (!channel || !link) return;
+  store(TW_KEY, channel);
+  $("#twChannel").value = channel;
+  const poll = new TwitchPoll({
+    collectSec: Number($("#twCollect").value) || 45,
+    voteSec: Number($("#twVote").value) || 25,
+    shorten: shortenIdeas,
+    onChange: () => (twRender(), twPush(true)),
+    onWinner(w) {
+      send({ t: "poll_win", text: w.text, by: w.by });
+      twFeed(`<b>🏆 ${esc(w.short)}</b> (${w.votes} votes) → ${esc(w.text)}`);
+    },
+  });
+  const chat = connectTwitch(channel, {
+    onStatus: (st) => ($("#twStatus").textContent = st),
+    onMessage(m) {
+      const kind = poll.handle(m);
+      if (kind) twFeed(`<span style="color:${esc(m.color || "inherit")}">${esc(m.user)}</span>: ${esc(m.text)}`);
+    },
+  });
+  tw = { chat, poll, channel };
+  poll.start();
+}
+function twDisconnect() {
+  tw?.chat.close();
+  tw = null;
+  twPushed = "";
+  send({ t: "poll", poll: null });
+  $("#twStatus").textContent = "off";
+  twRender();
+}
+$("#twForm").addEventListener("submit", (e) => {
+  e.preventDefault();
+  tw ? twDisconnect() : twConnect();
+});
+for (const id of ["twCollect", "twVote"])
+  $(`#${id}`).addEventListener("change", () => {
+    if (!tw) return;
+    tw.poll.collectSec = Number($("#twCollect").value) || 45;
+    tw.poll.voteSec = Number($("#twVote").value) || 25;
+  });
+$("#twNow").addEventListener("click", () => tw?.poll.stage === "collect" && tw.poll.beginVote());
+$("#twEnd").addEventListener("click", () => tw?.poll.endVote());
+setInterval(() => {
+  if (!tw) return;
+  tw.poll.tick();
+  twRender();
+  twPush();
+}, 500);
+twRender();
+// `?debug`: fake chat lines for a dry run without Twitch, e.g. twSay("ann", "!idea a whale sings").
+if (new URLSearchParams(location.search).has("debug")) window.twSay = (user, text) => tw?.poll.handle({ user, text });
 
 start();
