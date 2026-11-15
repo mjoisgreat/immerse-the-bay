@@ -37,6 +37,19 @@ test("'go to the right and open a window' does not mistake the place for the wor
   assert.equal(c.open_window, "");
   assert.equal(c.place, "right");
 });
+test("proposing a story to Bonnie opens a window for it, without saying 'window'", async () => {
+  const c = (await ask("Bonnie, let's go with Santa Claus")).companion;
+  assert.equal(c.open_window, "Santa Claus");
+  assert.match(c.reply, /Santa Claus/);
+  assert.equal((await ask("Bonnie lets go to the moon")).companion.open_window, "the moon");
+  assert.equal((await ask("Bonnie, take us to a candy kingdom on the left")).companion.place, "left");
+  assert.equal((await ask("I want to meet a friendly dragon")).companion.open_window, "a friendly dragon");
+});
+test("chatter and changes to the current world do not open a window", async () => {
+  for (const text of ["Bonnie, let's go with me", "Bonnie, can we dance?", "Bonnie, follow me", "Bonnie, let's go", "Bonnie, take me home"]) {
+    assert.equal((await ask(text)).companion?.open_window, undefined, text);
+  }
+});
 test("ordinary small talk opens nothing", async () => {
   const c = (await ask("Hi Bonnie")).companion;
   assert.equal(c.open_window, undefined);
