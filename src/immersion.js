@@ -23,13 +23,29 @@ void main() {
   gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
 }`;
 
+// Wide view: two more live streams of the same scene, the camera turned SIDE_YAW to the left and right.
+// They overlap the main view by a few degrees and blend into it, giving about 230° of live picture.
+export const SIDE_YAW = (72 * Math.PI) / 180;
+
 const domeFrag = /* glsl */ `
 uniform sampler2D map; uniform float hasVideo; uniform float progress; uniform float time; uniform vec2 texel;
+uniform sampler2D mapL; uniform sampler2D mapR; uniform float hasL; uniform float hasR;
 varying vec3 vDir;
 float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7))) * 43758.5453); }
 float noise(vec2 p){ vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);
   return mix(mix(hash(i),hash(i+vec2(1,0)),f.x), mix(hash(i+vec2(0,1)),hash(i+vec2(1,1)),f.x), f.y); }
 vec2 mirror(vec2 u){ return 1.0 - abs(mod(u, 2.0) - 1.0); }
+// Where direction d lands in a side camera turned by yaw (+ left, - right); z = how far in front it is.
+vec3 sideUv(vec3 d, float yaw){
+  vec3 f = vec3(-sin(yaw), 0.0, -cos(yaw)), r = vec3(cos(yaw), 0.0, -sin(yaw));
+  float fw = dot(d, f);
+  vec2 p = vec2(dot(d, r), d.y) / max(fw, 0.02);
+  return vec3(0.5 + 0.5 * p / vec2(${TANH.toFixed(5)}, ${TANV.toFixed(5)}), fw);
+}
+float frameWeight(vec2 uv, float fw){
+  float edge = min(min(uv.x, 1.0 - uv.x), min(uv.y, 1.0 - uv.y));
+  return fw > 0.05 ? smoothstep(0.0, 0.15, edge) : 0.0;
+}
 void main(){
   vec3 d = normalize(vDir);
   float fwd = -d.z;
@@ -68,7 +84,13 @@ void main(){
   // A wide, soft blend from the sharp picture into the glow (no visible frame line).
   float edge = min(min(uv.x, 1.0 - uv.x), min(uv.y, 1.0 - uv.y));
   float inFrame = smoothstep(0.0, 0.12, edge) * step(outside, 0.0);
-  vec3 video = mix(ext, sharp, inFrame);
+  // Wide view: the left and right streams, blended with the main one where they overlap.
+  vec3 sl = sideUv(d, ${SIDE_YAW.toFixed(5)}), sr = sideUv(d, -${SIDE_YAW.toFixed(5)});
+  float wl = frameWeight(sl.xy, sl.z) * hasL, wr = frameWeight(sr.xy, sr.z) * hasR;
+  vec3 colL = texture2D(mapL, clamp(sl.xy, 0.0, 1.0)).rgb, colR = texture2D(mapR, clamp(sr.xy, 0.0, 1.0)).rgb;
+  float wsum = inFrame + wl + wr;
+  vec3 picture = (sharp * inFrame + colL * wl + colR * wr) / max(wsum, 0.0001);
+  vec3 video = mix(ext, picture, clamp(wsum, 0.0, 1.0));
   video += (hash(gl_FragCoord.xy + fract(time) * 91.0) - 0.5) * 0.022; // fine grain hides compression blocks
 
   // Before frames arrive: the same swirl the portal shows while a world forms.
@@ -128,7 +150,12 @@ export class Immersion {
       progress: { value: 0 },
       time: { value: 0 },
       texel: { value: new THREE.Vector2(1 / 1280, 1 / 720) },
+      mapL: { value: new THREE.Texture() },
+      mapR: { value: new THREE.Texture() },
+      hasL: { value: 0 },
+      hasR: { value: 0 },
     };
+    this.sideVideo = { L: null, R: null };
     this.dome = new THREE.Mesh(
       new THREE.SphereGeometry(RADIUS, 128, 64),
       new THREE.ShaderMaterial({
@@ -177,6 +204,19 @@ export class Immersion {
     this.nextSample = 0;
     this.entryEye = new THREE.Vector3();
     this.forward = new THREE.Vector3();
+  }
+
+  /** Wide view: show a side stream's video (L or R), or remove it with null. Fades in once frames arrive. */
+  setSide(side, video) {
+    const u = this.uniforms[`map${side}`];
+    u.value?.dispose?.();
+    this.sideVideo[side] = video || null;
+    if (!video) return void ((u.value = new THREE.Texture()), (this.uniforms[`has${side}`].value = 0));
+    const tex = new THREE.VideoTexture(video);
+    tex.colorSpace = THREE.NoColorSpace; // passed through untouched, like the main view
+    tex.minFilter = THREE.LinearFilter;
+    tex.generateMipmaps = false;
+    u.value = tex;
   }
 
   get active() {
@@ -315,5 +355,11 @@ export class Immersion {
       if (!this.inside && this.progress === 0) this.reset();
     }
     if (this.world.visible) this._sampleColour(performance.now());
+    // Side views fade in over a second once they have frames, and out when removed.
+    for (const side of ["L", "R"]) {
+      const v = this.sideVideo[side], h = this.uniforms[`has${side}`];
+      const want = v && v.readyState >= 2 ? 1 : 0;
+      h.value = want > h.value ? Math.min(1, h.value + dt) : Math.max(0, h.value - dt * 2);
+    }
   }
 }

@@ -208,7 +208,62 @@ const labelFor = (s) =>
   ({ asking: ASK.portal, connecting: "Opening a window…", retrying: "Waiting for a free world…", reconnecting: "Reconnecting…", closed: "" })[s] ??
   s;
 
-addEventListener("pagehide", () => portals.forEach((p) => p.stream.closeOnUnload()));
+addEventListener("pagehide", () => {
+  portals.forEach((p) => p.stream.closeOnUnload());
+  for (const side of ["L", "R"]) sides[side]?.closeOnUnload();
+});
+
+// ---------- Wide view: live views to your left and right while you're inside a window ----------
+// Two more Orbis streams of the same scene with the camera turned to each side, stitched around you by
+// the step-inside view (see immersion.js). Only while you're inside, and only when Wide view is on.
+let wideOn = false;
+const sides = { L: null, R: null, for: null, triedAt: 0 };
+function sidePrompt(prompt, side) {
+  return `The same place at the same moment, seen from the same standing spot with the camera turned 72 degrees to the ${side}. ${prompt} This shot shows what lies to the ${side} of that view, continuing the same ground, horizon height, light, weather and time of day seamlessly. One continuous take, an almost still camera.`;
+}
+function startSides() {
+  const entry = [...portals.entries()].find(([, x]) => x.portal === immersion.portal);
+  if (!entry || !entry[1].stream.prompt) return; // the main view has no scene yet: try again shortly
+  const [id, { stream }] = entry;
+  stopSides();
+  sides.for = id;
+  for (const side of ["L", "R"]) {
+    const s = new OrbisStream(`${id}${side}`, ROOM);
+    s.addEventListener("video", () => immersion.setSide(side, s.video));
+    sides[side] = s;
+    s.start(sidePrompt(stream.prompt, side === "L" ? "left" : "right"));
+  }
+  flash("Wide view: live views to your left and right are on their way (about 20–30 s).", 6000);
+}
+function stopSides() {
+  for (const side of ["L", "R"]) {
+    sides[side]?.close();
+    sides[side] = null;
+    immersion.setSide(side, null);
+  }
+  sides.for = null;
+}
+function steerSides(id, prompt) {
+  if (sides.for !== id) return;
+  sides.L?.steer(sidePrompt(prompt, "left"));
+  sides.R?.steer(sidePrompt(prompt, "right"));
+}
+// Called every frame: start the side views when you're inside with Wide view on, stop them otherwise.
+function updateSides() {
+  const wantFor = wideOn && immersion.inside ? [...portals.entries()].find(([, x]) => x.portal === immersion.portal)?.[0] : null;
+  if (sides.for && sides.for !== wantFor) stopSides();
+  if (wantFor && !sides.for && performance.now() - sides.triedAt > 2000) (sides.triedAt = performance.now()), startSides();
+}
+function toggleWide() {
+  wideOn = !wideOn;
+  if (!wideOn) return flash("Wide view off.", 2500);
+  flash(
+    immersion.inside
+      ? "Wide view on: two more live views (left and right) for this world."
+      : "Wide view on: step inside a window and live views open to your left and right too.",
+    5000,
+  );
+}
 
 // ---------- Room: each headset owns a private story room ----------
 // Visiting with ?room=X: if this browser owns X, drive it; if X is unclaimed, claim it;
@@ -349,6 +404,7 @@ function applyDirection({ portal_id, narration, updates, choices, speech, compan
     if (!p) continue;
     if (p.stream.status === "idle") p.stream.start(u.prompt);
     else p.stream.steer(u.prompt);
+    steerSides(u.portal_id, u.prompt); // Wide view: the left and right views follow the story too
   }
   if (narration) {
     // The line belongs to the window whose story it is, which may not be the focused one any more.
@@ -1430,6 +1486,7 @@ const toolbar = new Toolbar(camera, [
   { id: "hide", icon: "▾", label: "Hide buttons", press: () => setButtonsHidden(true) },
   { id: "buddy", icon: BUDDY.icon, label: BUDDY.name, press: toggleBuddy },
   { id: "world", icon: "🏛", label: "Stanford", press: toggleBackdrop },
+  { id: "wide", icon: "🔭", label: "Wide view", press: toggleWide },
   { id: "newstory", icon: "✨", label: "New story", press: newStoryPressed },
   { id: "reset", icon: "↺", label: "Reset story", press: resetPressed },
   // Close window sits in the far corner, away from the buttons you press all the time.
@@ -1474,6 +1531,9 @@ function updateToolbar() {
 }
 function syncButtons() {
   toolbar.set("world", { label: backdrop.on ? "See-through" : "Stanford", icon: backdrop.on ? "👓" : "🏛" });
+  toolbar.set("wide", { state: wideOn ? "active" : "idle", label: wideOn ? "Wide: on" : "Wide view" });
+  bar.wide.textContent = wideOn ? "Wide view: on" : "Wide view";
+  bar.wide.classList.toggle("on", wideOn);
   bar.world.textContent = backdrop.on ? "See-through" : "Stanford Quad";
   toolbar.set("talk", { state: talking ? "active" : "idle", label: talking ? "Listening…" : "Hold to talk" });
   toolbar.set("step", { label: immersion.inside ? "Step out" : "Step inside", icon: immersion.inside ? "↩" : "🚪" });
@@ -1555,6 +1615,7 @@ $("#bar").addEventListener("click", (e) => e.target.closest("[data-act]")?.datas
 bar.info.onclick = () => ($("#overlay").hidden = !$("#overlay").hidden);
 bar.hide.onclick = () => setButtonsHidden(true);
 bar.world.onclick = toggleBackdrop;
+bar.wide.onclick = toggleWide;
 bar.buddy.onclick = toggleBuddy;
 bar.buddy.textContent = BUDDY.name;
 $("#showbar").onclick = () => setButtonsHidden(false);
@@ -1714,6 +1775,7 @@ renderer.setAnimationLoop(() => {
   updateToolbar();
   gestures.update();
   updateResize();
+  updateSides();
   updateStrokes();
   trail.update();
   updateCradle();

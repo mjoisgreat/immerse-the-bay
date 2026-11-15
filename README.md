@@ -274,3 +274,15 @@ choices, touch, reset and hand-gesture tests) and `npm run build`. On pushes to 
 https://living-window.vercel.app with the Vercel CLI, once these repository secrets exist:
 `VERCEL_TOKEN` (create at vercel.com/account/tokens), `VERCEL_ORG_ID` and `VERCEL_PROJECT_ID` (from `.vercel/project.json`).
 Without them the deploy job is skipped with a warning.
+
+## Wide view: live views to your left and right
+
+Inside a window the main live video covers about 84° in front of you. Press **Wide view** (🔭 on the panel or the
+desktop bar) and, while you're inside, two more Orbis streams show the same scene with the camera turned 72° to
+the left and to the right. They overlap the main view and blend into it, so about 230° around you is live picture
+and turning your head flows from view to view. The side prompts are the main prompt plus "the same place and moment,
+camera turned to the left/right", and they're steered whenever the story steers the main view. Orbis can't see the
+other views, so details don't continue exactly across the joins (colour, light and style do). The extra streams
+only run while you're inside with Wide view on (they stop when you step out), take about 20–30 s to fade in, and use
+two more streams' worth of credits.
+
