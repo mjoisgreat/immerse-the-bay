@@ -57,6 +57,8 @@
       #ask[hidden], #loading[hidden] { display: none; }
       #ask label { display: block; font-style: italic; font-size: 1.1rem; color: #ffd08a; margin-bottom: .5rem; }
       #ask div { display: flex; gap: .4rem; }
+      #ask #askIdeas { flex-wrap: wrap; justify-content: center; margin-top: .5rem; }
+      #ask #askIdeas:empty { display: none; }
       #ask input { flex: 1; min-width: 0; font: .95rem system-ui, sans-serif; padding: .5rem .8rem; border-radius: 999px; border: 1px solid #ffb36b77; background: #10141f; color: #fff3e0; }
       #ask button { font-size: .9rem; padding: .45rem 1rem; }
       #loading { padding: .55rem .95rem; border-radius: 1rem; background: rgba(12, 14, 24, .9); border: 1px solid #6aa8ff; font: .9rem system-ui, sans-serif; width: min(26rem, 100%); box-sizing: border-box; text-align: center; }
@@ -166,6 +168,7 @@
         <label for="askText" id="askQ"></label>
         <div><input id="askText" autocomplete="off" maxlength="400" placeholder="e.g. a lantern-lit village on a misty lake" />
         <button>Begin</button><button type="button" class="ghost" id="askSkip">Skip</button></div>
+        <div id="askIdeas"></div>
       </form>
       <div id="loading" hidden><span id="loadingText"></span><div><i id="loadingBar"></i></div></div>
       <div id="status"></div>

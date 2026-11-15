@@ -1,4 +1,4 @@
-// Story worlds offered as one-tap starting points (console chips, Prepare demo).
+// Story worlds offered as one-tap starting points (console chips, Bonnie's suggestions).
 export const PRESETS = [
   ["Lantern village", "A lantern-lit fishing village on a misty mountain lake at dusk, wooden boats, paper lanterns glowing amber"],
   ["Giant's library", "A giant's overgrown library where the bookshelves are mossy cliffs and paper birds fly between them, warm afternoon light"],

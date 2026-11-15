@@ -45,14 +45,12 @@ in `server/core.js` (`state.window`, `state.story`, `state.prompts`).
   wherever you put it (`src/windowplace.js`, tests in `test/windowplace.test.js`).
   Opening another while one exists, or while you are inside, does nothing.
 
-## New story, Reset, Prepare demo
+## New story and Reset
 
 * **Reset story** (one tap arms it; the button reads **Tap again to confirm** until you do, press another
   button, or hit Esc): closes the window and forgets the story, the ideas and the seed. Nothing is reused.
 * **New story:** the same reset, then the narrator asks **"What world is this story set in?"**. Your answer
   opens the first window onto that world. Skip it and the first window asks its own question.
-* **Prepare demo** (start card and console): a fresh story in a chosen world with its first window opened
-  straight away, because a window takes 20–30 s to reach video. Do it before the headset goes on.
 * **In the headset** a small round **☰** button rests in the lower left of your view, like the casting symbol. It holds
   still while you look around inside a dead zone (about 26°), and glides to its spot again once you look beyond it. Point at
   it (trigger or a pinch) to open its list: **Reset**, **Stanford** (or **Exit Stanford**), **Cheat sheet** and
@@ -220,7 +218,7 @@ A button panel floats just below your gaze and follows you when you turn or walk
 pull the trigger (or pinch): **Hold to talk**, **New window**, **Step inside / Step out**, **Hide buttons**,
 the companion, the room background, **New story** and **Reset story** (see above), and **Close window** in the
 far corner, away from the buttons you press most. The same buttons sit at the bottom of the screen on desktop,
-plus **Room info**; the director console has New story, Reset and Prepare demo too.
+plus **Room info**; the director console has New story and Reset too.
 **Hide buttons** (or click a thumbstick, or press H on desktop) leaves just a small **☰ Buttons** handle; point at it
 to bring them back.
 
