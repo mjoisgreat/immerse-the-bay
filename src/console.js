@@ -119,7 +119,7 @@ function render(s) {
 // ---------- Audience ideas as a stream chat, with moderator buttons (Use / ✕) on each line ----------
 const seenIdeas = new Set();
 let pinnedHtml = "", firstIdeas = true;
-const updateLog = stickyLog($("#suggs"), $("#jump"));
+const updateLog = stickyLog($("#suggs"), $("#jump"), { newestFirst: true });
 startCountdowns();
 const modButtons = (x) =>
   `<span class="mod"><button data-use="${esc(x.id)}" title="Use this idea in the story" aria-label="Use: ${esc(x.text)}">▶</button><button data-dismiss="${esc(x.id)}" title="Remove" aria-label="Remove: ${esc(x.text)}">✕</button></span>`;
@@ -133,7 +133,7 @@ function renderChat(s) {
   const votes = (x) => `<span class="vote" title="${x.voters.length} vote${x.voters.length === 1 ? "" : "s"}">▲ ${x.voters.length}</span>`;
   const html = sug.length
     ? [...sug]
-        .sort((a, b) => a.at - b.at)
+        .sort((a, b) => b.at - a.at) // newest first
         .map((x) => {
           const fresh = !firstIdeas && !seenIdeas.has(x.id) ? " fresh" : "";
           const chip = x === topIdea ? `<span class="chip top" title="${crowd ? "Up next" : "Top idea"}">${s.meta?.crowd ? "⏭" : "🔥"}</span>` : "";

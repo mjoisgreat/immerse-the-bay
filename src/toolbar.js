@@ -157,7 +157,7 @@ export class Toolbar {
     this.rows = [];
 
     // "What happens next?" as a Twitch-style chat column above the button: a header, then one line
-    // per idea (oldest on top, newest at the bottom). It steps aside while the list is open.
+    // per idea (newest on top). It steps aside while the list is open.
     this.choiceMeshes = [];
     this.choices = [];
     this.chatCanvas = Object.assign(document.createElement("canvas"), { width: 1024, height: 58 });

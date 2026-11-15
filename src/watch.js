@@ -108,7 +108,7 @@ function renderFeed(s) {
   firstFeed = false;
 }
 
-// ---------- Ideas as a stream chat: oldest at the top, newest at the bottom, the top idea pinned ----------
+// ---------- Ideas as a stream chat: the newest at the top, under the pinned top idea ----------
 // Redrawn only when something changed (no flicker, no lost hover). The log sticks to the bottom unless
 // you've scrolled up to read, like a Twitch chat; then a "new ideas below" button appears.
 const seenIdeas = new Set();
@@ -116,7 +116,7 @@ let pinnedHtml = "", firstIdeas = true;
 function voteButton(x, votes, voted, yours) {
   return `<button class="vote${voted ? " on" : ""}" ${yours ? `disabled title="Your idea always keeps your vote"` : `data-vote="${esc(x.id)}"`} aria-pressed="${voted}" aria-label="${yours ? "Your idea keeps your vote" : voted ? "Remove your vote" : "Vote for this idea"} (${votes})">▲ ${votes}</button>`;
 }
-const updateLog = stickyLog($("#suggs"), $("#jump"));
+const updateLog = stickyLog($("#suggs"), $("#jump"), { newestFirst: true });
 startCountdowns();
 function renderIdeas(s) {
   const sug = s.suggestions || [];
@@ -131,10 +131,10 @@ function renderIdeas(s) {
     const name = x.by || "Someone";
     const fresh = !firstIdeas && !seenIdeas.has(x.id) ? " fresh" : "";
     return `<div class="msg${yours ? " is-mine" : ""}${x === topIdea ? " is-top" : ""}${fresh}" style="--hue:${hueOf(name)}">
-      <span class="ts">${clock(x.at)}</span>${x === topIdea ? `<span class="chip top" title="${crowd ? "Up next" : "Top idea"}">${s.meta?.crowd ? "⏭" : "🔥"}</span>` : ""}${yours ? `<span class="chip mine" title="Your idea">★</span>` : ""}<b class="who">${esc(name)}</b><span class="colon">:</span> <span class="text">${esc(x.text)}</span>${voteButton(x, votes, voted, yours)}</div>`;
+      <span class="ts">${clock(x.at)}</span>${x === topIdea ? `<span class="chip top" title="${crowd ? "Up next" : "Top idea"}">${s.meta?.crowd ? "⏭" : "🔥"}</span>` : ""}${yours ? `<span class="chip mine" title="Your idea">★</span>` : ""}<b class="who">${esc(name)}</b><span class="colon">:</span> <span class="text">${esc(x.text)}</span>${voteButton(x, votes, voted, yours)}${yours ? `<button class="del" data-del="${esc(x.id)}" title="Delete your idea" aria-label="Delete your idea: ${esc(x.text)}">✕</button>` : ""}</div>`;
   };
   const html = sug.length
-    ? [...sug].sort((a, b) => a.at - b.at).map(line).join("")
+    ? [...sug].sort((a, b) => b.at - a.at).map(line).join("") // newest first
     : `<div class="chatWelcome">Welcome to the chat! Suggest what happens next in the story, and vote ▲ on the ideas you like.</div>`;
 
   const pin = topIdea
@@ -300,9 +300,19 @@ $("#choices").addEventListener("click", (e) => {
   const b = e.target.closest("[data-choose]");
   if (b) link.request({ t: "choose", index: Number(b.dataset.choose) });
 });
-$(".chat").addEventListener("click", (e) => {
+// Votes and deletes, in the ideas chat (by id: the story feed is a chat panel too).
+$("#ideasChat").addEventListener("click", (e) => {
   const b = e.target.closest("[data-vote]");
   if (b) link.request({ t: "vote", id: b.dataset.vote });
+  const d = e.target.closest("[data-del]");
+  if (d) {
+    // Gone at once on this page; the server removes it for everyone.
+    if (state) {
+      state.suggestions = (state.suggestions || []).filter((x) => x.id !== d.dataset.del);
+      renderIdeas(state);
+    }
+    link.request({ t: "delete_suggestion", id: d.dataset.del });
+  }
 });
 
 // Co-narrators: type or hold to talk.

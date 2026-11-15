@@ -120,8 +120,8 @@ function start() {
     const line = (x) => `<b class="who">${esc(x.by || "Someone")}</b>: ${esc(x.text)}<span class="vote">▲ ${x.voters.length}</span>`;
     setHtml("#ideas", sug.length
       ? [...sug]
-          .sort((a, b) => a.at - b.at)
-          .slice(-30)
+          .sort((a, b) => b.at - a.at) // newest first
+          .slice(0, 30)
           .map((x) => {
             const fresh = !firstIdeas && !seenIdeas.has(x.id) ? " fresh" : "";
             return `<div class="msg${x === top ? " is-top" : ""}${fresh}" style="--hue:${hueOf(x.by || "Someone")}">${x === top ? `<span class="chip">${s.meta?.crowd ? "⏭" : "🔥"}</span>` : ""}${line(x)}</div>`;

@@ -101,6 +101,11 @@ ul.feed li.story { font: italic 1.02rem Georgia, serif; color: #ffe9c7; }
 .chatWelcome { color: var(--tw-muted); padding: .3rem 1.2rem; font-style: italic; }
 .jump { position: absolute; left: 50%; bottom: .6rem; transform: translateX(-50%); background: rgba(24, 24, 27, .92); color: var(--tw-text);
   border: 1px solid var(--tw-line); border-radius: 6px; padding: .3rem .8rem; font-size: .8rem; font-weight: 600; box-shadow: 0 4px 12px #0008; }
+.jump.top { top: .6rem; bottom: auto; }
+/* Delete your own idea: a small ✕ after it, red on hover. */
+.chat .del { margin-left: .3rem; height: 20px; padding: 0 .4rem; border-radius: 4px; background: transparent; color: var(--tw-muted);
+  border: 1px solid #3d3d44; font-size: .7rem; font-weight: 700; vertical-align: 0; }
+.chat .del:hover { background: var(--bad); border-color: var(--bad); color: #1b1206; }
 .chatForm { padding: .6rem .8rem .4rem; display: grid; gap: .45rem; border-top: 1px solid var(--tw-line); }
 .chatForm textarea { min-height: 0; height: 2.4rem; resize: none; font: inherit; background: #2f2f35; border: 2px solid transparent; border-radius: 6px;
   padding: .45rem .7rem; color: var(--tw-text); }

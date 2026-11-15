@@ -18,25 +18,29 @@ export function topIdeaOf(sug) {
 }
 
 /**
- * A chat log that sticks to the bottom like a stream chat: new lines scroll into view unless the
- * reader has scrolled up, in which case the jump button appears instead. Redraws only on change.
+ * A chat log that sticks to its newest edge like a stream chat: new lines come into view unless the
+ * reader has scrolled away to read, in which case the jump button appears instead. Redraws only on
+ * change. With `newestFirst` the newest line is at the top (and the log sticks to the top).
  */
-export function stickyLog(log, jump) {
+export function stickyLog(log, jump, { newestFirst = false } = {}) {
   let html = "", first = true;
-  const atBottom = () => log.scrollHeight - log.scrollTop - log.clientHeight < 40;
-  log.addEventListener("scroll", () => atBottom() && (jump.hidden = true));
+  const atEdge = () => (newestFirst ? log.scrollTop < 40 : log.scrollHeight - log.scrollTop - log.clientHeight < 40);
+  const toEdge = (behavior) => log.scrollTo({ top: newestFirst ? 0 : log.scrollHeight, behavior });
+  if (newestFirst) jump.classList.add("top");
+  log.addEventListener("scroll", () => atEdge() && (jump.hidden = true));
   jump.addEventListener("click", () => {
-    log.scrollTo({ top: log.scrollHeight, behavior: "smooth" });
+    toEdge("smooth");
     jump.hidden = true;
   });
   return function update(next, { hasNew = false, toBottom = false } = {}) {
     if (next === html) return;
-    const stick = first || toBottom || atBottom();
-    const keep = log.scrollTop;
+    const stick = first || toBottom || atEdge();
+    const keep = log.scrollTop, height = log.scrollHeight;
     log.innerHTML = html = next;
-    if (stick) log.scrollTop = log.scrollHeight;
+    if (stick) toEdge("instant");
     else {
-      log.scrollTop = keep;
+      // Keep what the reader is looking at in place: with the newest on top, new lines push it down.
+      log.scrollTop = newestFirst ? keep + (log.scrollHeight - height) : keep;
       if (hasNew) jump.hidden = false;
     }
     first = false;

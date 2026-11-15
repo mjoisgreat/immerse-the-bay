@@ -22,16 +22,37 @@ import { steerSides } from "./wide.js";
 // screen shows; when it runs out, the headset plays the top-voted idea as the next story beat. The
 // message names the idea and who suggested it: inside a world the cards are hidden, so this is the
 // only place the storyteller sees a friend's idea arrive. Busy (talking, asking)? It plays right after.
-let playedRound = 0, playedAt = 0;
+// Head start: about as long as the director usually takes (~6 s), before the countdown ends, the headset asks
+// the server to prepare the leading idea. If it still leads at zero and the story hasn't moved on, the
+// scene changes at once; if the prepared answer is still on its way, the headset waits for it rather
+// than asking twice. Sent on its own (not through the message queue) so nothing else waits behind it.
+const HEAD_START_MS = 6000;
+let playedRound = 0, playedAt = 0, prep = null;
+function prepareIdea(round, id) {
+  const p = { round, id, settled: false };
+  p.done = fetch("/api/relay", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ t: "prepare_suggestion", id, room: ROOM, cred: credFor(ROOM) }),
+  })
+    .catch(() => null)
+    .finally(() => (p.settled = true));
+  prep = p;
+}
 setInterval(() => {
   const rs = state.roomState;
   toolbar.setCountdown(rs?.meta?.crowd && rs.suggestions?.length ? rs.crowdAt || 0 : 0);
   if (state.retired || state.talking || state.wantTalk || state.asking || !rs?.meta?.crowd || !rs.suggestions?.length) return;
-  if (!rs.story?.seed) return; // the idea steers the window's story, which needs a world first
-  if (!rs.crowdAt || Date.now() < rs.crowdAt || (playedRound === rs.crowdAt && Date.now() - playedAt < 5000)) return; // not due, or just sent (retry if it didn't take)
+  if (!rs.story?.seed || !rs.crowdAt) return; // the idea steers the window's story, which needs a world first
+  const now = Date.now(), top = nextIdeaOf(rs.suggestions);
+  if (now < rs.crowdAt) {
+    if (now >= rs.crowdAt - HEAD_START_MS && prep?.round !== rs.crowdAt) prepareIdea(rs.crowdAt, top.id);
+    return;
+  }
+  if (playedRound === rs.crowdAt && now - playedAt < 5000) return; // just sent (retry if it didn't take)
+  if (prep?.round === rs.crowdAt && prep.id === top.id && !prep.settled && now - rs.crowdAt < 10000) return; // almost ready
   playedRound = rs.crowdAt; // once per round, even before the server's new round arrives
-  playedAt = Date.now();
-  const top = nextIdeaOf(rs.suggestions);
+  playedAt = now;
   rs.suggestions = rs.suggestions.filter((x) => x.id !== top.id);
   send({ t: "use_suggestion", id: top.id }); // by id, so the message names the idea actually used
   refreshCards();
@@ -200,12 +221,12 @@ export function refreshCards() {
     .sort((a, b) => b.voters.length - a.voters.length || a.at - b.at)
     .slice(0, MAX_CROWD_CARDS)
     .map((x) => ({ kind: "crowd", id: x.id, text: x.text, by: x.by || "", votes: x.voters.length, at: x.at }));
-  // Shown like a stream chat: the most-voted ideas, oldest on top and newest at the bottom; the clear leader is marked.
+  // Shown like a stream chat: the most-voted ideas, newest on top; the one that plays next is marked.
   // The marked line: in Crowd Mode the idea the countdown will play, otherwise the clear leader.
   const sugs = state.roomState?.suggestions || [];
   const lead = state.roomState?.meta?.crowd ? nextIdeaOf(sugs) : topIdeaOf(sugs);
   for (const c of crowd) c.top = c.id === lead?.id;
-  crowd.sort((a, b) => a.at - b.at);
+  crowd.sort((a, b) => b.at - a.at); // newest at the top
   const director = renderer.xr.isPresenting ? [] : directorChoices.map((text, index) => ({ kind: "choice", index, text }));
   const next = [...crowd, ...director].slice(0, 3);
   const key = JSON.stringify(next);

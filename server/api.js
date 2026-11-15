@@ -2,7 +2,7 @@
 // Each handler takes (store, input) and returns { status, body }.
 import crypto from "node:crypto";
 import { createDirector } from "./director.js";
-import { reduce, allowed, askDirector, applyDirection, summary, livePeople } from "./core.js";
+import { reduce, allowed, askDirector, applyDirection, prepareSuggestion, storyKey, summary, livePeople } from "./core.js";
 import { mintOrbisToken, endOrbisSession, transcribe, speak } from "./services.js";
 
 const director = createDirector();
@@ -76,16 +76,23 @@ export async function relayPost(store, body) {
   if (role === "none") return err(403, "room has no owner yet"); // don't create state for rooms nobody claimed
   if (!allowed(role, body.t)) return err(403, `not allowed for ${role}`);
 
+  if (body.t === "prepare_suggestion") return ok(await prepare(store, room, String(body.id || "")));
+
   const ctx = { role, voter: typeof body.voter === "string" ? body.voter.slice(0, 40) : null };
   const { event, snapshot } = await store.withLock(room, async () => {
     const s = await store.getState(room);
     const { events, director: ev } = reduce(s, body, ctx);
     // Number each director request, so a slow reply can't overwrite a newer one.
     if (ev) ev.seq = s.directorSeq = (s.directorSeq || 0) + 1;
+    if (ev?.ready) {
+      // Crowd Mode prepared this answer during the countdown: the scene changes now, with no wait.
+      const { ready, ...asked } = ev;
+      events.push(...applyDirection(s, ready, 0, ev.seq, asked));
+    }
     await store.setState(room, s);
     await store.pushEvents(room, events);
     await store.touchPublic(room, s.meta.shared);
-    return { event: ev, snapshot: s };
+    return { event: ev?.ready ? null : ev, snapshot: s };
   });
 
   if (event) {
@@ -99,6 +106,24 @@ export async function relayPost(store, body) {
     });
   }
   return ok({ ok: true, role });
+}
+
+/**
+ * Crowd Mode's head start: asks the director about idea `id` a few seconds before the countdown runs
+ * out, and keeps the answer (s.prepared) without showing it. When the idea is used, the answer is
+ * applied at once if the story hasn't moved on meanwhile; otherwise the director is asked as usual.
+ */
+async function prepare(store, room, id) {
+  const job = await store.withLock(room, async () => prepareSuggestion(await store.getState(room), id));
+  if (!job) return { ok: true, prepared: false };
+  const out = await askDirector(director, job.snapshot, job.event);
+  return store.withLock(room, async () => {
+    const s = await store.getState(room);
+    if (storyKey(s) !== job.base || !s.suggestions?.some((x) => x.id === id)) return { ok: true, prepared: false }; // moved on
+    s.prepared = { id, base: job.base, out };
+    await store.setState(room, s);
+    return { ok: true, prepared: true };
+  });
 }
 
 /** Orbis tokens only for the room's owner headset, so strangers can't spend the team's credits. */

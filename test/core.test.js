@@ -318,3 +318,37 @@ test("Crowd Mode counts down to the next idea, and a used idea starts a fresh ro
   reduce(s, { t: "set_meta", crowd: false }, owner);
   assert.equal(s.crowdAt, 0);
 });
+
+test("people can delete their own ideas, and have up to 10 open at once", () => {
+  const s = start();
+  const ana = { role: "viewer", voter: "ana" }, bo = { role: "viewer", voter: "bo" };
+  for (let i = 0; i < 12; i++) reduce(s, { t: "suggest", text: `Idea ${i}` }, ana);
+  assert.equal(s.suggestions.length, 10);
+  const id = s.suggestions[0].id;
+  reduce(s, { t: "delete_suggestion", id }, bo);
+  assert.equal(s.suggestions.length, 10, "not someone else's");
+  reduce(s, { t: "delete_suggestion", id }, ana);
+  assert.equal(s.suggestions.length, 9);
+  assert.equal(allowed("viewer", "delete_suggestion"), true);
+  assert.equal(allowed("viewer", "prepare_suggestion"), false);
+});
+
+test("Crowd Mode's head start: a prepared answer is used only if the story hasn't moved on", async () => {
+  const { prepareSuggestion } = await import("../server/core.js");
+  const s = start();
+  reduce(s, { t: "suggest", text: "A whale rises" }, { role: "viewer", voter: "v1" });
+  const id = s.suggestions[0].id;
+  const job = prepareSuggestion(s, id);
+  assert.equal(job.event.text, "A whale rises");
+  assert.equal(s.story.beats.includes("A whale rises"), false, "preparing changes nothing yet");
+  const out = { narration: "A whale rises.", bible: "b", prompt: "A whale breaches the lake", choices: [], speech: null, companion: null };
+  s.prepared = { id, base: job.base, out };
+  const used = reduce(s, { t: "use_suggestion", id }, owner);
+  assert.deepEqual(used.director.ready, out);
+  // The story moved on (someone spoke) after preparing: the director is asked again instead.
+  reduce(s, { t: "suggest", text: "A storm" }, { role: "viewer", voter: "v1" });
+  const id2 = s.suggestions[0].id;
+  s.prepared = { id: id2, base: prepareSuggestion(s, id2).base, out };
+  reduce(s, { t: "utterance", text: "Then the moon goes out" }, owner);
+  assert.equal(reduce(s, { t: "use_suggestion", id: id2 }, owner).director.ready, undefined);
+});
