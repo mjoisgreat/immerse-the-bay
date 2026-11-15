@@ -43,9 +43,14 @@
           <div class="narration" id="narration"></div>
           <div class="chips" id="choices" style="margin-top:.7rem"></div>
         </section>
-        <section>
-          <h2 id="suggTitle">Audience suggestions</h2>
-          <div id="suggs" class="empty">No suggestions yet. Share the watch link so people can suggest and vote.</div>
+        <section class="chat modChat">
+          <div class="chatHead"><h2>Audience chat <span class="count" id="suggCount"></span></h2></div>
+          <div class="pinned" id="pinned" hidden></div>
+          <div class="chatScroll">
+            <div id="suggs" class="chatLog" role="log" aria-live="polite" aria-label="Ideas from the audience"></div>
+            <button type="button" class="jump" id="jump" hidden>↓ New ideas below</button>
+          </div>
+          <p class="chatNote" id="suggTitle"></p>
         </section>
         <section>
           <h2>Portals</h2>

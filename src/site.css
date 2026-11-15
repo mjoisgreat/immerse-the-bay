@@ -111,6 +111,18 @@ ul.feed li.story { font: italic 1.02rem Georgia, serif; color: #ffe9c7; }
 .chatFoot button:hover:not(:disabled) { background: var(--tw-purple2); }
 .chatFoot button:disabled { opacity: .45; cursor: default; }
 .chatNote { margin: 0; padding: 0 .8rem .6rem; font-size: .75rem; line-height: 1.35; color: var(--tw-muted); }
+.chatNote:empty { display: none; }
+/* Console: the same chat, shorter, with moderator buttons on each line instead of a composer. */
+.chat.modChat { position: static; height: 26rem; }
+.modChat .chatScroll { border-bottom: 1px solid var(--tw-line); }
+.modChat .chatNote { padding-top: .5rem; }
+.chat span.vote { cursor: default; }
+.mod { display: inline-flex; gap: 2px; margin-right: .35rem; vertical-align: -3px; }
+.mod button { width: 20px; height: 20px; padding: 0; border-radius: 3px; font-size: 10px; line-height: 20px; font-weight: 700;
+  background: #2f2f35; color: var(--tw-muted); }
+.mod button[data-use] { background: var(--good); color: #0b0e16; }
+.mod button[data-use]:hover { filter: brightness(1.12); }
+.mod button[data-dismiss]:hover { background: var(--bad); color: #1b1206; }
 
 /* ---------- Live view (watch page) ---------- */
 .liveview { position: relative; border-radius: 12px; overflow: hidden; background: #000; border: 1px solid var(--line); margin-bottom: .8rem; }
