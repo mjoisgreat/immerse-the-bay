@@ -56,18 +56,22 @@
         </section>
       </div>
       <div>
-        <section>
-          <h2>Suggest what happens next</h2>
-          <form id="suggest" class="composer">
-            <input id="who" placeholder="Your name (optional)" maxlength="20" autocomplete="nickname" aria-label="Your name, shown with your idea" />
-            <textarea id="idea" rows="2" maxlength="140" placeholder="What should happen next? e.g. A whale rises out of the lake" aria-label="Your idea"></textarea>
-            <div class="composeFoot"><span class="muted" id="ideaCount">0 / 140</span><button id="postIdea" disabled>Post idea</button></div>
+        <section class="chat">
+          <div class="chatHead"><h2>Stream chat <span class="count" id="suggCount"></span></h2></div>
+          <div class="pinned" id="pinned" hidden></div>
+          <div class="chatScroll">
+            <div id="suggs" class="chatLog" role="log" aria-live="polite" aria-label="Ideas from the audience"></div>
+            <button type="button" class="jump" id="jump" hidden>↓ New ideas below</button>
+          </div>
+          <form id="suggest" class="chatForm">
+            <textarea id="idea" rows="1" maxlength="140" placeholder="Send an idea: what happens next?" aria-label="Your idea"></textarea>
+            <div class="chatFoot">
+              <input id="who" placeholder="Your name" maxlength="20" autocomplete="nickname" aria-label="Your name, shown with your idea" />
+              <span class="muted" id="ideaCount" hidden>0 / 140</span>
+              <button id="postIdea" disabled>Chat</button>
+            </div>
           </form>
-          <p class="muted" id="crowdNote" style="margin:.6rem 0 0"></p>
-        </section>
-        <section>
-          <h2>Vote on ideas <span class="count" id="suggCount"></span></h2>
-          <div id="suggs" class="empty">No ideas yet. Be the first.</div>
+          <p class="chatNote" id="crowdNote"></p>
         </section>
       </div>
     </div>

@@ -24,6 +24,7 @@ const PALM_HOLD_MS = 600;
 // hand's own size (wrist to middle knuckle), so it works for any hand.
 const CURLED = 1.35; // a fingertip closer to the wrist than this × hand size is curled (stretched out ≈ 1.9)
 const THUMB_UP = 0.7; // how upright the thumb must point (cosine to straight up)
+const FINGER_TIPS = ["index-finger-tip", "middle-finger-tip", "ring-finger-tip", "pinky-finger-tip"];
 
 /**
  * Is this hand making a thumbs up? `f` = { wrist, knuckle (middle-finger-phalanx-proximal), thumbTip,
@@ -272,18 +273,19 @@ export class HandGestures {
     const d = (hand.userData.data ??= { palm, palmNormal: [0, 0, 0], fingers: null });
     d.palm = palm;
     this._v.copy(_N).applyQuaternion(j.getWorldQuaternion(this._q)).toArray(d.palmNormal);
-    // The joints a thumbs up is read from (see isThumbsUp).
-    const at = (name) => {
+    // The joints a thumbs up is read from (see isThumbsUp). The detector only reads them during the frame,
+    // so the same arrays are refilled every frame (no per-frame garbage); a joint out of tracking is null.
+    const store = (hand.userData.fingerStore ??= { wrist: [0, 0, 0], knuckle: [0, 0, 0], thumbTip: [0, 0, 0], thumbBase: [0, 0, 0], tips: [[0, 0, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0]] });
+    const f = (d.fingers ??= { wrist: null, knuckle: null, thumbTip: null, thumbBase: null, tips: [null, null, null, null] });
+    const at = (name, into) => {
       const t = hand.joints?.[name];
-      return t?.visible ? t.getWorldPosition(this._v).toArray() : null;
+      return t?.visible ? t.getWorldPosition(this._v).toArray(into) : null;
     };
-    d.fingers = {
-      wrist: at("wrist"),
-      knuckle: at("middle-finger-phalanx-proximal"),
-      thumbTip: at("thumb-tip"),
-      thumbBase: at("thumb-phalanx-proximal"),
-      tips: ["index", "middle", "ring", "pinky"].map((f) => at(`${f}-finger-tip`)),
-    };
+    f.wrist = at("wrist", store.wrist);
+    f.knuckle = at("middle-finger-phalanx-proximal", store.knuckle);
+    f.thumbTip = at("thumb-tip", store.thumbTip);
+    f.thumbBase = at("thumb-phalanx-proximal", store.thumbBase);
+    for (let i = 0; i < 4; i++) f.tips[i] = at(FINGER_TIPS[i], store.tips[i]);
     return d;
   }
 

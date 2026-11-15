@@ -78,48 +78,69 @@ function render(s) {
   renderSnaps();
 }
 
-// ---------- Ideas: cards with who said it and when, the votes, and the top one called out ----------
-// Redrawn only when something changed (no flicker, no lost hover); new ideas fade in once.
+// ---------- Ideas as a stream chat: oldest at the top, newest at the bottom, the top idea pinned ----------
+// Redrawn only when something changed (no flicker, no lost hover). The log sticks to the bottom unless
+// you've scrolled up to read, like a Twitch chat; then a "new ideas below" button appears.
 const seenIdeas = new Set();
-let ideasHtml = "", firstIdeas = true;
-const agoShort = (t) => {
-  const m = Math.round((Date.now() - t) / 60000);
-  return m < 1 ? "just now" : m < 60 ? `${m} min ago` : `${Math.round(m / 60)} h ago`;
-};
+let ideasHtml = "", pinnedHtml = "", firstIdeas = true;
+const clock = (t) => new Date(t).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 /** A steady colour per name, so the same person always looks the same. */
 function hueOf(name) {
   let h = 0;
   for (const c of String(name)) h = (h * 31 + c.codePointAt(0)) % 360;
   return h;
 }
+function voteButton(x, votes, voted, yours) {
+  return `<button class="vote${voted ? " on" : ""}" ${yours ? `disabled title="Your idea always keeps your vote"` : `data-vote="${esc(x.id)}"`} aria-pressed="${voted}" aria-label="${yours ? "Your idea keeps your vote" : voted ? "Remove your vote" : "Vote for this idea"} (${votes})">▲ ${votes}</button>`;
+}
+const chatLog = $("#suggs");
+const atBottom = () => chatLog.scrollHeight - chatLog.scrollTop - chatLog.clientHeight < 40;
+chatLog.addEventListener("scroll", () => atBottom() && ($("#jump").hidden = true));
+$("#jump").addEventListener("click", () => {
+  chatLog.scrollTo({ top: chatLog.scrollHeight, behavior: "smooth" });
+  $("#jump").hidden = true;
+});
 function renderIdeas(s) {
-  const sug = [...(s.suggestions || [])].sort((a, b) => b.voters.length - a.voters.length || a.at - b.at);
-  const top = sug[0]?.voters.length || 0;
+  const sug = s.suggestions || [];
+  const byVotes = [...sug].sort((a, b) => b.voters.length - a.voters.length || a.at - b.at);
+  const topIdea = byVotes[0]?.voters.length > 1 && byVotes[0].voters.length > (byVotes[1]?.voters.length || 0) ? byVotes[0] : null;
+  const label = s.meta?.crowd ? "⏭ Up next" : "📌 Top idea";
   $("#suggCount").textContent = sug.length ? `· ${sug.length}` : "";
+
+  const line = (x) => {
+    const votes = x.voters.length, voted = x.voters.includes(voterId), yours = x.voters[0] === voterId;
+    const name = x.by || "Someone";
+    const fresh = !firstIdeas && !seenIdeas.has(x.id) ? " fresh" : "";
+    return `<div class="msg${yours ? " is-mine" : ""}${x === topIdea ? " is-top" : ""}${fresh}" style="--hue:${hueOf(name)}">
+      <span class="ts">${clock(x.at)}</span>${x === topIdea ? `<span class="chip top" title="${label}">${s.meta?.crowd ? "⏭" : "🔥"}</span>` : ""}${yours ? `<span class="chip mine" title="Your idea">★</span>` : ""}<b class="who">${esc(name)}</b><span class="colon">:</span> <span class="text">${esc(x.text)}</span>${voteButton(x, votes, voted, yours)}</div>`;
+  };
   const html = sug.length
-    ? sug
-        .map((x, i) => {
-          const votes = x.voters.length, voted = x.voters.includes(voterId), yours = x.voters[0] === voterId;
-          const name = x.by || "Someone";
-          const isTop = i === 0 && votes > 1 && votes > (sug[1]?.voters.length || 0);
-          const badge = isTop ? `<span class="badge top">${s.meta?.crowd ? "⏭ Up next" : "🔥 Top idea"}</span>` : "";
-          const fresh = !firstIdeas && !seenIdeas.has(x.id) ? " fresh" : "";
-          return `<article class="idea${isTop ? " is-top" : ""}${yours ? " is-mine" : ""}${fresh}" style="--hue:${hueOf(name)};--share:${top ? Math.round((votes / top) * 100) : 0}%">
-            <div class="avatar" aria-hidden="true">${esc((x.by || "?").trim()[0]?.toUpperCase() || "?")}</div>
-            <div class="ideaBody">
-              <div class="ideaMeta"><b>${esc(name)}</b>${yours ? `<span class="badge mine">Your idea</span>` : ""}${badge}<span class="muted">· ${agoShort(x.at)}</span></div>
-              <p class="ideaText">${esc(x.text)}</p>
-            </div>
-            <button class="vote${voted ? " on" : ""}" ${yours ? `disabled title="Your idea always keeps your vote"` : `data-vote="${esc(x.id)}"`} aria-pressed="${voted}" aria-label="${yours ? "Your idea keeps your vote" : voted ? "Remove your vote" : "Vote for this idea"} (${votes})">
-              <span class="arrow">▲</span><span class="n">${votes}</span></button>
-          </article>`;
-        })
-        .join("")
-    : `<div class="ideasEmpty"><div class="big">💡</div><p>No ideas yet. Be the first to say what happens next.</p></div>`;
+    ? [...sug].sort((a, b) => a.at - b.at).map(line).join("")
+    : `<div class="chatWelcome">Welcome to the chat! Suggest what happens next in the story, and vote ▲ on the ideas you like.</div>`;
+
+  const pin = topIdea
+    ? `<div class="pinLabel">${label} · ${topIdea.voters.length} votes</div>
+       <div class="pinBody" style="--hue:${hueOf(topIdea.by || "Someone")}"><b class="who">${esc(topIdea.by || "Someone")}</b><span class="colon">:</span> <span class="text">${esc(topIdea.text)}</span>${voteButton(topIdea, topIdea.voters.length, topIdea.voters.includes(voterId), topIdea.voters[0] === voterId)}</div>`
+    : "";
+  if (pin !== pinnedHtml) {
+    $("#pinned").innerHTML = pinnedHtml = pin;
+    $("#pinned").hidden = !pin;
+  }
+
+  const hasNew = sug.some((x) => !seenIdeas.has(x.id));
+  const mineNew = sug.some((x) => !seenIdeas.has(x.id) && x.voters[0] === voterId);
   for (const x of sug) seenIdeas.add(x.id);
+  if (html !== ideasHtml) {
+    const stick = firstIdeas || atBottom() || mineNew;
+    const keep = chatLog.scrollTop;
+    chatLog.innerHTML = ideasHtml = html;
+    if (stick) chatLog.scrollTop = chatLog.scrollHeight;
+    else {
+      chatLog.scrollTop = keep;
+      if (hasNew) $("#jump").hidden = false;
+    }
+  }
   firstIdeas = false;
-  if (html !== ideasHtml) $("#suggs").innerHTML = ideasHtml = html;
-  $("#suggs").className = sug.length ? "ideas" : "ideas empty";
 }
 
 // A snapshot of the window (posted by the storyteller's headset every few seconds).
@@ -247,6 +268,7 @@ const ideaCount = () => {
   const n = $("#idea").value.length;
   $("#ideaCount").textContent = `${n} / 140`;
   $("#ideaCount").classList.toggle("near", n > 120);
+  $("#ideaCount").hidden = n < 100; // like Twitch: the count only shows near the limit
   $("#postIdea").disabled = !$("#idea").value.trim();
 };
 $("#idea").addEventListener("input", ideaCount);
@@ -268,7 +290,7 @@ $("#choices").addEventListener("click", (e) => {
   const b = e.target.closest("[data-choose]");
   if (b) link.request({ t: "choose", index: Number(b.dataset.choose) });
 });
-$("#suggs").addEventListener("click", (e) => {
+$(".chat").addEventListener("click", (e) => {
   const b = e.target.closest("[data-vote]");
   if (b) link.request({ t: "vote", id: b.dataset.vote });
 });

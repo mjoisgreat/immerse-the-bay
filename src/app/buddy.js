@@ -180,8 +180,9 @@ export function aimedAtBuddy() {
     const c = renderer.xr.getController(i);
     if (!c.visible || c.userData.grabbed || c.userData.pendingTap) continue;
     tmpMat.identity().extractRotation(c.matrixWorld);
-    const ray = new THREE.Ray(c.getWorldPosition(new THREE.Vector3()), new THREE.Vector3(0, 0, -1).applyMatrix4(tmpMat));
-    if (buddyAimed(ray) || buddyTouched(c)) return true;
+    c.getWorldPosition(_aimRay.origin);
+    _aimRay.direction.set(0, 0, -1).applyMatrix4(tmpMat);
+    if (buddyAimed(_aimRay) || buddyTouched(c)) return true;
   }
   return false;
 }
@@ -189,8 +190,8 @@ export function aimedAtBuddy() {
 // Does a pointing ray pass close to Bonnie? (A near miss still grabs her: she's small and moves.)
 export function buddyAimed(ray) {
   if (!buddy.visible || !buddy.ready) return false;
-  const c = buddy.centerWorld();
-  const along = c.clone().sub(ray.origin).dot(ray.direction);
+  const c = buddy.centerWorld(_bc);
+  const along = _bd.copy(c).sub(ray.origin).dot(ray.direction);
   if (along < 0 || along > 6) return false;
   const miss = ray.distanceToPoint(c);
   return miss < Math.max(0.25, along * Math.tan(THREE.MathUtils.degToRad(9))); // 25 cm, or 9° far away
@@ -199,9 +200,11 @@ export function buddyAimed(ray) {
 // Two-hand pick-up of Bonnie: she rides on a point midway between your hands, kept upright.
 export const cradle = { obj: new THREE.Object3D(), hands: null };
 scene.add(cradle.obj);
+// Scratch for the per-frame paths below (headset frames must not make garbage: GC pauses show as judder).
+const _ca = new THREE.Vector3(), _cb = new THREE.Vector3(), _aimRay = new THREE.Ray(), _bc = new THREE.Vector3(), _bd = new THREE.Vector3();
 export function updateCradle() {
   if (!cradle.hands) return;
-  const [a, b] = cradle.hands.map((c) => c.getWorldPosition(new THREE.Vector3()));
+  const a = cradle.hands[0].getWorldPosition(_ca), b = cradle.hands[1].getWorldPosition(_cb);
   cradle.obj.position.copy(a.add(b).multiplyScalar(0.5));
   cradle.obj.updateMatrixWorld(true);
 }

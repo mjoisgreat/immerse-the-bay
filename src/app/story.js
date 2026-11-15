@@ -13,6 +13,7 @@ import { openInFront, syncButtons, toolbar } from "./buttons.js";
 import { NARRATOR, guide } from "./guide.js";
 import { closeWindow, getWindow, immersion, setWorld } from "./portals.js";
 import { playVoice, speak } from "./talk.js";
+import { liveViewers } from "./livecast.js";
 import { steerSides } from "./wide.js";
 
 // Crowd Mode: the audience's top-voted line becomes the next story beat every 20 s. The message
@@ -32,20 +33,50 @@ setInterval(() => {
 setInterval(() => !state.retired && send({ t: "heartbeat" }), 30000);
 
 // A small snapshot of the window so watchers and the gallery can see the story (no extra credits).
-// Encoded asynchronously (toBlob), so it never stalls a frame in the headset; less often while you're in
-// the headset, where a dropped frame shows as judder.
+// The frame is grabbed with createImageBitmap (asynchronous, no readback on this thread) and compressed to
+// JPEG in a worker (snapworker.js), so taking snapshots never stalls a frame in the headset, where a dropped
+// frame shows as judder. Older browsers fall back to a canvas and toBlob.
+const snapWorker = (() => {
+  if (typeof OffscreenCanvas === "undefined" || typeof createImageBitmap !== "function") return null;
+  try {
+    return new Worker(new URL("../snapworker.js", import.meta.url), { type: "module" });
+  } catch {
+    return null;
+  }
+})();
 const snapCanvas = Object.assign(document.createElement("canvas"), { width: 480, height: 270 });
-let snapBusy = false, snapNext = 0;
+let snapBusy = false, snapNext = 0, snapAt = 0;
+function postSnap(data) {
+  fetch("/api/snapshot", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ room: ROOM, cred: credFor(ROOM), data }),
+  }).catch(() => {});
+}
+snapWorker?.addEventListener("message", ({ data }) => {
+  snapBusy = false;
+  if (data?.data) postSnap(data.data);
+});
 setInterval(() => {
-  if (!state.started || state.retired || snapBusy || performance.now() < snapNext) return; // not before the app has finished loading
+  const now = performance.now();
+  if (snapBusy && now - snapAt > 5000) snapBusy = false; // a lost frame or worker reply must not stop snapshots
+  if (!state.started || state.retired || snapBusy || now < snapNext) return; // not before the app has finished loading
   const w = getWindow();
   if (!w || w.stream.status !== "streaming" || w.stream.video.readyState < 2) return;
-  // While friends are watching, the window refreshes about once a second (the fallback for anyone not on
-  // the live video; see livecast.js).
-  const watched = (state.roomState?.people || []).some((x) => x.role !== "owner");
-  // Every 3 s on a flat screen, every 6 s in the headset; ~1 s while watched.
-  snapNext = performance.now() + (watched ? (renderer.xr.isPresenting ? 1200 : 1000) : renderer.xr.isPresenting ? 6000 : 3000) - 50;
+  // While friends watch on pictures (not on the live video, see livecast.js), the window refreshes about once
+  // a second. Watching live needs no fast pictures.
+  const watchers = (state.roomState?.people || []).filter((x) => x.role !== "owner").length;
+  const watched = watchers > liveViewers();
+  // Every 3 s on a flat screen, every 6 s in the headset; ~1 s while watched on pictures.
+  snapNext = now + (watched ? (renderer.xr.isPresenting ? 1200 : 1000) : renderer.xr.isPresenting ? 6000 : 3000) - 50;
   snapBusy = true;
+  snapAt = now;
+  if (snapWorker) {
+    createImageBitmap(w.stream.video, { resizeWidth: 480, resizeHeight: 270, resizeQuality: "low" })
+      .then((bitmap) => snapWorker.postMessage({ bitmap }, [bitmap]))
+      .catch(() => (snapBusy = false));
+    return;
+  }
   snapCanvas.getContext("2d").drawImage(w.stream.video, 0, 0, 480, 270);
   snapCanvas.toBlob(
     (blob) => {
@@ -53,11 +84,7 @@ setInterval(() => {
       const reader = new FileReader();
       reader.onload = () => {
         snapBusy = false;
-        fetch("/api/snapshot", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ room: ROOM, cred: credFor(ROOM), data: reader.result }),
-        }).catch(() => {});
+        postSnap(reader.result);
       };
       reader.onerror = () => (snapBusy = false);
       reader.readAsDataURL(blob);

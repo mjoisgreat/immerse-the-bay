@@ -204,13 +204,14 @@ function finishTap(ctrl) {
 // Two-hand pick-up of a window: { portal, holder (hand carrying the window), ctrl (second hand), dist,
 // scale, mid, pos }. The window is carried by the midpoint of your hands and sized by how far apart they are.
 let resize = null;
+const _ra = new THREE.Vector3(), _rb = new THREE.Vector3(), _rp = new THREE.Vector3(), _mid = [0, 0, 0];
 export function updateResize() {
   if (!resize) return;
-  const a = resize.holder.getWorldPosition(new THREE.Vector3()), b = resize.ctrl.getWorldPosition(new THREE.Vector3());
+  const a = resize.holder.getWorldPosition(_ra), b = resize.ctrl.getWorldPosition(_rb);
   resize.portal.group.scale.setScalar(resizedScale(resize.scale, resize.dist, a.distanceTo(b)));
-  const mid = a.clone().add(b).multiplyScalar(0.5).toArray();
+  _mid[0] = (a.x + b.x) / 2, _mid[1] = (a.y + b.y) / 2, _mid[2] = (a.z + b.z) / 2;
   // The window hangs off the carrying hand, so ask for its place in that hand's space.
-  resize.portal.group.position.copy(resize.holder.worldToLocal(new THREE.Vector3(...carriedPosition(resize.pos, resize.mid, mid))));
+  resize.portal.group.position.copy(resize.holder.worldToLocal(_rp.fromArray(carriedPosition(resize.pos, resize.mid, _mid))));
 }
 
 
