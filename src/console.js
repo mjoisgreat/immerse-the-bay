@@ -2,7 +2,7 @@ import "./site.css";
 import { createLink } from "./link.js";
 import { peopleSummary, startPresence } from "./people.js";
 import { urlRoom, cleanRoom, credFor, owned, consolePins, savePin, voterId, esc } from "./identity.js";
-import { hueOf, clock, topIdeaOf, stickyLog } from "./chat.js";
+import { hueOf, clock, topIdeaOf, nextIdeaOf, stickyLog, storyFeed, countdownHtml, countdownBar, startCountdowns } from "./chat.js";
 
 const $ = (s) => document.querySelector(s);
 
@@ -78,20 +78,14 @@ function render(s) {
     ? "Tell the story (no window open: your line becomes its world)"
     : s.story.seed ? "Tell the story" : "What world is behind the window? (your line defines it)";
   $("#suggTitle").textContent =
-    "▶ Use sends an idea into the story, ✕ removes it. " + (s.meta?.crowd ? "Crowd Mode is on: the top idea plays every 20 s." : "");
+    "▶ Use sends an idea into the story, ✕ removes it. " + (s.meta?.crowd ? "Crowd Mode is on: the top idea plays when the countdown runs out." : "");
   if (document.activeElement !== $("#title")) $("#title").value = s.meta?.title || "";
   $("#shared").checked = Boolean(s.meta?.shared);
   $("#crowd").checked = Boolean(s.meta?.crowd);
   $("#choices").innerHTML = (s.choices || [])
     .map((c, i) => `<button class="ghost" data-choose="${i}" style="font-style:italic">→ ${esc(c)}</button>`)
     .join("");
-  $("#log").innerHTML = s.log.length
-    ? s.log
-        .slice()
-        .reverse()
-        .map((l) => `<li><b>${esc(l.kind)}</b>${esc(l.text)}</li>`)
-        .join("")
-    : `<li class="muted">Nothing yet. Open a window in the headset and start telling the story.</li>`;
+  renderLog(s);
 
   renderChat(s);
 
@@ -115,31 +109,36 @@ function render(s) {
   if (ta) ta.value = draft;
 }
 
+// ---------- Live log: everything that happens, as a stream chat (newest on top), with the director's timings ----------
+const renderLog = storyFeed($("#log"), $("#logJump"), { all: true, empty: "Nothing yet. Open a window in the headset and start telling the story." });
+
 // ---------- Audience ideas as a stream chat, with moderator buttons (Use / ✕) on each line ----------
 const seenIdeas = new Set();
 let pinnedHtml = "", firstIdeas = true;
-const updateLog = stickyLog($("#suggs"), $("#jump"));
+const updateLog = stickyLog($("#suggs"), $("#jump"), { newestFirst: true });
+startCountdowns();
 const modButtons = (x) =>
   `<span class="mod"><button data-use="${esc(x.id)}" title="Use this idea in the story" aria-label="Use: ${esc(x.text)}">▶</button><button data-dismiss="${esc(x.id)}" title="Remove" aria-label="Remove: ${esc(x.text)}">✕</button></span>`;
 function renderChat(s) {
   const sug = s.suggestions || [];
-  const topIdea = topIdeaOf(sug);
-  const label = s.meta?.crowd ? "⏭ Up next" : "📌 Top idea";
+  const crowd = Boolean(s.meta?.crowd);
+  const topIdea = crowd ? nextIdeaOf(sug) : topIdeaOf(sug); // in Crowd Mode: the idea the countdown will play
+  const label = crowd ? `⏭ Up next in ${countdownHtml(s)}` : "📌 Top idea";
   $("#suggCount").textContent = sug.length ? `· ${sug.length}` : "";
   const who = (x) => `<b class="who">${esc(x.by || "Someone")}</b><span class="colon">:</span> <span class="text">${esc(x.text)}</span>`;
   const votes = (x) => `<span class="vote" title="${x.voters.length} vote${x.voters.length === 1 ? "" : "s"}">▲ ${x.voters.length}</span>`;
   const html = sug.length
     ? [...sug]
-        .sort((a, b) => a.at - b.at)
+        .sort((a, b) => b.at - a.at) // newest first
         .map((x) => {
           const fresh = !firstIdeas && !seenIdeas.has(x.id) ? " fresh" : "";
-          const chip = x === topIdea ? `<span class="chip top" title="${label}">${s.meta?.crowd ? "⏭" : "🔥"}</span>` : "";
+          const chip = x === topIdea ? `<span class="chip top" title="${crowd ? "Up next" : "Top idea"}">${s.meta?.crowd ? "⏭" : "🔥"}</span>` : "";
           return `<div class="msg${x === topIdea ? " is-top" : ""}${fresh}" style="--hue:${hueOf(x.by || "Someone")}"><span class="ts">${clock(x.at)}</span>${modButtons(x)}${chip}${who(x)}${votes(x)}</div>`;
         })
         .join("")
     : `<div class="chatWelcome">No ideas yet. Share the watch link so people can suggest what happens next and vote.</div>`;
   const pin = topIdea
-    ? `<div class="pinLabel">${label} · ${topIdea.voters.length} votes</div>
+    ? `<div class="pinLabel">${label} · ${topIdea.voters.length} vote${topIdea.voters.length === 1 ? "" : "s"}</div>${countdownBar(s)}
        <div class="pinBody" style="--hue:${hueOf(topIdea.by || "Someone")}">${modButtons(topIdea)}${who(topIdea)}</div>`
     : "";
   if (pin !== pinnedHtml) {

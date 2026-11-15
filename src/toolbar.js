@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { hueOf } from "./chat.js";
+import { hueOf, describeLine, isStoryLine } from "./chat.js";
 
 // The menu: one small button that rests in the lower left of your view, like the casting symbol. It
 // holds still while you look around inside a small dead zone, and glides to its spot again once you
@@ -10,6 +10,7 @@ const MW = 0.05, MH = 0.05; // the button: a small circle you can still aim at w
 const RW = 0.25, RH = 0.042, RG = 0.008; // list rows, stacked above the button
 const CW = 0.46, CH = 0.06, GAP = 0.006; // "what happens next" lines, a chat column above the button while the list is shut
 const HH = 0.026; // the column's "AUDIENCE CHAT" header
+const SH = 0.13, STORY_LINES = 4; // "THE STORY SO FAR": the newest lines, in a panel just below the button
 const DIST = 0.7; // it rests this far ahead of you...
 const LEFT = 0.2, DROP = 0.16; // ...this far to the left of your gaze and this far below it
 const DEAD = 0.45; // radians (about 26°): while you look within this, it stays still
@@ -157,7 +158,7 @@ export class Toolbar {
     this.rows = [];
 
     // "What happens next?" as a Twitch-style chat column above the button: a header, then one line
-    // per idea (oldest on top, newest at the bottom). It steps aside while the list is open.
+    // per idea (newest on top). It steps aside while the list is open.
     this.choiceMeshes = [];
     this.choices = [];
     this.chatCanvas = Object.assign(document.createElement("canvas"), { width: 1024, height: 58 });
@@ -166,6 +167,14 @@ export class Toolbar {
     this.chatTex = head.tex;
     this.chatHead.visible = false;
     this.group.add(this.chatHead);
+    // The story so far, below the button: read-only (it takes no pinches), newest line on top.
+    this.storyCanvas = Object.assign(document.createElement("canvas"), { width: 1024, height: 290 });
+    const story = texturedPlane(CW, SH, this.storyCanvas);
+    this.storyPanel = story.mesh;
+    this.storyTex = story.tex;
+    this.storyPanel.position.set(0, -(MH / 2 + GAP + SH / 2), 0);
+    this.storyPanel.visible = false;
+    this.group.add(this.storyPanel);
     for (let i = 0; i < 3; i++) {
       const canvas = Object.assign(document.createElement("canvas"), { width: 1024, height: 134 });
       const { mesh, tex } = texturedPlane(CW, CH, canvas);
@@ -269,8 +278,70 @@ export class Toolbar {
     g.textAlign = "center";
     g.font = "700 26px system-ui, sans-serif";
     g.fillStyle = "#efeff1";
-    g.fillText(`AUDIENCE CHAT  ·  ${n}`, w / 2, h / 2 + 1);
+    const left = this.crowdAt ? Math.max(0, Math.ceil((this.crowdAt - Date.now()) / 1000)) : null;
+    g.fillText(`AUDIENCE CHAT  ·  ${n}`, w / 2 - (left === null ? 0 : 120), h / 2 + 1);
+    if (left !== null) {
+      // Crowd Mode: the countdown to the next idea, and a bar along the bottom that drains over the round.
+      g.textAlign = "right";
+      g.fillStyle = "#ffb36b";
+      g.fillText(left ? `NEXT IN ${left}s` : "NEXT: NOW", w - 24, h / 2 + 1);
+      const share = Math.max(0, Math.min(1, (this.crowdAt - Date.now()) / 10000));
+      g.fillStyle = "#9147ff";
+      g.fillRect(14, h - 8, (w - 28) * share, 4);
+    }
     this.chatTex.needsUpdate = true;
+  }
+
+  /** The story log: shows its newest story lines below the button (redrawn only when they change). */
+  setStory(log) {
+    const lines = (log || []).filter(isStoryLine).slice(-STORY_LINES).reverse(); // newest first
+    const key = JSON.stringify(lines.map((l) => [l.at, l.kind, l.text]));
+    if (key === this._storyKey) return;
+    this._storyKey = key;
+    this.storyPanel.visible = lines.length > 0;
+    if (lines.length) this._drawStory(lines);
+  }
+
+  _drawStory(lines) {
+    const g = this.storyCanvas.getContext("2d"), w = 1024, h = 290, pad = 26, row = 54;
+    g.clearRect(0, 0, w, h);
+    g.fillStyle = "rgba(24,24,27,0.88)";
+    g.beginPath();
+    g.roundRect(2, 2, w - 4, h - 4, 14);
+    g.fill();
+    g.textBaseline = "middle";
+    g.textAlign = "left";
+    g.font = "700 24px system-ui, sans-serif";
+    g.fillStyle = "#efeff1";
+    g.fillText("THE STORY SO FAR", pad, 30);
+    g.fillStyle = "#2f2f35";
+    g.fillRect(pad, 52, w - pad * 2, 2);
+    lines.forEach((l, i) => {
+      const { who, chip, color, text, narr, sys } = describeLine(l);
+      const y = 88 + i * row;
+      g.globalAlpha = i === lines.length - 1 && i > 1 ? 0.55 : 1; // the oldest shown line fades, like a scrolling chat
+      g.font = "30px system-ui, sans-serif";
+      g.fillText(chip, pad, y);
+      g.font = "700 30px system-ui, sans-serif";
+      g.fillStyle = color;
+      const name = `${who}: `;
+      g.fillText(name, pad + 44, y);
+      const x = pad + 44 + g.measureText(name).width;
+      g.font = narr ? "italic 30px Georgia, serif" : "500 30px system-ui, sans-serif";
+      g.fillStyle = narr ? "#ffe9c7" : sys ? "#adadb8" : "#efeff1";
+      g.fillText(wrap(g, String(text || ""), x, w - pad, 1)[0].text, x, y);
+    });
+    g.globalAlpha = 1;
+    this.storyTex.needsUpdate = true;
+  }
+
+  /** Crowd Mode's countdown in the chat header (0: none). Redrawn at most a few times a second. */
+  setCountdown(at) {
+    const now = Date.now();
+    if (at === this.crowdAt && (!at || now - (this._cdDrawn || 0) < 200)) return;
+    this.crowdAt = at;
+    this._cdDrawn = now;
+    if (this.chatHead.visible || !at) this._drawChatHead();
   }
 
   /**

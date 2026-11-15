@@ -2,7 +2,7 @@ import QRCode from "qrcode";
 import { createLink } from "./link.js";
 import { urlRoom, cleanRoom, esc } from "./identity.js";
 import { peopleSummary, startPresence } from "./people.js";
-import { hueOf, topIdeaOf } from "./chat.js";
+import { hueOf, topIdeaOf, nextIdeaOf, storyFeed, countdownHtml, countdownBar, startCountdowns } from "./chat.js";
 
 // Full-screen spectator view for a TV or projector next to the headset (no controls, just the show).
 const $ = (s) => document.querySelector(s);
@@ -103,22 +103,27 @@ function start() {
     $("#inside").hidden = !s.immersed;
     renderChoices(s.choices || []);
     renderChat(s);
+    renderFeed(s);
     renderSnaps();
   }
 
   // ---------- Audience ideas as a Twitch-style chat overlay (read-only: the TV just shows the stream) ----------
   const seenIdeas = new Set();
   let firstIdeas = true;
+  startCountdowns();
+  // The story so far, under the audience chat: who said what, newest on top (the same look as the watch page).
+  const renderFeed = storyFeed($("#feed"), $("#feedJump"), { empty: "The story starts when the storyteller speaks." });
   function renderChat(s) {
     const sug = s.suggestions || [];
-    const top = topIdeaOf(sug);
-    const label = s.meta?.crowd ? "⏭ Up next" : "📌 Top idea";
+    const crowd = Boolean(s.meta?.crowd);
+    const top = crowd ? nextIdeaOf(sug) : topIdeaOf(sug); // in Crowd Mode: the idea the countdown will play
+    const label = crowd ? `⏭ Up next in ${countdownHtml(s)}` : "📌 Top idea";
     $("#suggCount").textContent = sug.length ? `· ${sug.length}` : "";
     const line = (x) => `<b class="who">${esc(x.by || "Someone")}</b>: ${esc(x.text)}<span class="vote">▲ ${x.voters.length}</span>`;
     setHtml("#ideas", sug.length
       ? [...sug]
-          .sort((a, b) => a.at - b.at)
-          .slice(-30)
+          .sort((a, b) => b.at - a.at) // newest first
+          .slice(0, 30)
           .map((x) => {
             const fresh = !firstIdeas && !seenIdeas.has(x.id) ? " fresh" : "";
             return `<div class="msg${x === top ? " is-top" : ""}${fresh}" style="--hue:${hueOf(x.by || "Someone")}">${x === top ? `<span class="chip">${s.meta?.crowd ? "⏭" : "🔥"}</span>` : ""}${line(x)}</div>`;
@@ -127,7 +132,7 @@ function start() {
       : `<div class="chatWelcome">Scan the code below to suggest what happens next. Ideas show up here.</div>`);
     for (const x of sug) seenIdeas.add(x.id);
     firstIdeas = false;
-    setHtml("#pinned", top ? `<div class="pinLabel">${label}</div><div style="--hue:${hueOf(top.by || "Someone")}">${line(top)}</div>` : "");
+    setHtml("#pinned", top ? `<div class="pinLabel">${label}</div>${countdownBar(s)}<div style="--hue:${hueOf(top.by || "Someone")}">${line(top)}</div>` : "");
     $("#pinned").hidden = !top;
   }
 

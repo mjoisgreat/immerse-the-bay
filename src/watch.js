@@ -3,7 +3,7 @@ import { createLink, speechHeaders } from "./link.js";
 import { urlRoom, voterId, esc } from "./identity.js";
 import { PushToTalk, micMessage } from "./voice.js";
 import { myName, peopleSummary, startPresence, thisDeviceKind } from "./people.js";
-import { hueOf, clock, topIdeaOf, stickyLog } from "./chat.js";
+import { hueOf, clock, topIdeaOf, nextIdeaOf, stickyLog, storyFeed, countdownHtml, countdownBar, startCountdowns } from "./chat.js";
 
 const $ = (s) => document.querySelector(s);
 const room = urlRoom;
@@ -44,7 +44,7 @@ function render(s) {
   $("#people").hidden = !here;
   $("#people").textContent = `here: ${here}`;
   $("#crowdNote").textContent = s.meta?.crowd
-    ? "Crowd Mode is on: the top-voted idea becomes the next scene every 20 seconds."
+    ? "Crowd Mode is on: when the countdown runs out, the top-voted idea becomes the next scene. Vote fast!"
     : "The storyteller picks from the most-voted ideas.";
 
   const choices = s.choices || [];
@@ -65,50 +65,10 @@ function render(s) {
   renderSnaps();
 }
 
-// ---------- The story so far, as a stream chat: who said what, with Twitch-style badges ----------
-// The narrator, the storyteller, co-narrators, the crowd's picks and the characters each get a name and
-// a badge; the newest line is at the bottom and the log sticks there unless you've scrolled up.
-const ROLES = {
-  director: { name: "Narrator", chip: "📖", color: "#ffb36b", title: "The narrator" },
-  voice: { name: "Storyteller", chip: "🎥", color: "#ff6b6b", title: "The storyteller (broadcaster)" },
-  guest: { name: "Co-narrator", chip: "🎙", color: "#3ddc6a", title: "A co-narrator" },
-  crowd: { name: "Crowd", chip: "👥", color: "#bf94ff", title: "The crowd's top idea" },
-  choice: { name: "Chosen", chip: "✓", color: "#5cb8ff", title: "A chosen option" },
-  touch: { name: "Storyteller", chip: "✋", color: "#ff6b6b", title: "The storyteller touched the world" },
-};
-const seenLines = new Set();
-let firstFeed = true;
-const updateFeed = stickyLog($("#feed"), $("#feedJump"));
-function renderFeed(s) {
-  const lines = (s.log || []).filter((l) => l.kind === "speech" || ROLES[l.kind]);
-  const key = (l) => `${l.at}|${l.kind}|${l.text}`;
-  const html = lines.length
-    ? lines
-        .map((l) => {
-          let who, chip, color, title, text = l.text, cls = "";
-          if (l.kind === "speech") {
-            // A character speaking: "Mei: Hello". Characters get a steady colour per name.
-            const i = l.text.indexOf(": ");
-            who = i > 0 ? l.text.slice(0, i) : "Someone";
-            text = i > 0 ? l.text.slice(i + 2) : l.text;
-            ({ chip, title } = { chip: "💬", title: "A character" });
-            color = `hsl(${hueOf(who)} 85% 66%)`;
-          } else {
-            ({ name: who, chip, color, title } = ROLES[l.kind]);
-            if (l.kind === "director") (text = l.text.replace(/\s*\(\d+ ms.*\)$/, "")), (cls = " narr");
-          }
-          const fresh = !firstFeed && !seenLines.has(key(l)) ? " fresh" : "";
-          return `<div class="msg${cls}${fresh}"><span class="ts">${l.at ? clock(l.at) : ""}</span><span class="chip role" title="${title}" style="background:color-mix(in srgb, ${color} 35%, #18181b)">${chip}</span><b class="who" style="color:${color}">${esc(who)}</b><span class="colon">:</span> <span class="text">${esc(text)}</span></div>`;
-        })
-        .join("")
-    : `<div class="chatWelcome">Nothing yet. The story starts when the storyteller speaks.</div>`;
-  const hasNew = lines.some((l) => !seenLines.has(key(l)));
-  for (const l of lines) seenLines.add(key(l));
-  updateFeed(html, { hasNew });
-  firstFeed = false;
-}
+// ---------- The story so far, as a stream chat: who said what, with Twitch-style badges (see chat.js) ----------
+const renderFeed = storyFeed($("#feed"), $("#feedJump"), { empty: "Nothing yet. The story starts when the storyteller speaks." });
 
-// ---------- Ideas as a stream chat: oldest at the top, newest at the bottom, the top idea pinned ----------
+// ---------- Ideas as a stream chat: the newest at the top, under the pinned top idea ----------
 // Redrawn only when something changed (no flicker, no lost hover). The log sticks to the bottom unless
 // you've scrolled up to read, like a Twitch chat; then a "new ideas below" button appears.
 const seenIdeas = new Set();
@@ -116,11 +76,14 @@ let pinnedHtml = "", firstIdeas = true;
 function voteButton(x, votes, voted, yours) {
   return `<button class="vote${voted ? " on" : ""}" ${yours ? `disabled title="Your idea always keeps your vote"` : `data-vote="${esc(x.id)}"`} aria-pressed="${voted}" aria-label="${yours ? "Your idea keeps your vote" : voted ? "Remove your vote" : "Vote for this idea"} (${votes})">▲ ${votes}</button>`;
 }
-const updateLog = stickyLog($("#suggs"), $("#jump"));
+const updateLog = stickyLog($("#suggs"), $("#jump"), { newestFirst: true });
+startCountdowns();
 function renderIdeas(s) {
   const sug = s.suggestions || [];
-  const topIdea = topIdeaOf(sug);
-  const label = s.meta?.crowd ? "⏭ Up next" : "📌 Top idea";
+  // In Crowd Mode the pinned idea is the one that plays when the countdown runs out; otherwise the clear leader.
+  const crowd = Boolean(s.meta?.crowd);
+  const topIdea = crowd ? nextIdeaOf(sug) : topIdeaOf(sug);
+  const label = crowd ? `⏭ Up next in ${countdownHtml(s)}` : "📌 Top idea";
   $("#suggCount").textContent = sug.length ? `· ${sug.length}` : "";
 
   const line = (x) => {
@@ -128,14 +91,14 @@ function renderIdeas(s) {
     const name = x.by || "Someone";
     const fresh = !firstIdeas && !seenIdeas.has(x.id) ? " fresh" : "";
     return `<div class="msg${yours ? " is-mine" : ""}${x === topIdea ? " is-top" : ""}${fresh}" style="--hue:${hueOf(name)}">
-      <span class="ts">${clock(x.at)}</span>${x === topIdea ? `<span class="chip top" title="${label}">${s.meta?.crowd ? "⏭" : "🔥"}</span>` : ""}${yours ? `<span class="chip mine" title="Your idea">★</span>` : ""}<b class="who">${esc(name)}</b><span class="colon">:</span> <span class="text">${esc(x.text)}</span>${voteButton(x, votes, voted, yours)}</div>`;
+      <span class="ts">${clock(x.at)}</span>${x === topIdea ? `<span class="chip top" title="${crowd ? "Up next" : "Top idea"}">${s.meta?.crowd ? "⏭" : "🔥"}</span>` : ""}${yours ? `<span class="chip mine" title="Your idea">★</span>` : ""}<b class="who">${esc(name)}</b><span class="colon">:</span> <span class="text">${esc(x.text)}</span>${voteButton(x, votes, voted, yours)}${yours ? `<button class="del" data-del="${esc(x.id)}" title="Delete your idea" aria-label="Delete your idea: ${esc(x.text)}">✕</button>` : ""}</div>`;
   };
   const html = sug.length
-    ? [...sug].sort((a, b) => a.at - b.at).map(line).join("")
+    ? [...sug].sort((a, b) => b.at - a.at).map(line).join("") // newest first
     : `<div class="chatWelcome">Welcome to the chat! Suggest what happens next in the story, and vote ▲ on the ideas you like.</div>`;
 
   const pin = topIdea
-    ? `<div class="pinLabel">${label} · ${topIdea.voters.length} votes</div>
+    ? `<div class="pinLabel">${label} · ${topIdea.voters.length} vote${topIdea.voters.length === 1 ? "" : "s"}</div>${countdownBar(s)}
        <div class="pinBody" style="--hue:${hueOf(topIdea.by || "Someone")}"><b class="who">${esc(topIdea.by || "Someone")}</b><span class="colon">:</span> <span class="text">${esc(topIdea.text)}</span>${voteButton(topIdea, topIdea.voters.length, topIdea.voters.includes(voterId), topIdea.voters[0] === voterId)}</div>`
     : "";
   if (pin !== pinnedHtml) {
@@ -297,9 +260,19 @@ $("#choices").addEventListener("click", (e) => {
   const b = e.target.closest("[data-choose]");
   if (b) link.request({ t: "choose", index: Number(b.dataset.choose) });
 });
-$(".chat").addEventListener("click", (e) => {
+// Votes and deletes, in the ideas chat (by id: the story feed is a chat panel too).
+$("#ideasChat").addEventListener("click", (e) => {
   const b = e.target.closest("[data-vote]");
   if (b) link.request({ t: "vote", id: b.dataset.vote });
+  const d = e.target.closest("[data-del]");
+  if (d) {
+    // Gone at once on this page; the server removes it for everyone.
+    if (state) {
+      state.suggestions = (state.suggestions || []).filter((x) => x.id !== d.dataset.del);
+      renderIdeas(state);
+    }
+    link.request({ t: "delete_suggestion", id: d.dataset.del });
+  }
 });
 
 // Co-narrators: type or hold to talk.

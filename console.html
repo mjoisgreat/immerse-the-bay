@@ -48,7 +48,7 @@
           <div class="pinned" id="pinned" hidden></div>
           <div class="chatScroll">
             <div id="suggs" class="chatLog" role="log" aria-live="polite" aria-label="Ideas from the audience"></div>
-            <button type="button" class="jump" id="jump" hidden>↓ New ideas below</button>
+            <button type="button" class="jump" id="jump" hidden>↑ New ideas above</button>
           </div>
           <p class="chatNote" id="suggTitle"></p>
         </section>
@@ -66,7 +66,7 @@
           </form>
           <label class="toggle"><div>Share to community<small>List this story on the community page so anyone can watch and suggest.</small></div>
             <span class="switch"><input type="checkbox" id="shared" /><span></span></span></label>
-          <label class="toggle"><div>Crowd Mode<small>Every 20 s the top-voted suggestion becomes the next story line.</small></div>
+          <label class="toggle"><div>Crowd Mode<small>A 10-second countdown: when it runs out, the top-voted idea becomes the next scene.</small></div>
             <span class="switch"><input type="checkbox" id="crowd" /><span></span></span></label>
         </section>
         <section>
@@ -100,9 +100,12 @@
           <h2>Story bible</h2>
           <div id="bible" class="muted" style="white-space:pre-wrap"></div>
         </section>
-        <section>
-          <h2>Live log</h2>
-          <ul class="feed" id="log"></ul>
+        <section class="chat storyFeed">
+          <div class="chatHead"><h2>Live log</h2></div>
+          <div class="chatScroll">
+            <div id="log" class="chatLog" role="log" aria-live="polite" aria-label="Live log"></div>
+            <button type="button" class="jump" id="logJump" hidden>↑ New lines above</button>
+          </div>
         </section>
       </div>
     </div>

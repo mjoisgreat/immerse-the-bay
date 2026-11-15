@@ -1,7 +1,9 @@
 // Story state machine shared by the local server and the Vercel functions.
 // State is plain JSON so it can live in memory or in Redis.
 
-const MAX_SUGGESTIONS = 25;
+const MAX_SUGGESTIONS = 50;
+const IDEAS_EACH = 10; // open ideas per person at once
+export const CROWD_ROUND_MS = 10_000; // Crowd Mode: the top-voted idea plays this often
 const MAX_BEATS = 20;
 const MAX_PROMPTS = 12;
 
@@ -31,10 +33,10 @@ export function initialState() {
 }
 
 /** Who may send which message. Roles come from the room's credentials (see api.js). */
-const OWNER_ONLY = new Set(["hello", "window_sync", "window_opened", "window_closed", "window_status", "heartbeat", "immerse", "touch", "companion"]);
+const OWNER_ONLY = new Set(["prepare_suggestion", "hello", "window_sync", "window_opened", "window_closed", "window_status", "heartbeat", "immerse", "touch", "companion"]);
 const CONSOLE = new Set(["close_window", "manual_prompt", "set_seed", "set_meta", "use_suggestion", "dismiss_suggestion", "reset_story"]);
 const NARRATE = new Set(["utterance", "choose"]);
-const ANYONE = new Set(["whoami", "suggest", "vote", "here", "rtc"]);
+const ANYONE = new Set(["whoami", "suggest", "vote", "delete_suggestion", "here", "rtc"]);
 
 // Presence: every page says "here" every ~10 s with what kind of device it is. Someone who has been quiet for
 // PRESENCE_TTL is gone. Stale people are dropped when reading (livePeople), so a leave doesn't need a write.
@@ -296,17 +298,21 @@ function step(s, m, ctx) {
     case "set_meta":
       if (typeof m.title === "string") s.meta.title = m.title.trim().slice(0, 60);
       if (typeof m.shared === "boolean") s.meta.shared = m.shared;
-      if (typeof m.crowd === "boolean") s.meta.crowd = m.crowd;
+      if (typeof m.crowd === "boolean" && m.crowd !== s.meta.crowd) {
+        s.meta.crowd = m.crowd;
+        armCrowd(s, true);
+      }
       break;
 
     // ---- community ----
     case "suggest": {
       const text = String(m.text || "").replace(/\s+/g, " ").trim().slice(0, 140);
       if (!text || !ctx.voter) break;
-      if (s.suggestions.filter((x) => x.voters[0] === ctx.voter).length >= 3) break; // 3 open ideas each
+      if (s.suggestions.filter((x) => x.voters[0] === ctx.voter).length >= IDEAS_EACH) break; // a few open ideas each
       if (s.suggestions.some((x) => x.text.toLowerCase() === text.toLowerCase())) break;
       const by = cleanName(m.name);
       s.suggestions.push({ id: rid(), text, voters: [ctx.voter], at: Date.now(), ...(by && { by }) });
+      armCrowd(s); // the first idea starts the countdown (one already running keeps going)
       if (s.suggestions.length > MAX_SUGGESTIONS) {
         // Drop the least-voted, oldest idea.
         s.suggestions.sort(byVotes);
@@ -325,12 +331,21 @@ function step(s, m, ctx) {
     case "dismiss_suggestion":
       s.suggestions = s.suggestions.filter((x) => x.id !== m.id);
       break;
+    case "delete_suggestion":
+      // Anyone can take back their own idea (its first voter is its author); the storyteller dismisses others'.
+      if (ctx.voter) s.suggestions = s.suggestions.filter((x) => !(x.id === m.id && x.voters[0] === ctx.voter));
+      break;
     case "use_suggestion": {
       // An idea steers the window's story (pinched on a card, "Use" in the console, or Crowd Mode).
       const x = m.id === "top" ? topSuggestion(s) : s.suggestions.find((y) => y.id === m.id);
       if (!x || !s.window) break; // no window to steer: the idea stays on the list
+      // Crowd Mode's head start: the director already answered for this idea, on this exact story.
+      const ready = s.prepared?.id === x.id && s.prepared.base === storyKey(s) ? s.prepared.out : null;
+      s.prepared = null;
       s.suggestions = s.suggestions.filter((y) => y.id !== x.id);
       director = tell(s, x.text, "crowd");
+      if (director && ready) director.ready = ready; // the API applies it at once instead of asking again
+      armCrowd(s, true); // a fresh round for the next idea
       break;
     }
   }
@@ -350,6 +365,38 @@ const cleanName = (v) =>
     .trim()
     .slice(0, 20)
     .trim();
+
+/**
+ * What a prepared answer depends on: the story so far, the window's scene and every director request
+ * since. If any of it changes before the idea is used, the prepared answer is thrown away.
+ */
+export function storyKey(s) {
+  return JSON.stringify([s.directorSeq || 0, s.story?.seed, s.story?.beats, s.window?.prompt, s.chat?.length || 0]);
+}
+
+/**
+ * Crowd Mode's head start: what the director would be asked if idea `id` were used now, worked out on
+ * a copy so nothing changes yet. Returns { event, snapshot, base } or null (no such idea, no story).
+ */
+export function prepareSuggestion(s, id) {
+  const x = s.suggestions?.find((y) => y.id === id);
+  if (!x || !s.window || !s.story?.seed) return null;
+  const copy = structuredClone(s);
+  const event = tell(copy, x.text, "crowd");
+  return event ? { event, snapshot: copy, base: storyKey(s) } : null;
+}
+
+/**
+ * Crowd Mode's shared countdown: the next idea plays at s.crowdAt (the round began at s.crowdFrom), so
+ * every screen counts down to the same moment and the headset plays the idea when it arrives. Starts
+ * a round when none is running, or a fresh one when `restart`; off when Crowd Mode is off.
+ */
+function armCrowd(s, restart = false, now = Date.now()) {
+  if (!s.meta?.crowd) return void (s.crowdAt = s.crowdFrom = 0);
+  if (!restart && s.crowdAt > now) return;
+  s.crowdFrom = now;
+  s.crowdAt = now + CROWD_ROUND_MS;
+}
 
 const byVotes = (a, b) => b.voters.length - a.voters.length || a.at - b.at;
 function topSuggestion(s) {
@@ -435,6 +482,7 @@ export function autoTitle(s) {
 }
 
 /** What the gallery shows for a room. */
+const STORY_KINDS = new Set(["director", "speech", "voice", "guest", "crowd", "choice", "touch"]);
 export function summary(room, s, snap) {
   const lastLine = [...(s.log || [])].reverse().find((l) => l.kind === "director");
   return {
@@ -449,8 +497,14 @@ export function summary(room, s, snap) {
     ideas: (s.suggestions || []).length,
     // The newest ideas, shown on the card like the last lines of a stream chat.
     chat: [...(s.suggestions || [])]
-      .sort((a, b) => a.at - b.at)
-      .slice(-2)
+      .sort((a, b) => b.at - a.at) // newest first
+      .slice(0, 2)
       .map((x) => ({ by: x.by || "", text: x.text, votes: x.voters.length })),
+    // The story so far: its newest lines (the narrator, the storyteller, the crowd, the characters), newest first.
+    story: (s.log || [])
+      .filter((l) => STORY_KINDS.has(l.kind))
+      .slice(-3)
+      .reverse()
+      .map(({ kind, text, at }) => ({ kind, text: String(text).slice(0, 240), at })),
   };
 }

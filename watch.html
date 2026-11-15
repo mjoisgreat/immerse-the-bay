@@ -54,17 +54,17 @@
           <div class="chatHead"><h2>The story so far</h2></div>
           <div class="chatScroll">
             <div id="feed" class="chatLog" role="log" aria-live="polite" aria-label="The story so far"></div>
-            <button type="button" class="jump" id="feedJump" hidden>↓ More story below</button>
+            <button type="button" class="jump" id="feedJump" hidden>↑ New story above</button>
           </div>
         </section>
       </div>
       <div>
-        <section class="chat">
+        <section class="chat" id="ideasChat">
           <div class="chatHead"><h2>Stream chat <span class="count" id="suggCount"></span></h2></div>
           <div class="pinned" id="pinned" hidden></div>
           <div class="chatScroll">
             <div id="suggs" class="chatLog" role="log" aria-live="polite" aria-label="Ideas from the audience"></div>
-            <button type="button" class="jump" id="jump" hidden>↓ New ideas below</button>
+            <button type="button" class="jump" id="jump" hidden>↑ New ideas above</button>
           </div>
           <form id="suggest" class="chatForm">
             <textarea id="idea" rows="1" maxlength="140" placeholder="Send an idea: what happens next?" aria-label="Your idea"></textarea>

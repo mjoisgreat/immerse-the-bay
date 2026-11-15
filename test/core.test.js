@@ -1,7 +1,7 @@
 // Story state machine: permissions, rooms, choices, touch, reset.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { initialState, reduce, allowed, applyDirection } from "../server/core.js";
+import { initialState, reduce, allowed, applyDirection, CROWD_ROUND_MS } from "../server/core.js";
 
 const owner = { role: "owner" };
 /** A room with the window open onto a lake world (pass `null` to leave it without a world yet). */
@@ -303,4 +303,68 @@ test("live viewing: STUN always, TURN only when it's fully configured", () => {
   assert.equal(iceServers({ TURN_URL: "turn:x:3478" }).length, 1); // no credentials: not used
   const both = iceServers({ TURN_URL: "turn:x:3478, turns:x:5349", TURN_USERNAME: "u", TURN_CREDENTIAL: "p" });
   assert.deepEqual(both[1], { urls: ["turn:x:3478", "turns:x:5349"], username: "u", credential: "p" });
+});
+
+test("Crowd Mode counts down to the next idea, and a used idea starts a fresh round", () => {
+  const s = start();
+  const viewer = { role: "viewer", voter: "v1" };
+  reduce(s, { t: "suggest", text: "A whale" }, viewer);
+  assert.ok(!s.crowdAt, "no countdown while Crowd Mode is off");
+  const before = Date.now();
+  reduce(s, { t: "set_meta", crowd: true }, owner);
+  assert.ok(s.crowdAt >= before + CROWD_ROUND_MS && s.crowdAt - s.crowdFrom === CROWD_ROUND_MS);
+  const due = s.crowdAt;
+  reduce(s, { t: "suggest", text: "A storm" }, viewer);
+  assert.equal(s.crowdAt, due, "a new idea doesn't restart a running round");
+  s.crowdAt = s.crowdFrom = 1; // the round ran out...
+  reduce(s, { t: "use_suggestion", id: "top" }, owner);
+  assert.ok(s.crowdAt > Date.now(), "...and using the idea starts the next one");
+  reduce(s, { t: "set_meta", crowd: false }, owner);
+  assert.equal(s.crowdAt, 0);
+});
+
+test("people can delete their own ideas, and have up to 10 open at once", () => {
+  const s = start();
+  const ana = { role: "viewer", voter: "ana" }, bo = { role: "viewer", voter: "bo" };
+  for (let i = 0; i < 12; i++) reduce(s, { t: "suggest", text: `Idea ${i}` }, ana);
+  assert.equal(s.suggestions.length, 10);
+  const id = s.suggestions[0].id;
+  reduce(s, { t: "delete_suggestion", id }, bo);
+  assert.equal(s.suggestions.length, 10, "not someone else's");
+  reduce(s, { t: "delete_suggestion", id }, ana);
+  assert.equal(s.suggestions.length, 9);
+  assert.equal(allowed("viewer", "delete_suggestion"), true);
+  assert.equal(allowed("viewer", "prepare_suggestion"), false);
+});
+
+test("Crowd Mode's head start: a prepared answer is used only if the story hasn't moved on", async () => {
+  const { prepareSuggestion } = await import("../server/core.js");
+  const s = start();
+  reduce(s, { t: "suggest", text: "A whale rises" }, { role: "viewer", voter: "v1" });
+  const id = s.suggestions[0].id;
+  const job = prepareSuggestion(s, id);
+  assert.equal(job.event.text, "A whale rises");
+  assert.equal(s.story.beats.includes("A whale rises"), false, "preparing changes nothing yet");
+  const out = { narration: "A whale rises.", bible: "b", prompt: "A whale breaches the lake", choices: [], speech: null, companion: null };
+  s.prepared = { id, base: job.base, out };
+  const used = reduce(s, { t: "use_suggestion", id }, owner);
+  assert.deepEqual(used.director.ready, out);
+  // The story moved on (someone spoke) after preparing: the director is asked again instead.
+  reduce(s, { t: "suggest", text: "A storm" }, { role: "viewer", voter: "v1" });
+  const id2 = s.suggestions[0].id;
+  s.prepared = { id: id2, base: prepareSuggestion(s, id2).base, out };
+  reduce(s, { t: "utterance", text: "Then the moon goes out" }, owner);
+  assert.equal(reduce(s, { t: "use_suggestion", id: id2 }, owner).director.ready, undefined);
+});
+
+test("community cards carry the story so far, newest first, without system lines", async () => {
+  const { summary } = await import("../server/core.js");
+  const s = initialState();
+  s.log = [
+    { kind: "window", text: "Window opened", at: 1 },
+    { kind: "voice", text: "A misty lake", at: 2 },
+    { kind: "director", text: "Mist rolls in. (812 ms, new prompt)", at: 3 },
+    { kind: "speech", text: "Mei: Hello", at: 4 },
+  ];
+  assert.deepEqual(summary("abc", s).story.map((l) => l.kind), ["speech", "director", "voice"]);
 });
