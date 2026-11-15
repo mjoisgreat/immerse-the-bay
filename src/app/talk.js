@@ -120,10 +120,10 @@ export async function speak(line, speaker, style, anchor = null, { onStart, onEn
     voice?.removeFromParent();
     interrupted?.();
     voice = anchor ? new THREE.PositionalAudio(listener) : new THREE.Audio(listener);
-    if (anchor) voice.setRefDistance(2), anchor.add(voice);
+    if (anchor) voice.setRefDistance(4), anchor.add(voice);
     else scene.add(voice);
     voice.setBuffer(buf);
-    voice.setVolume(1.4);
+    voice.setVolume(2.4);
     const mine = voice;
     voiceEnd = onEnd || null;
     voice.onEnded = () => {
