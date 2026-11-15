@@ -6,7 +6,7 @@
     <title>Living Window</title>
     <style>
       html, body { margin: 0; height: 100%; background: #0b0e16; color: #f3ead8; font-family: Georgia, serif; overflow: hidden; }
-      canvas { display: block; }
+      canvas { display: block; touch-action: none; } /* dragging looks around instead of scrolling or zooming the page */
       #overlay { position: fixed; inset: 0; display: grid; place-items: center; pointer-events: none; }
       .card { pointer-events: auto; max-width: 30rem; margin: 1rem; padding: 2rem; text-align: center;
         background: rgba(12, 14, 24, 0.82); border: 1px solid #ffb36b55; border-radius: 1.25rem; }
@@ -110,6 +110,7 @@
       <button data-act="buddy">Bonnie</button>
       <button data-act="world">Moon</button>
       <button data-act="wide">Wide view</button>
+      <button data-act="camera">Camera</button>
       <button data-act="newstory">New story</button>
       <button data-act="reset">Reset story</button>
       <button data-act="info">Room info</button>

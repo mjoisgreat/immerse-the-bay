@@ -17,6 +17,7 @@ import { OrbisStream } from "./orbis.js";
 import { PushToTalk } from "./voice.js";
 import { createLink, speechHeaders } from "./link.js";
 import { PRESETS, TAGLINE } from "./presets.js";
+import { CameraView, headingOf } from "./cameraview.js";
 import { urlRoom, urlInvite, owned, lastOwnedRoom, newRoomCode, makeOwnerCreds, credFor, voterId } from "./identity.js";
 
 const $ = (s) => document.querySelector(s);
@@ -1589,6 +1590,8 @@ function syncButtons() {
   toolbar.set("wide", { state: wideOn ? "active" : "idle", label: wideOn ? "Wide: on" : "Wide view" });
   bar.wide.textContent = wideOn ? "Wide view: on" : "Wide view";
   bar.wide.classList.toggle("on", wideOn);
+  bar.camera.textContent = camView.on ? "Camera: on" : "Camera";
+  bar.camera.classList.toggle("on", camView.on);
   toolbar.set("talk", { state: talking ? "active" : "idle", label: talking ? "Listening…" : "Hold to talk" });
   toolbar.set("step", { label: immersion.inside ? "Step out" : "Step inside", icon: immersion.inside ? "↩" : "🚪" });
   toolbar.set("reset", { state: armed === "reset" ? "warn" : "idle", label: armed === "reset" ? "Tap again to confirm" : "Reset story" });
@@ -1654,6 +1657,30 @@ const gestures = new HandGestures(renderer, camera, {
 });
 scene.add(gestures.fx);
 
+// ---------- Camera: see your real surroundings on a phone or computer, like the Quest's see-through ----------
+const camView = new CameraView();
+const seeThrough = () => renderer.xr.isPresenting || camView.on; // windows sit over the real world
+async function toggleCamera() {
+  if (camView.on) {
+    camView.stop();
+    yaw = headingOf(camera.quaternion);
+    pitch = 0;
+    camera.rotation.set(pitch, yaw, 0, "YXZ");
+    return flash("Camera off.", 2500);
+  }
+  try {
+    await camView.start();
+    flash(
+      camView.orienting
+        ? "Camera on: move your phone to look around. Drag to turn the view if the windows are out of reach."
+        : "Camera on: your windows float over your camera. Drag to look around.",
+      6000,
+    );
+  } catch (e) {
+    flash(e?.name === "NotAllowedError" ? "Camera blocked: allow camera access for this site and try again." : `Camera unavailable: ${e?.message || e}`, 6000);
+  }
+}
+
 // Desktop bar.
 const bar = Object.fromEntries([...document.querySelectorAll("#bar [data-act]")].map((b) => [b.dataset.act, b]));
 bar.talk.addEventListener("pointerdown", (e) => (e.preventDefault(), startTalking()));
@@ -1670,6 +1697,7 @@ bar.info.onclick = () => ($("#overlay").hidden = !$("#overlay").hidden);
 bar.hide.onclick = () => setButtonsHidden(true);
 bar.world.onclick = toggleBackdrop;
 bar.wide.onclick = toggleWide;
+bar.camera.onclick = toggleCamera;
 bar.buddy.onclick = toggleBuddy;
 bar.buddy.textContent = BUDDY.name;
 $("#showbar").onclick = () => setButtonsHidden(false);
@@ -1683,7 +1711,7 @@ $("#bar").hidden = false; // only clickable once everything is wired up
 }
 
 // ---------- Desktop controls (for building and testing without the headset) ----------
-let yaw = 0, pitch = 0, dragging = false, moved = 0;
+let yaw = 0, pitch = 0, dragging = false, moved = 0, lastX = 0, lastY = 0;
 // Drag the companion with the mouse to pick it up; let go to throw it.
 const mouseHand = new THREE.Object3D();
 scene.add(mouseHand);
@@ -1692,6 +1720,7 @@ const mouseRay = (e) => raycaster.setFromCamera(new THREE.Vector2((e.clientX / i
 renderer.domElement.addEventListener("pointerdown", (e) => {
   dragging = true;
   moved = 0;
+  (lastX = e.clientX), (lastY = e.clientY);
   if (renderer.xr.isPresenting || !buddy.visible) return;
   mouseRay(e);
   if (!raycaster.intersectObjects(targets(), false)[0]?.object.userData.companion) return;
@@ -1726,9 +1755,13 @@ renderer.domElement.addEventListener("dblclick", (e) => {
 addEventListener("pointermove", (e) => {
   if (!dragging) return;
   if (buddyDrag) return mouseRay(e), void raycaster.ray.at(buddyDrag, mouseHand.position);
-  moved += Math.abs(e.movementX) + Math.abs(e.movementY);
-  yaw -= e.movementX * 0.004;
-  pitch = Math.max(-1.2, Math.min(1.2, pitch - e.movementY * 0.004));
+  // From positions, not movementX/Y: phones (Safari especially) don't report those for touch.
+  const dx = e.clientX - lastX, dy = e.clientY - lastY;
+  (lastX = e.clientX), (lastY = e.clientY);
+  moved += Math.abs(dx) + Math.abs(dy);
+  if (camView.orienting) return void (camView.offset -= dx * 0.004); // the phone aims; a drag turns the room around you
+  yaw -= dx * 0.004;
+  pitch = Math.max(-1.2, Math.min(1.2, pitch - dy * 0.004));
   camera.rotation.set(pitch, yaw, 0, "YXZ");
 });
 addEventListener("keydown", (e) => {
@@ -1787,6 +1820,7 @@ async function setupXR() {
     });
     renderer.xr.setReferenceSpaceType("local-floor");
     await renderer.xr.setSession(session);
+    camView.stop(); // the headset (or phone AR) has its own see-through
     loco.start();
     scene.background = null;
     previewRoom.visible = false;
@@ -1815,7 +1849,10 @@ renderer.setAnimationLoop(() => {
   const t = clock.elapsedTime;
   for (const { portal } of portals.values()) portal.update(t);
   checkWalking();
-  immersion.update(t, dt, { presenting: renderer.xr.isPresenting });
+  if (!renderer.xr.isPresenting && camView.update(camera, yaw)) yaw = headingOf(camera.quaternion);
+  // Over the real world (headset, or the camera view) the step-inside world is drawn first, so the
+  // windows' wall masks can't cut holes in it (see immersion.js).
+  immersion.update(t, dt, { presenting: seeThrough() });
   backdrop.update(dt, { inside: immersion.active });
   // Moving around: only in a 3D world, not inside a window. Back to see-through puts you back
   // where your real room is, so windows line up with your walls again.
@@ -1823,8 +1860,8 @@ renderer.setAnimationLoop(() => {
   if (!backdrop.on && backdrop.opacity === 0) loco.reset();
   loco.update(dt, locoRays());
   desktopWalk(dt);
-  scene.background = backdrop.background(renderer.xr.isPresenting ? null : DESKTOP_BG);
-  previewRoom.visible = !renderer.xr.isPresenting && !immersion.active && !backdrop.on;
+  scene.background = backdrop.background(renderer.xr.isPresenting ? null : camView.on ? camView.texture : DESKTOP_BG);
+  previewRoom.visible = !seeThrough() && !immersion.active && !backdrop.on;
   exitOrb.visible = immersion.inside && renderer.xr.isPresenting && !toolbar.collapsed;
   updateToolbar();
   gestures.update();
@@ -1842,7 +1879,7 @@ renderer.setAnimationLoop(() => {
     // ...nor over a 3D world background (there's no real wall to cut into).
     // It stays on while you step in and out (the world is drawn before it, so it can't cut holes there),
     // but not once you're fully inside: there it would hide the motes and Bonnie behind each window's frame.
-    portal.mask.visible = renderer.xr.isPresenting && backdrop.opacity === 0 && !(immersion.inside && immersion.progress >= 1);
+    portal.mask.visible = seeThrough() && backdrop.opacity === 0 && !(immersion.inside && immersion.progress >= 1);
     if (guideStep === 0 && stream.status === "streaming") guide(1);
   }
   if (!renderer.xr.isPresenting) syncButtons();
