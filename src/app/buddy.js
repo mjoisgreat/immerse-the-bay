@@ -152,20 +152,27 @@ export function callBuddy() {
 export function toggleBuddy() {
   callBuddy();
 }
-// "Hi! I'm Bonnie...": the bubble at once, her voice as soon as the browser allows sound: straight away in
-// the headset (putting it on counts), on a flat page after your first tap or key press.
-let helloPending = false;
-function hello() {
+// "Hi! I'm Bonnie...": said once per visit, out loud, two seconds after you arrive so it isn't abrupt. Sound is
+// blocked until you interact, so on a flat page it waits for your first tap or key press (which in the headset
+// is putting it on). Whichever comes first says it, and the other does nothing.
+let helloDone = false;
+let helloListening = false;
+function sayHello() {
+  if (helloDone) return;
+  helloDone = true;
   const line = USE_PIP ? `Hi! I'm ${BUDDY.name}. Ask me for ideas any time, or just talk to me!` : HELLO;
-  if (renderer.xr.isPresenting) return buddySay(line, 6000);
-  buddy.say(line, 6000);
-  if (helloPending) return;
-  helloPending = true;
+  setTimeout(() => buddy.visible && buddySay(line, 6000), 2000);
+}
+function hello() {
+  if (helloDone) return;
+  if (renderer.xr.isPresenting) return sayHello();
+  if (helloListening) return;
+  helloListening = true;
   const once = () => {
     removeEventListener("pointerdown", once, true);
     removeEventListener("keydown", once, true);
-    helloPending = false;
-    if (buddy.visible) buddySay(line, 6000);
+    helloListening = false;
+    sayHello();
   };
   addEventListener("pointerdown", once, true);
   addEventListener("keydown", once, true);
