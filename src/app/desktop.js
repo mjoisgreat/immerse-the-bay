@@ -31,6 +31,8 @@ export async function toggleCamera() {
   }
   try {
     await camView.start();
+    // The camera is your real surroundings: leave a 3D world (Stanford, the Moon) to see it.
+    if (camView.on && backdrop.on) backdrop.hide();
     flash(
       camView.orienting
         ? "Camera on: move your phone to look around. Drag to turn the view if the windows are out of reach."

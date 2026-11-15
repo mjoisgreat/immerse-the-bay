@@ -14,7 +14,8 @@ import { ptt, stopTalking } from "./app/talk.js";
 import { trail } from "./app/trail.js";
 import { heartsFor, updateHearts } from "./app/hearts.js";
 import { updateSides } from "./app/wide.js";
-import { backdrop, loco, locoRays } from "./app/world.js";
+import { backdrop, loco, locoRays, toggleWorld } from "./app/world.js";
+import { WORLD_CYCLE } from "./app/config.js";
 import { checkWalking, gestures, pollButtons, updateResize, updateStrokes } from "./app/xrinput.js";
 
 // app/ module layout (this file is the entry point: wiring, the Enter-mixed-reality button, the animation loop).
@@ -80,7 +81,7 @@ function offerCamera(xrOk) {
   const btn = Object.assign(document.createElement("button"), {
     id: "camEnter",
     textContent: phone ? "📷 Look through your camera" : "📷 Use your webcam",
-    className: xrOk || !phone ? "ghost" : "",
+    className: "ghost", // secondary: on a phone the main way in is Stanford, on a computer the preview
   });
   btn.onclick = async () => {
     setStartScreen(false);
@@ -94,9 +95,8 @@ function offerCamera(xrOk) {
         (typeof globalThis.DeviceOrientationEvent?.requestPermission === "function" ? " and motion." : ".")
       : "Your webcam fills the background and the windows float over it. You'll be asked to allow the camera.",
   });
-  // On a phone the camera is the main way in, above the preview; on a computer it comes after it.
-  if (phone && !xrOk) enterBtn.before(btn, why), (enterBtn.className = "ghost");
-  else (($("#note") ?? enterBtn).after(btn), btn.after(why));
+  if (phone && !xrOk) why.textContent = "Or see your real surroundings through your camera, with the story's windows in them. You can switch any time with the Camera button.";
+  (($("#note") ?? enterBtn).after(btn), btn.after(why));
 }
 
 async function setupXR() {
@@ -107,6 +107,12 @@ async function setupXR() {
     // No mixed reality here: offer the desktop preview, and say where the real thing runs.
     enterBtn.textContent = "Explore the preview";
     enterBtn.onclick = () => setStartScreen(false);
+    if (CameraView.touch) {
+      // On a phone you start at Stanford (the World button's Stanford world); the camera is one tap away.
+      const stanford = WORLD_CYCLE.find((id) => id !== "moon") || "stanford-church";
+      enterBtn.textContent = "🏛 Enter Stanford";
+      enterBtn.onclick = () => (setStartScreen(false), setButtonsHidden(false, false), toggleWorld(stanford));
+    }
     enterBtn.insertAdjacentHTML("afterend", `<p id="note">For full mixed reality, open this page in the Meta Quest browser.</p>`);
     return offerCamera(false);
   }
