@@ -7,6 +7,9 @@ import { z } from "zod";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 
 const MODEL = "claude-opus-5-5";
+// OpenAI alternative. Set OPENAI_MODEL / OPENAI_REASONING_EFFORT to change them.
+const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-6-luna";
+const OPENAI_EFFORT = process.env.OPENAI_REASONING_EFFORT || "medium";
 
 // The companion's body in the room. Bonnie is the default (after the Stanford XR mascot); Pip is the robot.
 export const PERSONAS = {
@@ -115,6 +118,25 @@ You, in the room (the companion field):
   just ask you to come over or come closer; "stay" if they ask you to stay, wait or stop
   following; "wander" if they ask you to go explore, go away or give them space; "none"
   otherwise.
+- open_window / place: you can open a window for them. When they ask you to open a window (or
+  a portal, "make me a window", "go over there and open one"), set open_window to the world
+  they want behind it, as a short vivid description ("a misty pine forest at dawn"), or to an
+  empty string "" if they did not say which world (you will then ask them). They do not have
+  to say "window": when they propose a new place, character or adventure to you, they mean
+  a new window for it. "Bonnie, let's go with Santa Claus" means open a window whose world is
+  Santa Claus (describe it vividly: his snowy workshop, the glow of the lanterns), "take us to
+  the moon" a window on the moon, "I want to meet a dragon" a window with a dragon. Use the
+  words they used (the Santa Claus they asked for, not another character) and do not carry
+  anything over from their other windows. But a change inside the world they are already
+  looking at ("make it snow", "add a dragon here", "now it's night") is not a new window:
+  steer that window with updates as usual, and open_window stays null. If it is unclear
+  whether they mean a new world or a change to the current one, change the current one.
+  Otherwise open_window is null. place is where you walk to do it, relative to where they are looking:
+  "left", "right", "ahead" (over there, by the wall, in front), "behind", or "here" (nearby,
+  or no place was named). If you open a window, say so in your reply ("On it, opening a window
+  over there!") and leave the other windows alone: updates is an empty list and narration is
+  an empty string. If they only ask you to go somewhere (no window), use move "wander" and
+  null.
 - Just chatting: when their words are only for you and change nothing in the story ("hi
   Bonnie", "what's your favourite food?", "follow me"), leave the story alone: updates is an
   empty list, narration is an empty string, choices is an empty list, speech is null, and the
@@ -142,6 +164,8 @@ const Direction = z.object({
       reply: z.string(),
       gesture: z.enum(["wave", "yes", "no", "thumbs_up", "jump", "dance", "think", "none"]),
       move: z.enum(["follow", "come", "stay", "wander", "none"]),
+      open_window: z.string().nullable(),
+      place: z.enum(["here", "ahead", "left", "right", "behind"]),
     })
     .nullable(),
 });
@@ -155,8 +179,51 @@ function tidy(out, { event, companion }) {
 }
 
 export function createDirector() {
-  const hasKey = Boolean(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN);
-  const client = hasKey ? new Anthropic() : null;
+  // DIRECTOR_PROVIDER=anthropic|openai forces one; otherwise Claude if its key is set, else OpenAI.
+  const hasAnthropic = Boolean(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN);
+  const hasOpenAI = Boolean(process.env.OPENAI_API_KEY);
+  const forced = process.env.DIRECTOR_PROVIDER;
+  const provider =
+    forced === "openai" && hasOpenAI ? "openai"
+    : forced === "anthropic" && hasAnthropic ? "anthropic"
+    : hasAnthropic ? "anthropic"
+    : hasOpenAI ? "openai"
+    : null;
+  const client = provider === "anthropic" ? new Anthropic() : null;
+
+  async function askOpenAI({ system, payload, image }) {
+    const text = JSON.stringify(payload);
+    const r = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
+      body: JSON.stringify({
+        model: OPENAI_MODEL,
+        reasoning_effort: OPENAI_EFFORT,
+        max_completion_tokens: 8000,
+        messages: [
+          { role: "system", content: system },
+          {
+            role: "user",
+            content: image
+              ? [
+                  { type: "image_url", image_url: { url: `data:image/jpeg;base64,${image}` } },
+                  { type: "text", text },
+                ]
+              : text,
+          },
+        ],
+        response_format: {
+          type: "json_schema",
+          json_schema: { name: "direction", strict: true, schema: z.toJSONSchema(Direction) },
+        },
+      }),
+    });
+    if (!r.ok) throw new Error(`OpenAI API ${r.status}: ${(await r.text()).slice(0, 300)}`);
+    const choice = (await r.json()).choices?.[0];
+    if (choice?.message?.refusal) throw new Error(`OpenAI refusal: ${choice.message.refusal}`);
+    if (!choice?.message?.content) throw new Error(`no content (finish_reason=${choice?.finish_reason})`);
+    return Direction.parse(JSON.parse(choice.message.content));
+  }
 
   /** companion: { id: "bunny" | "pip", present }, chat: recent [{ you, reply }] with the companion. */
   async function direct(input) {
@@ -166,7 +233,7 @@ export function createDirector() {
   async function think({ event, story, portals, others = [], focusId, immersedId = null, companion = null, chat = [] }) {
     story = story || { seed: "", bible: "", beats: [] };
     const backup = () => fallback({ event, story, portals, focusId, immersedId, companion });
-    if (!client) return backup();
+    if (!provider) return backup();
     const persona = personaOf(companion);
 
     const payload = {
@@ -193,6 +260,16 @@ export function createDirector() {
       : JSON.stringify(payload);
 
     try {
+      if (provider === "openai") {
+        const out = await askOpenAI({
+          system: `${SYSTEM}\n\nYour body in the room. ${persona.who}`,
+          payload,
+          image,
+        });
+        const ids = new Set(portals.map((p) => p.id));
+        out.updates = out.updates.filter((u) => ids.has(u.portal_id) && u.prompt.trim());
+        return out;
+      }
       const response = await client.beta.messages.parse({
         model: MODEL,
         max_tokens: 4000,
@@ -219,7 +296,7 @@ export function createDirector() {
     }
   }
 
-  return { direct, usingClaude: hasKey };
+  return { direct, provider, usingClaude: provider === "anthropic" };
 }
 
 const IMMERSIVE =
@@ -278,7 +355,10 @@ function fallback({ event, story, portals, focusId, immersedId = null, companion
   // Small talk with the companion leaves the story alone.
   // Just its name ("Bonnie?") is a call for attention, not a story change.
   const calling = addressed && !said.replace(named, "").replace(/[^\p{L}\p{N}]/gu, "");
-  const chat = calling ? { reply: "Yes? I'm listening!", gesture: "wave", move: "none" } : addressed ? smallTalk(said) : null;
+  // Proposing a new adventure only opens a window when they say her name (looking at her while telling the
+  // story, "I want to see the dragon", must keep steering the current window).
+  const byName = new RegExp(`\\b${name}\\b`, "i").test(said);
+  const chat = calling ? { reply: "Yes? I'm listening!", gesture: "wave", move: "none" } : addressed ? smallTalk(said, { byName }) : null;
   if (chat) return { narration: "", bible: story.bible, updates: [], choices: [], speech: null, companion: chat };
   const extra = {
     choices: CHOICES[choiceTurn++ % CHOICES.length],
@@ -337,7 +417,28 @@ const CHATTER = [
 ];
 let chatterTurn = 0;
 /** A reply if `text` is small talk (a greeting, a question, a move), or null if it asks for a story change. */
-function smallTalk(text) {
+// "a candy kingdom on the left" -> "a candy kingdom": where to put the window isn't part of its world.
+function worldOnly(text) {
+  return String(text)
+    .replace(/[,\s]+(?:(?:on|to|at|over)\s+(?:the|my|your|our)\s+(?:left|right)(?:\s+side)?|over there|over here|up ahead|ahead of (?:me|us)|in front(?: of (?:me|us))?|behind (?:me|us)|by the wall|right here|here|there)\b.*$/i, "")
+    .trim();
+}
+
+function smallTalk(text, { byName = true } = {}) {
+  // "open a window onto a jungle", "go over there to the left and open a portal".
+  const place = /\bleft\b/i.test(text) ? "left" : /\bright\b/i.test(text) ? "right" : /\bbehind|\bback\b/i.test(text) ? "behind"
+    : /\b(there|over|ahead|front|wall)\b/i.test(text) ? "ahead" : "here";
+  if (/\b(open|make|create)\b.*\b(window|portal)\b|\b(window|portal)\b.*\bopen\b/i.test(text)) {
+    const world = worldOnly(/\b(?:onto|into|of|with|showing|that shows|looking (?:at|onto))\s+(.+?)[.!?]*$/i.exec(text)?.[1] || "");
+    return { reply: world ? "On it! Opening a window." : "Sure! Opening a window. Tell me which world.", gesture: "thumbs_up", move: "none", open_window: world, place };
+  }
+  // A new place or character proposed to her, no window mentioned: "let's go with Santa Claus", "take us to the
+  // moon", "I want to meet a dragon". That is an adventure for a new window, so she opens one for it.
+  const idea = /\b(?:let'?s|let us)\s+go\s+(?:with|to|into|on|visit|see|meet)\s+(.+?)[.!?]*$|\b(?:take|bring)\s+(?:us|me)\s+(?:to|into|on)\s+(.+?)[.!?]*$|\b(?:i|we)\s+(?:want|wanna)\s+to\s+(?:go\s+(?:to|with|into|on)|visit|meet|see|explore)\s+(.+?)[.!?]*$/i.exec(text);
+  const proposed = byName ? worldOnly(idea?.[1] || idea?.[2] || idea?.[3] || "") : "";
+  if (proposed && !/^(me|you|bonnie|pip|us|home|back|inside|outside|now|there|here|first|together)$/i.test(proposed)) {
+    return { reply: `Ooh, yes! Opening a window to ${proposed.slice(0, 60)}.`, gesture: "jump", move: "none", open_window: proposed, place };
+  }
   const follow = /follow|come along|with me/i.test(text);
   const stay = /\b(stay|wait|stop)\b/i.test(text);
   const come = /\b(come|here|closer)\b/i.test(text);

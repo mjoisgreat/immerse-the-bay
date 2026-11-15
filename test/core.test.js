@@ -224,6 +224,21 @@ test("using a crowd idea moves the story on and clears the director's old option
 
 const bunny = (reply, more = {}) => ({ narration: "", bible: "b", updates: [], choices: [], speech: null, companion: { reply, gesture: "wave", move: "none" }, ...more });
 
+test("asked to open a window, the companion's reply carries the world and the place; other replies carry neither", () => {
+  const s = start();
+  reduce(s, { t: "companion", id: "bunny", present: true, rid: "r1" }, owner);
+  const withWindow = bunny("On it!", { companion: { reply: "On it!", gesture: "thumbs_up", move: "none", open_window: "  a snowy   village ", place: "left" } });
+  const [ev] = applyDirection(s, withWindow, 10);
+  assert.equal(ev.companion.open_window, "a snowy village");
+  assert.equal(ev.companion.place, "left");
+  assert.deepEqual(ev.updates, []); // the other windows are left alone
+  const [ask] = applyDirection(s, bunny("Sure!", { companion: { reply: "Sure!", gesture: "none", move: "none", open_window: "", place: "somewhere odd" } }), 10);
+  assert.equal(ask.companion.open_window, "");
+  assert.equal(ask.companion.place, "here"); // an unknown place falls back to "here"
+  const [plain] = applyDirection(s, bunny("Hello!"), 10);
+  assert.ok(!("open_window" in plain.companion) && !("place" in plain.companion));
+});
+
 test("small talk with the companion is spoken and logged but leaves the story alone", () => {
   const s = start();
   reduce(s, { t: "companion", id: "bunny", present: true, rid: "r1" }, owner);

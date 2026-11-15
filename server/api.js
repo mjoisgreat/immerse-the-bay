@@ -29,7 +29,7 @@ async function roleOf(store, room, cred = {}) {
 }
 
 export function config() {
-  return ok({ maxPortals: MAX_PORTALS, director: director.usingClaude ? "claude" : "template" });
+  return ok({ maxPortals: MAX_PORTALS, director: director.provider || "template" });
 }
 
 export async function relayGet(store, query) {
@@ -38,7 +38,7 @@ export async function relayGet(store, query) {
   const since = Number(query.since || 0);
   const { state, events, seq } = await store.poll(room);
   return ok({
-    state: { ...state, director: director.usingClaude ? "claude" : "template" },
+    state: { ...state, director: director.provider || "template" },
     events: events.filter((e) => e.seq > since),
     seq,
   });

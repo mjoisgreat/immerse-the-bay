@@ -7,8 +7,7 @@
     "test": "node --test test/*.test.js",
     "dev": "concurrently -k -n api,web -c yellow,cyan \"node --watch server/index.js\" \"vite\"",
     "server": "node server/index.js",
-    "build": "vite build",
-    "stt": ".venv/bin/python server/stt.py"
+    "build": "vite build"
   },
   "keywords": [],
   "author": "",

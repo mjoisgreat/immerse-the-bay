@@ -2,6 +2,10 @@ import * as THREE from "three";
 import { XRControllerModelFactory } from "three/addons/webxr/XRControllerModelFactory.js";
 import { XRHandModelFactory } from "three/addons/webxr/XRHandModelFactory.js";
 import { Portal, PORTAL_SIZE } from "./portal.js";
+import { resizedScale, carriedPosition } from "./portalresize.js";
+import { analyzeStroke, strokeHint } from "./drawportal.js";
+import { GestureCard } from "./gesturecard.js";
+import { spotFor, windowSpot } from "./errand.js";
 import { Immersion } from "./immersion.js";
 import { Toolbar } from "./toolbar.js";
 import { HandGestures } from "./gestures.js";
@@ -54,7 +58,7 @@ addEventListener("resize", () => {
   renderer.setSize(innerWidth, innerHeight);
 });
 
-// ---------- Mic orb (follows your view; pinch or click and hold it to talk) ----------
+// ---------- Mic orb: retired (hidden), kept only so older code paths that reference it still work ----------
 const micOrb = new THREE.Mesh(
   new THREE.SphereGeometry(0.035, 32, 16),
   new THREE.MeshStandardMaterial({ color: 0xffb36b, emissive: 0x442200, roughness: 0.3 }),
@@ -88,7 +92,7 @@ function buzz(strength = 0.6, ms = 90) {
   for (const src of renderer.xr.getSession()?.inputSources || []) src.gamepad?.hapticActuators?.[0]?.pulse?.(strength, ms);
 }
 // A short tone so a gesture is heard as well as seen (hands have no haptics; controllers also buzz).
-const TONES = { talk: [660, 880], send: [880, 660], open: [392, 523, 784], close: [784, 523, 392], shake: [300, 220, 300, 220] };
+const TONES = { talk: [660, 880], send: [880, 660], open: [392, 523, 784], close: [784, 523, 392], shake: [300, 220, 300, 220], whee: [523, 784, 1047], bounce: [160, 95], snap: [660, 990] };
 function chime(kind) {
   const ctx = listener.context;
   if (ctx.state !== "running") return;
@@ -106,6 +110,7 @@ function chime(kind) {
 }
 function stepInside(portal) {
   if (!portal || (immersion.inside && immersion.portal === portal)) return;
+  hideGestureCard(); // you've clearly found your way around
   setFocus(portal.id);
   immersion.enter(portal, [...portals.values()].find((p) => p.portal === portal)?.stream.video);
   flash(`You stepped into window ${portal.id}. Bring your hands together, or shake them, to step back out (or press B/Y).`, 5000);
@@ -138,14 +143,25 @@ function placeInFront(obj, origin, dir, dist = 1.8) {
  * Opens a window. Every window is its own story, so unless a world was chosen ahead of time
  * (New story, Prepare demo, the console) it asks "what world is behind this window?".
  */
-function openPortal(origin, dir) {
+/**
+ * opts.at: where it goes ([x, y, z] where you drew it, or {x, y, z} where the companion stands), facing you;
+ * opts.scale: its size (a drawn window); opts.world: the world its story starts in (no question asked).
+ */
+function openPortal(origin, dir, opts = {}) {
+  const { at = null, world = null, scale = 1 } = opts;
   if (portals.size >= maxPortals) return flash(`At most ${maxPortals} portals. Close one first.`);
   const hasWorld = Boolean(pendingSeed || roomState?.nextSeed);
   pendingSeed = "";
   if (roomState) roomState.nextSeed = "";
   const id = nextId();
   const portal = new Portal(id, listener);
-  placeInFront(portal.group, origin, dir);
+  if (at) {
+    if (Array.isArray(at)) portal.group.position.fromArray(at);
+    else portal.group.position.set(at.x, at.y, at.z);
+    const eye = camera.getWorldPosition(new THREE.Vector3());
+    portal.group.lookAt(eye.x, portal.group.position.y, eye.z); // upright, facing you
+    portal.group.scale.setScalar(scale);
+  } else placeInFront(portal.group, origin, dir);
   scene.add(portal.group);
   const stream = new OrbisStream(id, ROOM);
   stream.addEventListener("video", () => portal.attachVideo(stream.video));
@@ -160,7 +176,12 @@ function openPortal(origin, dir) {
   portals.set(id, { portal, stream });
   setFocus(id);
   send({ t: "portal_added", id }); // with a world chosen ahead, the server asks the director for its first scene
-  if (hasWorld) clearAsk();
+  if (world) {
+    // The companion was told which world: this window's own story starts there, no question needed.
+    clearAsk();
+    portal.setCaption("The world is forming…", "status");
+    send({ t: "set_seed", id, seed: world });
+  } else if (hasWorld) clearAsk();
   else askWorld("portal", id);
 }
 
@@ -187,7 +208,62 @@ const labelFor = (s) =>
   ({ asking: ASK.portal, connecting: "Opening a window…", retrying: "Waiting for a free world…", reconnecting: "Reconnecting…", closed: "" })[s] ??
   s;
 
-addEventListener("pagehide", () => portals.forEach((p) => p.stream.closeOnUnload()));
+addEventListener("pagehide", () => {
+  portals.forEach((p) => p.stream.closeOnUnload());
+  for (const side of ["L", "R"]) sides[side]?.closeOnUnload();
+});
+
+// ---------- Wide view: live views to your left and right while you're inside a window ----------
+// Two more Orbis streams of the same scene with the camera turned to each side, stitched around you by
+// the step-inside view (see immersion.js). Only while you're inside, and only when Wide view is on.
+let wideOn = false;
+const sides = { L: null, R: null, for: null, triedAt: 0 };
+function sidePrompt(prompt, side) {
+  return `The same place at the same moment, seen from the same standing spot with the camera turned 72 degrees to the ${side}. ${prompt} This shot shows what lies to the ${side} of that view, continuing the same ground, horizon height, light, weather and time of day seamlessly. One continuous take, an almost still camera.`;
+}
+function startSides() {
+  const entry = [...portals.entries()].find(([, x]) => x.portal === immersion.portal);
+  if (!entry || !entry[1].stream.prompt) return; // the main view has no scene yet: try again shortly
+  const [id, { stream }] = entry;
+  stopSides();
+  sides.for = id;
+  for (const side of ["L", "R"]) {
+    const s = new OrbisStream(`${id}${side}`, ROOM);
+    s.addEventListener("video", () => immersion.setSide(side, s.video));
+    sides[side] = s;
+    s.start(sidePrompt(stream.prompt, side === "L" ? "left" : "right"));
+  }
+  flash("Wide view: live views to your left and right are on their way (about 20–30 s).", 6000);
+}
+function stopSides() {
+  for (const side of ["L", "R"]) {
+    sides[side]?.close();
+    sides[side] = null;
+    immersion.setSide(side, null);
+  }
+  sides.for = null;
+}
+function steerSides(id, prompt) {
+  if (sides.for !== id) return;
+  sides.L?.steer(sidePrompt(prompt, "left"));
+  sides.R?.steer(sidePrompt(prompt, "right"));
+}
+// Called every frame: start the side views when you're inside with Wide view on, stop them otherwise.
+function updateSides() {
+  const wantFor = wideOn && immersion.inside ? [...portals.entries()].find(([, x]) => x.portal === immersion.portal)?.[0] : null;
+  if (sides.for && sides.for !== wantFor) stopSides();
+  if (wantFor && !sides.for && performance.now() - sides.triedAt > 2000) (sides.triedAt = performance.now()), startSides();
+}
+function toggleWide() {
+  wideOn = !wideOn;
+  if (!wideOn) return flash("Wide view off.", 2500);
+  flash(
+    immersion.inside
+      ? "Wide view on: two more live views (left and right) for this world."
+      : "Wide view on: step inside a window and live views open to your left and right too.",
+    5000,
+  );
+}
 
 // ---------- Room: each headset owns a private story room ----------
 // Visiting with ?room=X: if this browser owns X, drive it; if X is unclaimed, claim it;
@@ -318,14 +394,17 @@ function applyDirection({ portal_id, narration, updates, choices, speech, compan
   showChoices(choices || []);
   // The companion and the story are one mind: the same answer may carry its reply. One voice at a time.
   const replied = Boolean(companion?.reply && buddy.visible);
-  if (replied) buddyReply(companion, !narration);
-  else if (buddy.listening) buddyIdle();
+  if (replied) {
+    buddyReply(companion, !narration);
+    if (typeof companion.open_window === "string") buddyOpensWindow(companion);
+  } else if (buddy.listening) buddyIdle();
   if (speech?.line && !replied) playVoice(speech);
   for (const u of updates) {
     const p = portals.get(u.portal_id);
     if (!p) continue;
     if (p.stream.status === "idle") p.stream.start(u.prompt);
     else p.stream.steer(u.prompt);
+    steerSides(u.portal_id, u.prompt); // Wide view: the left and right views follow the story too
   }
   if (narration) {
     // The line belongs to the window whose story it is, which may not be the focused one any more.
@@ -431,6 +510,7 @@ function targets() {
   const ui = immersion.inside ? [micOrb, exitOrb] : [micOrb];
   if (renderer.xr.isPresenting) ui.push(...toolbar.targets);
   if (buddy.visible) ui.push(buddy.hitbox);
+  if (gestureCard.visible) ui.push(gestureCard.closeButton, gestureCard.mesh);
   return [...ui.filter((o) => o.visible || o === buddy.hitbox), ...[...portals.values()].filter((p) => p.portal.group.visible).map((p) => p.portal.screen)];
 }
 
@@ -449,7 +529,10 @@ for (let i = 0; i < 2; i++) {
   );
   line.scale.z = 3;
   ctrl.add(line);
-  ctrl.addEventListener("connected", (e) => (line.visible = !e.data.hand)); // hands have their own visuals
+  ctrl.addEventListener("connected", (e) => {
+    line.visible = !e.data.hand; // hands have their own visuals
+    ctrl.userData.isHand = Boolean(e.data.hand);
+  });
   ctrl.addEventListener("selectstart", () => onSelectStart(ctrl));
   ctrl.addEventListener("selectend", () => onSelectEnd(ctrl));
   ctrl.addEventListener("squeezestart", () => onSqueeze(ctrl));
@@ -461,6 +544,7 @@ for (let i = 0; i < 2; i++) {
 
   const hand = renderer.xr.getHand(i);
   hand.add(handFactory.createHandModel(hand, "mesh"));
+  ctrl.userData.hand = hand;
   scene.add(hand);
 }
 
@@ -472,14 +556,45 @@ function onSelectStart(ctrl) {
     return startTalking();
   }
   if (hit?.object.userData.exit) return stepOut();
+  if (hit?.object.userData.cardClose) return hideGestureCard(), buzz(0.3, 30);
+  if (hit?.object.userData.gestureCard) return; // pinching the card itself does nothing; only its ✕ closes it
   if (hit?.object.userData.button) {
     ctrl.userData.button = hit.object.userData.button;
     if (ctrl.userData.button !== armed) disarm(); // any other button cancels a pending confirm
     return toolbar.press(ctrl.userData.button, ctrl);
   }
   if (hit?.object.userData.choice !== undefined) return pickChoice(hit.object.userData.choice);
-  if (hit?.object.userData.companion) return toggleBuddyFollow();
+  // Pick the companion up (pointing at it, or reaching out and touching it). A quick tap toggles
+  // following (see onSelectEnd); holding carries it, and letting go throws it.
+  const otherHand = [0, 1].map((i) => renderer.xr.getController(i)).find((c) => c !== ctrl);
+  const aimedHere = !hit?.object.userData.portal && buddyAimed(ray);
+  if (hit?.object.userData.companion || buddyTouched(ctrl) || aimedHere || (otherHand?.userData.heldBuddy && nearBuddy(ctrl, 0.5))) {
+    // The other hand already holds it: lift it with both, held between your hands.
+    if (otherHand?.userData.heldBuddy && buddy.held) {
+      ctrl.userData.heldBuddy = ctrl.userData.twoHand = otherHand.userData.twoHand = true;
+      cradle.hands = [otherHand, ctrl];
+      updateCradle();
+      buddy.rehold(cradle.obj);
+      buzz(0.4, 40);
+      return;
+    }
+    if (buddy.grab(ctrl)) (ctrl.userData.heldBuddy = true), (buddyQuietUntil = performance.now() + 1500);
+    return;
+  }
   const portal = hit?.object.userData.portal;
+  // Second hand pinches the window the first hand is already holding: resize with both.
+  const holder = portal && [0, 1].map((i) => renderer.xr.getController(i)).find((c) => c !== ctrl && c.userData.grabbed === portal);
+  if (holder) {
+    holder.userData.tap = null; // this is not a tap on the world
+    ctrl.userData.resizing = portal;
+    const a = holder.getWorldPosition(new THREE.Vector3()), b = ctrl.getWorldPosition(new THREE.Vector3());
+    resize = {
+      portal, holder, ctrl, dist: a.distanceTo(b), scale: portal.group.scale.x,
+      mid: a.clone().add(b).multiplyScalar(0.5).toArray(), // where the window was lifted, to carry it by both hands
+      pos: portal.group.getWorldPosition(new THREE.Vector3()).toArray(),
+    };
+    return buzz(0.3, 30);
+  }
   if (portal) {
     setFocus(portal.id);
     // A quick tap touches the world at that spot; holding and dragging moves the window.
@@ -495,15 +610,201 @@ function onSelectStart(ctrl) {
     ctrl.userData.grabbed = portal;
     return;
   }
-  // Inside a world, pointing at it and pulling the trigger touches it.
-  if (immersion.inside) return touchWorld(ray.origin.clone(), ray.direction.clone());
-  // In a 3D world, pointing at the ground and pinching (or the trigger) teleports you there.
-  const floor = loco.enabled && loco.floorHit(ray);
-  if (floor) return loco.teleport(floor), buzz(0.3, 30);
-  openPortal(ray.origin.clone(), ray.direction.clone());
+  // Empty space: touch the world you're inside, teleport (pointing at the ground in a 3D world), or open
+  // a window. Decided on release, and only for a quick, still tap: a throwing swing, a slipped grab or a
+  // pinch while Bonnie is in the air never opens a window or moves you.
+  ctrl.userData.pendingTap = {
+    at: performance.now(),
+    from: ctrl.getWorldPosition(new THREE.Vector3()),
+    origin: ray.origin.clone(),
+    dir: ray.direction.clone(),
+  };
+  // ...and record the pinch's path, in case you're drawing a window frame in the air.
+  ctrl.userData.stroke = [pinchPoint(ctrl).toArray()];
+  trail.start(ctrl.userData.stroke[0]);
+}
+
+// Where you're pinching: between thumb and index fingertip (hands), or just ahead of the controller.
+const _pp = new THREE.Vector3(), _pq = new THREE.Vector3();
+function pinchPoint(ctrl) {
+  const j = ctrl.userData.hand?.joints;
+  const a = j?.["thumb-tip"], b = j?.["index-finger-tip"];
+  if (a?.visible && b?.visible) return a.getWorldPosition(_pp).add(b.getWorldPosition(_pq)).multiplyScalar(0.5).clone();
+  tmpMat.identity().extractRotation(ctrl.matrixWorld);
+  return ctrl.getWorldPosition(_pp).add(_pq.set(0, 0, -0.06).applyMatrix4(tmpMat)).clone();
+}
+function updateStrokes() {
+  for (let i = 0; i < 2; i++) {
+    const c = renderer.xr.getController(i);
+    const s = c.userData.stroke;
+    if (!s || !c.userData.pendingTap) continue;
+    const p = pinchPoint(c).toArray();
+    const last = s.at(-1);
+    if (Math.hypot(p[0] - last[0], p[1] - last[1], p[2] - last[2]) > 0.01 && s.length < 600) s.push(p), trail.add(p);
+  }
+}
+
+// The glowing trail you leave while drawing: gold dots that flash and fade when you let go.
+const trail = (() => {
+  const MAX = 600;
+  const pos = new Float32Array(MAX * 3);
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+  geo.setDrawRange(0, 0);
+  const dot = document.createElement("canvas");
+  dot.width = dot.height = 64;
+  const g = dot.getContext("2d"), grad = g.createRadialGradient(32, 32, 2, 32, 32, 30);
+  grad.addColorStop(0, "rgba(255,240,210,1)");
+  grad.addColorStop(1, "rgba(255,180,100,0)");
+  g.fillStyle = grad;
+  g.fillRect(0, 0, 64, 64);
+  const mat = new THREE.PointsMaterial({
+    size: 0.03, map: new THREE.CanvasTexture(dot), color: 0xffd08a, transparent: true, depthWrite: false,
+    blending: THREE.AdditiveBlending, sizeAttenuation: true,
+  });
+  const pts = new THREE.Points(geo, mat);
+  pts.frustumCulled = false;
+  pts.renderOrder = 40;
+  pts.visible = false;
+  scene.add(pts);
+  let n = 0, fadeFrom = 0;
+  return {
+    start(p) {
+      n = 0;
+      fadeFrom = 0;
+      mat.color.set(0xffd08a);
+      mat.opacity = 1;
+      pts.visible = true;
+      this.add(p);
+    },
+    add(p) {
+      if (n >= MAX) return;
+      pos.set(p, n * 3);
+      n++;
+      geo.setDrawRange(0, n);
+      geo.attributes.position.needsUpdate = true;
+    },
+    end(ok) {
+      mat.color.set(ok ? 0xfff0c0 : 0xff8a7a);
+      fadeFrom = performance.now();
+    },
+    cancel() {
+      pts.visible = false;
+      n = 0;
+    },
+    update() {
+      if (!fadeFrom) return;
+      const k = (performance.now() - fadeFrom) / 700;
+      mat.opacity = Math.max(0, 1 - k);
+      mat.size = 0.03 * (1 + k * 0.6);
+      if (k >= 1) (pts.visible = false), (fadeFrom = 0), (mat.size = 0.03);
+    },
+  };
+})();
+
+// Bonnie was just grabbed or thrown, or is flying / getting up: empty-space pinches are ignored.
+let buddyQuietUntil = 0;
+const buddyBusy = () => performance.now() < buddyQuietUntil || (buddy.phys && buddy.phys.state !== "held");
+const TAP_MS = 450, TAP_MOVE = 0.08; // metres the hand may drift during a tap
+function finishTap(ctrl) {
+  const t = ctrl.userData.pendingTap, stroke = ctrl.userData.stroke || [];
+  ctrl.userData.pendingTap = null;
+  ctrl.userData.stroke = null;
+  if (!t) return;
+  if (buddyBusy()) return trail.cancel(); // a throw's follow-through: nothing happens
+  const still = performance.now() - t.at < TAP_MS && ctrl.getWorldPosition(new THREE.Vector3()).distanceTo(t.from) < TAP_MOVE;
+  if (still) {
+    trail.cancel();
+    if (immersion.inside) return touchWorld(t.origin, t.dir);
+    const floor = loco.enabled && loco.floorHit(new THREE.Ray(t.origin, t.dir));
+    if (floor) return loco.teleport(floor), buzz(0.3, 30);
+    // With hands, windows are drawn (see below); a controller's trigger tap still opens one ahead.
+    if (ctrl.userData.isHand) return flash("Pinch and draw a square in the air to open a window.", 4000);
+    return openPortal(t.origin, t.dir);
+  }
+  if (immersion.inside) return trail.cancel();
+  // Moved while pinching: was it a window frame drawn in the air?
+  const r = analyzeStroke(stroke, camera.getWorldPosition(new THREE.Vector3()).toArray());
+  if (r.ok) {
+    trail.end(true);
+    buzz(0.5, 60);
+    return openPortal(null, null, { at: r.position, scale: r.scale });
+  }
+  let path = 0;
+  for (let i = 1; i < stroke.length; i++) path += Math.hypot(...stroke[i].map((v, k) => v - stroke[i - 1][k]));
+  if (path > 0.35) (trail.end(false), flash(strokeHint(r.reason), 4000));
+  else trail.cancel();
+}
+
+// Is any hand / controller aimed at Bonnie right now (so a pinch would catch her)? Drives her glow.
+function aimedAtBuddy() {
+  if (!buddy.visible) return false;
+  for (let i = 0; i < 2; i++) {
+    const c = renderer.xr.getController(i);
+    if (!c.visible || c.userData.grabbed || c.userData.pendingTap) continue;
+    tmpMat.identity().extractRotation(c.matrixWorld);
+    const ray = new THREE.Ray(c.getWorldPosition(new THREE.Vector3()), new THREE.Vector3(0, 0, -1).applyMatrix4(tmpMat));
+    if (buddyAimed(ray) || buddyTouched(c)) return true;
+  }
+  return false;
+}
+
+// Does a pointing ray pass close to Bonnie? (A near miss still grabs her: she's small and moves.)
+function buddyAimed(ray) {
+  if (!buddy.visible || !buddy.ready) return false;
+  const c = buddy.centerWorld();
+  const along = c.clone().sub(ray.origin).dot(ray.direction);
+  if (along < 0 || along > 6) return false;
+  const miss = ray.distanceToPoint(c);
+  return miss < Math.max(0.25, along * Math.tan(THREE.MathUtils.degToRad(9))); // 25 cm, or 9° far away
+}
+
+// Two-hand pick-up of a window: { portal, holder (hand carrying the window), ctrl (second hand), dist,
+// scale, mid, pos }. The window is carried by the midpoint of your hands and sized by how far apart they are.
+let resize = null;
+function updateResize() {
+  if (!resize) return;
+  const a = resize.holder.getWorldPosition(new THREE.Vector3()), b = resize.ctrl.getWorldPosition(new THREE.Vector3());
+  resize.portal.group.scale.setScalar(resizedScale(resize.scale, resize.dist, a.distanceTo(b)));
+  const mid = a.clone().add(b).multiplyScalar(0.5).toArray();
+  // The window hangs off the carrying hand, so ask for its place in that hand's space.
+  resize.portal.group.position.copy(resize.holder.worldToLocal(new THREE.Vector3(...carriedPosition(resize.pos, resize.mid, mid))));
+}
+
+// Two-hand pick-up of Bonnie: she rides on a point midway between your hands, kept upright.
+const cradle = { obj: new THREE.Object3D(), hands: null };
+scene.add(cradle.obj);
+function updateCradle() {
+  if (!cradle.hands) return;
+  const [a, b] = cradle.hands.map((c) => c.getWorldPosition(new THREE.Vector3()));
+  cradle.obj.position.copy(a.add(b).multiplyScalar(0.5));
+  cradle.obj.updateMatrixWorld(true);
+}
+function nearBuddy(ctrl, r) {
+  return buddy.visible && ctrl.getWorldPosition(tmpV).distanceTo(buddy.centerWorld()) < r;
 }
 
 function onSelectEnd(ctrl) {
+  if (ctrl.userData.heldBuddy && ctrl.userData.twoHand) {
+    // Either hand letting go drops (or throws) her; the other hand's release then does nothing.
+    for (const c of cradle.hands) c.userData.heldBuddy = c.userData.twoHand = false;
+    cradle.hands = null;
+    buddy.release();
+    return;
+  }
+  if (ctrl.userData.heldBuddy) {
+    ctrl.userData.heldBuddy = false;
+    buddyQuietUntil = performance.now() + 1500; // the throw's follow-through must not open a window
+    if (buddy.release() === "tap") toggleBuddyFollow();
+    return;
+  }
+  if (ctrl.userData.pendingTap) return finishTap(ctrl);
+  if (ctrl.userData.resizing) {
+    ctrl.userData.resizing = null;
+    resize = null; // the other hand keeps holding the window, now at its new size
+    return;
+  }
+  if (resize && resize.holder === ctrl) resize = null; // let go of the carrying hand: resizing ends too
   if (ctrl.userData.button) {
     toolbar.release(ctrl.userData.button, ctrl);
     ctrl.userData.button = null;
@@ -534,6 +835,7 @@ function onSelectEnd(ctrl) {
 }
 
 function onSqueeze(ctrl) {
+  if (ctrl.userData.isHand) return; // a middle-finger pinch (like a snap) must not close a window; shake does that
   rayFrom(ctrl);
   const portal = raycaster.intersectObjects(targets(), false)[0]?.object.userData.portal;
   if (portal) closePortal(portal.id);
@@ -576,6 +878,7 @@ function checkWalking() {
   for (const { portal } of portals.values()) {
     const grabbedBy = [0, 1].map((i) => renderer.xr.getController(i)).find((c) => c.userData.grabbed === portal);
     if (grabbedBy) {
+      if (resize?.portal === portal) continue; // two-handed resize: never mistaken for pulling it into your face
       const from = grabbedBy.userData.grabFrom;
       const d = portal.group.getWorldPosition(local).distanceTo(eye);
       if (d < 0.4 || (from && d < from.dist - 0.45)) {
@@ -654,6 +957,8 @@ function updateRipples() {
 // "What happens next?" cards: the audience's top-voted ideas first (with who suggested them and
 // how many votes they have), then the director's options, three cards at most. Friends playing
 // along on their phones become visible to the storyteller, who picks with a pinch.
+// In the headset the story is steered by voice only: the director's own options are not shown there
+// (a friend's idea still is, since a friend chose to send it). The desktop screen keeps them.
 const MAX_CROWD_CARDS = 3;
 let directorChoices = [];
 let cards = []; // [{ kind: "crowd", id, text, by, votes } | { kind: "choice", index, text }]
@@ -668,7 +973,7 @@ function refreshCards() {
     .slice(0, MAX_CROWD_CARDS)
     // With more than one window open, each idea card says which window it will steer: the focused one.
     .map((x) => ({ kind: "crowd", id: x.id, text: x.text, by: x.by || "", votes: x.voters.length, to: portals.size > 1 ? focusId : null }));
-  const director = directorChoices.map((text, index) => ({ kind: "choice", index, text }));
+  const director = renderer.xr.isPresenting ? [] : directorChoices.map((text, index) => ({ kind: "choice", index, text }));
   const next = [...crowd, ...director].slice(0, 3);
   const key = JSON.stringify(next);
   if (key === cardsKey) return; // state arrives often; only redraw when something changed
@@ -700,6 +1005,8 @@ function pickChoice(i) {
     flash(`“${c.text}”`, 4000);
   }
 }
+// Entering or leaving the headset changes which cards may show.
+for (const ev of ["sessionstart", "sessionend"]) renderer.xr.addEventListener(ev, () => ((cardsKey = ""), refreshCards()));
 $("#choices").addEventListener("click", (e) => {
   const b = e.target.closest("[data-choice]");
   if (b) pickChoice(Number(b.dataset.choice));
@@ -803,9 +1110,9 @@ function updateTitle() {
 
 // Steps: open a window → tell the story → touch / step inside. Each is spoken once.
 const GUIDE = [
-  "Welcome, storyteller. Point at a wall and pinch, or pull the trigger, to open your first window.",
+  "Welcome, storyteller. Pinch the air and draw a square, like a window frame, to open your first window.",
   "A world is waking. Raise your hand to your mouth like a microphone, and tell me what happens next. Lower it when you're done.",
-  "Now reach out and tap anything in the window to touch it. Or part your hands like curtains, and step inside. Shake both hands to wipe a window away.",
+  "Now part your hands like curtains, and step inside. Shake both hands to wipe a window away.",
 ];
 let guideStep = -1;
 function guide(step) {
@@ -823,6 +1130,27 @@ const BUDDY = USE_PIP
   ? { id: "pip", name: "Pip", icon: "🤖", voice: "a small, bright, curious robot companion; quick and playful, warm, a little mischievous" }
   : { id: "bunny", name: "Bonnie", icon: "🐰", voice: "a bright, friendly young voice; bubbly, quick and a little cheeky, full of wonder" };
 const buddy = new Companion(scene, camera, { name: BUDDY.name, rig: USE_PIP ? new RobotRig() : new BunnyRig() });
+
+// The how-to card: at the start of a headset session, every action and its hand gesture. Pinch it to close
+// it; otherwise it fades after a minute, or as soon as you step inside a world.
+const gestureCard = new GestureCard(BUDDY.name);
+scene.add(gestureCard.mesh);
+let gestureCardTimer = 0;
+function showGestureCard() {
+  gestureCard.show(camera);
+  clearTimeout(gestureCardTimer);
+  gestureCardTimer = setTimeout(hideGestureCard, 60000);
+}
+function hideGestureCard() {
+  clearTimeout(gestureCardTimer);
+  gestureCard.hide();
+}
+renderer.xr.addEventListener("sessionstart", () => {
+  clearTimeout(gestureCardTimer);
+  // A moment after the session starts, so the headset's pose has settled and the card lands in front of you.
+  gestureCardTimer = setTimeout(() => renderer.xr.isPresenting && !immersion.inside && showGestureCard(), 1800);
+});
+renderer.xr.addEventListener("sessionend", hideGestureCard);
 buddy.load().catch((e) => console.warn("[companion] failed to load", e));
 let buddyWait = 0;
 /** Tells the story director whether its body is in the room, so it knows when it can speak here. */
@@ -846,7 +1174,74 @@ function buddyReply({ reply, gesture, move }, announce) {
   });
 }
 
-// Pinch / point at the companion to toggle following you around.
+// Grab and throw (src/physics.js): what it bounces off, and how it reacts.
+const tmpV = new THREE.Vector3();
+function buddyTouched(ctrl) {
+  if (!buddy.visible || !renderer.xr.isPresenting) return false;
+  const c = buddy.centerWorld();
+  const tip = ctrl.userData.hand?.joints?.["index-finger-tip"];
+  return ctrl.getWorldPosition(tmpV).distanceTo(c) < 0.5 || Boolean(tip?.visible && tip.getWorldPosition(tmpV).distanceTo(c) < 0.5);
+}
+buddy.physicsEnv = () => {
+  // A rough room around you (so it can't fly off forever), and the open windows.
+  const eye = camera.getWorldPosition(new THREE.Vector3()), c = buddy.centerWorld();
+  const R = 4;
+  const bounds = {
+    minX: Math.min(eye.x - R, c.x - 0.5), maxX: Math.max(eye.x + R, c.x + 0.5),
+    minZ: Math.min(eye.z - R, c.z - 0.5), maxZ: Math.max(eye.z + R, c.z + 0.5),
+    maxY: Math.max(3, c.y + 0.5),
+  };
+  const rects = [];
+  if (!immersion.inside)
+    for (const { portal } of portals.values()) {
+      const g = portal.group;
+      if (!g.visible) continue;
+      const q = g.getWorldQuaternion(new THREE.Quaternion());
+      rects.push({
+        center: g.getWorldPosition(new THREE.Vector3()),
+        normal: new THREE.Vector3(0, 0, 1).applyQuaternion(q),
+        right: new THREE.Vector3(1, 0, 0).applyQuaternion(q),
+        up: new THREE.Vector3(0, 1, 0).applyQuaternion(q),
+        halfW: PORTAL_SIZE.W / 2,
+        halfH: PORTAL_SIZE.H / 2,
+      });
+    }
+  return { bounds, rects };
+};
+const pick = (list) => list[Math.floor(Math.random() * list.length)];
+buddy.onPhysics = (event, amount) => {
+  if (event === "grab") buzz(0.4, 40);
+  if (event === "throw" && amount > 1.5) chime("whee"), buddy.say(pick(["Wheeeee!", "I can flyyy!", "Woooah!"]), 2500);
+  if (event === "bounce") chime("bounce");
+  if (event === "landed" && amount > 1.2) {
+    const hard = amount > 4;
+    buddy.gesture(hard ? "no" : "jump");
+    buddy.say(hard ? pick(["Oof. I'm okay!", "Bunnies bounce. Mostly."]) : pick(["Again! Again!", "Ta-da!", "Nice throw!"]), 3500);
+  }
+};
+
+/**
+ * "Bonnie, go over there and open a window": she walks to the place (relative to where you look) and
+ * opens a window just behind her. `open_window` is the world behind it, or "" to ask you which.
+ */
+function buddyOpensWindow({ open_window: world, place }) {
+  if (portals.size >= maxPortals) return buddy.say(`I'm holding all ${maxPortals} windows already. Close one first!`, 5000);
+  const eye = camera.getWorldPosition(new THREE.Vector3());
+  const f = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.getWorldQuaternion(new THREE.Quaternion()));
+  const l = Math.hypot(f.x, f.z);
+  const fwd = l > 1e-3 ? { x: f.x / l, z: f.z / l } : { x: 0, z: -1 };
+  const spot = spotFor(place, eye, fwd, renderer.xr.isPresenting ? 2.0 : 3.0);
+  buddy.goTo(spot, () => {
+    if (!buddy.visible || portals.size >= maxPortals) return;
+    const now = camera.getWorldPosition(new THREE.Vector3());
+    const here = { x: buddy.root.position.x, z: buddy.root.position.z };
+    const y = Math.min(1.7, Math.max(1.1, now.y - 0.1));
+    openPortal(now, new THREE.Vector3(0, 0, -1), { at: windowSpot(here, now, y), world: world || null });
+    buddy.say(world ? "Ta-da! Here's your window." : "Ta-da! What world should it show?", 4000);
+  });
+}
+
+// A quick pinch / tap on the companion toggles following you around.
 function toggleBuddyFollow() {
   buddy.setFollowing(!buddy.following);
   buddy.gesture(buddy.following ? "thumbs_up" : "wave");
@@ -855,6 +1250,14 @@ function toggleBuddyFollow() {
     buddy.following ? `${BUDDY.name} is following you. Pinch ${BUDDY.name} again (or say “stay”) to stop.` : `${BUDDY.name} will stay here.`,
     5000,
   );
+}
+/** Snap: call Bonnie. If she isn't here she appears; if she is, she hops back over to you. */
+function callBuddy() {
+  if (!buddy.visible) return toggleBuddy();
+  if (!buddy.ready || !renderer.xr.isPresenting) return;
+  buddy.summon(1.4);
+  buddy.gesture("wave");
+  buddy.say("Coming!", 3000);
 }
 function toggleBuddy() {
   if (buddy.visible) return buddy.dismiss(), syncBuddy(false), flash(`${BUDDY.name} waves goodbye.`);
@@ -871,7 +1274,7 @@ function toggleBuddy() {
   }
   syncBuddy(true);
   buddy.say(`Hi! I'm ${BUDDY.name}. Talk to me any time!`, 6000);
-  flash(`Meet ${BUDDY.name}! Say “${BUDDY.name}”, or look at ${BUDDY.name} while you talk, to chat. Pinch, or say “follow me”, and ${BUDDY.name} comes with you.`, 8000);
+  flash(`Meet ${BUDDY.name}! Say “${BUDDY.name}”, or look at ${BUDDY.name} while you talk, to chat. Pinch, or say “follow me”, and ${BUDDY.name} comes with you. Pinch and hold to pick ${BUDDY.name} up, let go to throw!`, 9000);
 }
 
 // ---------- Room background: see-through (your real room) or a 3D world around you ----------
@@ -904,8 +1307,13 @@ function showLoading(text, fraction = null) {
   $("#loadingBar").style.width = `${Math.round((fraction ?? 0) * 100)}%`;
   flash(text, 120000); // in the headset the toast is the loading state
 }
-// The hub world: the Moon by default; `?world=stanford` brings back the Stanford Quad splat.
-const HUB = new URLSearchParams(location.search).get("world") === "stanford" ? "stanford" : "moon";
+// The hub world: the Moon by default. `?backdrop=stanford-golden` (golden-hour Main Quad) or
+// `?backdrop=stanford` (the photo-based one) picks a Stanford splat instead (`?world=` works too).
+const HUB = (() => {
+  const q = new URLSearchParams(location.search);
+  const id = q.get("backdrop") || q.get("world");
+  return id && id !== "moon" ? id : "moon";
+})();
 const HUB_NAME = HUB === "moon" ? "the Moon" : "Stanford's Main Quad";
 const HUB_LABEL = HUB === "moon" ? "Moon" : "Stanford";
 const HUB_ICON = HUB === "moon" ? "🌕" : "🏛";
@@ -1083,14 +1491,16 @@ const toolbar = new Toolbar(camera, [
   { id: "talk", icon: "🎙", label: "Hold to talk", press: () => startTalking(), release: () => stopTalking() },
   { id: "new", icon: "＋", label: "New window", press: openInFront },
   { id: "step", icon: "🚪", label: "Step inside", press: toggleStep },
-  { id: "close", icon: "✕", label: "Close window", press: closeFocused },
+  { id: "hide", icon: "▾", label: "Hide buttons", press: () => setButtonsHidden(true) },
   { id: "buddy", icon: BUDDY.icon, label: BUDDY.name, press: toggleBuddy },
   { id: "world", icon: HUB_ICON, label: HUB_LABEL, press: toggleBackdrop },
+  { id: "wide", icon: "🔭", label: "Wide view", press: toggleWide },
   { id: "newstory", icon: "✨", label: "New story", press: newStoryPressed },
   { id: "reset", icon: "↺", label: "Reset story", press: resetPressed },
-  { id: "hide", icon: "▾", label: "Hide buttons", press: () => setButtonsHidden(true) },
+  // Close window sits in the far corner, away from the buttons you press all the time.
+  { id: "close", icon: "✕", label: "Close window", press: closeFocused },
 ]);
-// Hide / show the buttons (the orb and ring hide with them; A/X and B/Y still work).
+// Hide / show the buttons (the exit ring hides with them; A/X and B/Y still work).
 // They start hidden (less to take in on a first visit: H, the ☰ handle, a thumbstick click or
 // your left palm brings them out) and after that stay the way you last left them.
 let autoHidden = false;
@@ -1121,13 +1531,18 @@ function updateToolbar() {
     hoverRay.ray.direction.set(0, 0, -1).applyMatrix4(tmpMat);
     const h = hoverRay.intersectObjects(panel, false)[0];
     if (h) hits.push(h.object);
+    if (gestureCard.visible && hoverRay.intersectObject(gestureCard.closeButton, false).length) hits.push(gestureCard.closeButton);
   }
   toolbar.hover(hits);
+  gestureCard.hoverClose(hits.includes(gestureCard.closeButton));
   syncButtons();
 }
 function syncButtons() {
   toolbar.set("world", { label: backdrop.on ? "See-through" : HUB_LABEL, icon: backdrop.on ? "👓" : HUB_ICON });
   bar.world.textContent = backdrop.on ? "See-through" : HUB === "moon" ? "Moon" : "Stanford Quad";
+  toolbar.set("wide", { state: wideOn ? "active" : "idle", label: wideOn ? "Wide: on" : "Wide view" });
+  bar.wide.textContent = wideOn ? "Wide view: on" : "Wide view";
+  bar.wide.classList.toggle("on", wideOn);
   toolbar.set("talk", { state: talking ? "active" : "idle", label: talking ? "Listening…" : "Hold to talk" });
   toolbar.set("step", { label: immersion.inside ? "Step out" : "Step inside", icon: immersion.inside ? "↩" : "🚪" });
   toolbar.set("reset", { state: armed === "reset" ? "warn" : "idle", label: armed === "reset" ? "Tap again to confirm" : "Reset story" });
@@ -1165,7 +1580,7 @@ const gestures = new HandGestures(renderer, camera, {
   "talk-end": () => (gestures.pulse(0xffd08a), stopTalking()),
   open() {
     if (immersion.inside) return;
-    if ([0, 1].some((i) => renderer.xr.getController(i).userData.grabbed)) return; // dragging a window, not parting curtains
+    if ([0, 1].some((i) => renderer.xr.getController(i).userData.grabbed || renderer.xr.getController(i).userData.heldBuddy)) return; // dragging a window, not parting curtains
     const p = portals.get(focusId)?.portal || facingPortal();
     if (!p) return flash("Open a window first, then part your hands to step inside.");
     confirmGesture("open", 0x7fd4ff);
@@ -1183,9 +1598,13 @@ const gestures = new HandGestures(renderer, camera, {
     flash(`Window ${focusId} wiped away.`, 2500);
     closePortal(focusId);
   },
+  snap() {
+    if (immersion.inside) return; // Bonnie lives in your room, not inside a world
+    confirmGesture("snap", 0xffd08a);
+    callBuddy();
+  },
   palm: () => (gestures.pulse(0xffffff), setButtonsHidden(!toolbar.collapsed)),
-  firstSeen: () =>
-    flash("Hands: raise one to your mouth to talk · part both like curtains to step inside · shake both to close a window · left palm shows the buttons.", 12000),
+  // (the how-to card at the start of the session now teaches every gesture)
 });
 scene.add(gestures.fx);
 
@@ -1204,6 +1623,7 @@ $("#bar").addEventListener("click", (e) => e.target.closest("[data-act]")?.datas
 bar.info.onclick = () => ($("#overlay").hidden = !$("#overlay").hidden);
 bar.hide.onclick = () => setButtonsHidden(true);
 bar.world.onclick = toggleBackdrop;
+bar.wide.onclick = toggleWide;
 bar.buddy.onclick = toggleBuddy;
 bar.buddy.textContent = BUDDY.name;
 $("#showbar").onclick = () => setButtonsHidden(false);
@@ -1218,9 +1638,28 @@ $("#bar").hidden = false; // only clickable once everything is wired up
 
 // ---------- Desktop controls (for building and testing without the headset) ----------
 let yaw = 0, pitch = 0, dragging = false, moved = 0;
-renderer.domElement.addEventListener("pointerdown", (e) => ((dragging = true), (moved = 0)));
+// Drag the companion with the mouse to pick it up; let go to throw it.
+const mouseHand = new THREE.Object3D();
+scene.add(mouseHand);
+let buddyDrag = 0; // how far along the mouse ray it is held (0 = not held)
+const mouseRay = (e) => raycaster.setFromCamera(new THREE.Vector2((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1), camera);
+renderer.domElement.addEventListener("pointerdown", (e) => {
+  dragging = true;
+  moved = 0;
+  if (renderer.xr.isPresenting || !buddy.visible) return;
+  mouseRay(e);
+  if (!raycaster.intersectObjects(targets(), false)[0]?.object.userData.companion) return;
+  buddyDrag = buddy.centerWorld().distanceTo(raycaster.ray.origin);
+  raycaster.ray.at(buddyDrag, mouseHand.position);
+  if (!buddy.grab(mouseHand, { reel: false })) buddyDrag = 0;
+});
 addEventListener("pointerup", (e) => {
   dragging = false;
+  if (buddyDrag) {
+    buddyDrag = 0;
+    if (buddy.release() === "tap") toggleBuddyFollow();
+    return;
+  }
   if (moved > 6 || renderer.xr.isPresenting || e.target !== renderer.domElement) return;
   const ndc = new THREE.Vector2((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
   raycaster.setFromCamera(ndc, camera);
@@ -1240,6 +1679,7 @@ renderer.domElement.addEventListener("dblclick", (e) => {
 });
 addEventListener("pointermove", (e) => {
   if (!dragging) return;
+  if (buddyDrag) return mouseRay(e), void raycaster.ray.at(buddyDrag, mouseHand.position);
   moved += Math.abs(e.movementX) + Math.abs(e.movementY);
   yaw -= e.movementX * 0.004;
   pitch = Math.max(-1.2, Math.min(1.2, pitch - e.movementY * 0.004));
@@ -1342,6 +1782,12 @@ renderer.setAnimationLoop(() => {
   exitOrb.visible = immersion.inside && renderer.xr.isPresenting && !toolbar.collapsed;
   updateToolbar();
   gestures.update();
+  updateResize();
+  updateSides();
+  updateStrokes();
+  trail.update();
+  updateCradle();
+  buddy.highlight(renderer.xr.isPresenting && !buddy.held && aimedAtBuddy());
   buddy.update(dt);
   updateRipples();
   updateTitle();
@@ -1354,7 +1800,9 @@ renderer.setAnimationLoop(() => {
   if (!renderer.xr.isPresenting) syncButtons();
   micOrb.position.y = -0.2 + Math.sin(t * 2) * 0.004;
   // The orb and in-view caption are headset UI; on desktop, Space and the status bar do the job.
-  micOrb.visible = renderer.xr.isPresenting && !toolbar.collapsed;
+  // The old pinch-and-hold mic orb is retired (it floated as an orange ball in your view): talk with your
+  // hand to your mouth, A/X, or the Hold-to-talk button, which all show "Listening…".
+  micOrb.visible = false;
   if (!renderer.xr.isPresenting) toastMesh.visible = false;
   pollButtons();
   renderer.render(scene, camera);

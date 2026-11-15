@@ -2,6 +2,9 @@
   "framework": "vite",
   "buildCommand": "vite build",
   "outputDirectory": "dist",
+  "git": {
+    "deploymentEnabled": false
+  },
   "functions": {
     "api/relay.js": {
       "maxDuration": 60
@@ -9,17 +12,5 @@
     "api/transcribe.js": {
       "maxDuration": 30
     }
-  },
-  "redirects": [
-    {
-      "source": "/test1",
-      "destination": "https://living-window-test1.vercel.app/",
-      "permanent": false
-    },
-    {
-      "source": "/test1/:path*",
-      "destination": "https://living-window-test1.vercel.app/:path*",
-      "permanent": false
-    }
-  ]
+  }
 }

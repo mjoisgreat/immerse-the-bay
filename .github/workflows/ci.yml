@@ -2,7 +2,7 @@ name: CI and deploy
 
 on:
   push:
-    branches: [main, feature/splat-worlds]
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
@@ -30,21 +30,20 @@ jobs:
         run: npm run build
 
   # main → https://living-window.vercel.app
-  # feature/splat-worlds → https://living-window-test1.vercel.app (also reachable as living-window.vercel.app/test1)
   deploy:
-    name: Deploy to Vercel (${{ github.ref_name == 'main' && 'production' || 'test1' }})
+    name: Deploy to Vercel (production)
     needs: test
     if: >-
       (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
-      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/splat-worlds')
+      github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment:
-      name: ${{ github.ref_name == 'main' && 'production' || 'test1' }}
-      url: ${{ github.ref_name == 'main' && 'https://living-window.vercel.app' || 'https://living-window-test1.vercel.app' }}
+      name: production
+      url: https://living-window.vercel.app
     env:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
       VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-      VERCEL_PROJECT_ID: ${{ github.ref_name == 'main' && secrets.VERCEL_PROJECT_ID || secrets.VERCEL_PROJECT_ID_TEST1 }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
     steps:
       - name: Check deploy secrets
         id: secrets
@@ -68,10 +67,10 @@ jobs:
       - name: Build with Vercel
         if: steps.secrets.outputs.ok == 'true'
         run: npx --yes vercel@latest build --prod --token="$VERCEL_TOKEN"
-      # Branch deploys go up without git details: on the Hobby plan Vercel refuses commits whose author
-      # isn't on the Vercel team (teammates), so the deploy is recorded under the token owner instead.
-      - name: Drop git details for branch deploys
-        if: steps.secrets.outputs.ok == 'true' && github.ref_name != 'main'
+      # Deploys go up without git details: on the Hobby plan Vercel refuses commits whose author isn't
+      # on the Vercel team (teammates' commits and merges), so the deploy is recorded under the token owner.
+      - name: Drop git details
+        if: steps.secrets.outputs.ok == 'true'
         run: rm -rf .git
       - name: Deploy
         if: steps.secrets.outputs.ok == 'true'
