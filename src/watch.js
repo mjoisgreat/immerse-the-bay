@@ -67,7 +67,7 @@ function render(s) {
 
 // ---------- The story so far, as a stream chat: who said what, with Twitch-style badges ----------
 // The narrator, the storyteller, co-narrators, the crowd's picks and the characters each get a name and
-// a badge; the newest line is at the bottom and the log sticks there unless you've scrolled up.
+// a badge; the newest line is at the top and the log sticks there unless you've scrolled down.
 const ROLES = {
   director: { name: "Narrator", chip: "📖", color: "#ffb36b", title: "The narrator" },
   voice: { name: "Storyteller", chip: "🎥", color: "#ff6b6b", title: "The storyteller (broadcaster)" },
@@ -78,12 +78,13 @@ const ROLES = {
 };
 const seenLines = new Set();
 let firstFeed = true;
-const updateFeed = stickyLog($("#feed"), $("#feedJump"));
+const updateFeed = stickyLog($("#feed"), $("#feedJump"), { newestFirst: true });
 function renderFeed(s) {
   const lines = (s.log || []).filter((l) => l.kind === "speech" || ROLES[l.kind]);
   const key = (l) => `${l.at}|${l.kind}|${l.text}`;
   const html = lines.length
-    ? lines
+    ? [...lines]
+        .reverse() // newest at the top
         .map((l) => {
           let who, chip, color, title, text = l.text, cls = "";
           if (l.kind === "speech") {
