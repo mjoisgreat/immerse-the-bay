@@ -1,5 +1,5 @@
 // Push-to-talk capture. Records mic audio, resamples to 16 kHz Int16 PCM and
-// sends it to /api/transcribe (local Whisper on the laptop).
+// sends it to /api/transcribe (OpenAI Whisper, via the server).
 export class PushToTalk {
   constructor() {
     this.ctx = null;

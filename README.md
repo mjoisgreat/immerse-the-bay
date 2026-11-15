@@ -14,10 +14,9 @@ Built for Immerse the Bay 2026. Tracks: Visko Living Worlds, AI Horizons, Creati
 ## Run it
 
 ```bash
-cp .env.example .env   # paste the team REACTOR_API_KEY (from @KJ) and ANTHROPIC_API_KEY
+cp .env.example .env   # paste REACTOR_API_KEY (from @KJ), OPENAI_API_KEY (voice + mic) and ANTHROPIC_API_KEY (or use OpenAI for the director)
 npm install
 npm run dev            # API on :8787 + HTTPS Vite on :5173
-npm run stt            # second terminal: local Whisper speech-to-text on :8790
 ```
 
 * **Quest headset:** the Quest and laptop must be on the same Wi-Fi. Open the `Network:` URL that
@@ -157,11 +156,17 @@ fallback. Besides pointing and pinching (open, move, tap to touch, press buttons
 | Bring both hands back together | Step back out | B / Y |
 | Shake both hands in front of you, like wiping something away | Close the focused window (inside a world: step back out) | Grip while pointing at it |
 | Turn your left palm toward your face and hold | Show / hide the buttons | Thumbstick click |
+| Snap your fingers (either hand) | Call the companion: Bonnie appears, or hops back over to you if she is already here | The **Bonnie** button |
+| Pinch a window and drag | Move it (a quick tap touches the world instead) | Trigger on it, drag |
+| Pinch the same window with your other hand, then move your hands apart or together | Resize it (40 % to 250 % of its size) | n/a |
 
 Every gesture answers so you know it registered: your palms glow, a short tone plays, and controllers buzz.
 The two-hand gestures share a 1.5 s cooldown and are ignored while you talk; parting has to end with the hands
-held apart for a moment, so a shake never reads as an opening motion. Tuning constants sit at the top of
-`src/gestures.js`.
+held apart for a moment, so a shake never reads as an opening motion. A snap is a thumb-to-middle-fingertip
+touch followed by a fast flick apart (under about 160 ms), at most once per 1.5 s, and it is ignored while you
+talk or are inside a world. On hands, a middle-finger pinch no longer counts as a "grip", so a snap can't close
+the window you happen to be pointing at. Tuning constants sit at the top of `src/gestures.js`; the resize math
+is in `src/portalresize.js`.
 
 ## Controls in the headset
 
@@ -178,6 +183,8 @@ to bring them back.
 | Open a portal | Pinch at empty space | Trigger at empty space |
 | Focus and move a portal | Pinch on it, drag, release | Trigger on it, drag, release |
 | Pick up and throw Bonnie | Pinch and hold on Bonnie (or touching it), swing, release | Trigger and hold on Bonnie, swing, release |
+| Resize a portal | Pinch it with both hands, then move the hands apart / together | n/a |
+| Call Bonnie | Snap your fingers | The **Bonnie** button |
 | Talk | Raise a hand to your mouth (or pinch and hold the orange orb) | Hold A or X (or trigger on the orb) |
 | Close a portal | Shake both hands | Grip while pointing at it |
 | Step inside a portal | Part your hands like curtains, walk through it, or pinch it and pull it toward you | Walk through it, or press B / Y |
@@ -199,7 +206,7 @@ Quest Browser (three.js WebXR, passthrough)          Laptop
  ├─ portal A ── WebRTC ── Orbis session A    ┌───────────────────────────────┐
  ├─ portal B ── WebRTC ── Orbis session B    │ server/index.js               │
  ├─ portal C ── WebRTC ── Orbis session C    │  /api/token  → Reactor JWT     │
- ├─ mic (push-to-talk) ─ 16 kHz PCM ───────► │  /api/transcribe → stt.py      │
+ ├─ mic (push-to-talk) ─ 16 kHz PCM ───────► │  /api/transcribe → OpenAI STT  │
  └─ WebSocket ◄──── directions ───────────── │  /ws  story state + director   │
                                               │       (Claude, structured out)│
 Director console (console.html) ── /ws ─────► └───────────────────────────────┘
@@ -220,7 +227,7 @@ Director console (console.html) ── /ws ─────► └─────
    polish, and the in-headset UI.
 2. **Orbis/backend:** `src/orbis.js`, `server/index.js`. Reliability with 3 parallel sessions,
    reconnects, and watching the credit dashboard.
-3. **AI/voice:** `server/director.js`, `src/voice.js`, `server/stt.py`. Prompt quality and
+3. **AI/voice:** `server/director.js`, `src/voice.js`. Prompt quality and
    latency, and story-director tuning.
 4. **Pitch:** demo script, Devpost, backup recording, story seeds (`src/console.js` PRESETS).
 
