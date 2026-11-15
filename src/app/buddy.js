@@ -11,6 +11,7 @@ import { send } from "./room.js";
 import { buzz, chime, flash } from "./feedback.js";
 import { getWindow, immersion, setWorld } from "./portals.js";
 import { speak } from "./talk.js";
+import { COMING, FOLLOW_OFF, FOLLOW_ON, HELLO, LANDED_HARD, LANDED_OK, THROWN } from "../lines.js";
 import { tmpMat } from "./xrinput.js";
 
 // ---------- The companion (Bonnie, or Pip the robot with ?companion=pip) ----------
@@ -88,12 +89,12 @@ buddy.physicsEnv = () => {
 const pick = (list) => list[Math.floor(Math.random() * list.length)];
 buddy.onPhysics = (event, amount) => {
   if (event === "grab") buzz(0.4, 40);
-  if (event === "throw" && amount > 1.5) chime("whee"), buddySay(pick(["Wheeeee!", "I can flyyy!", "Woooah!"]), 2500);
+  if (event === "throw" && amount > 1.5) chime("whee"), buddySay(pick(THROWN), 2500);
   if (event === "bounce") chime("bounce");
   if (event === "landed" && amount > 1.2) {
     const hard = amount > 4;
     buddy.gesture(hard ? "no" : "jump");
-    buddySay(hard ? pick(["Oof. I'm okay!", "Bunnies bounce. Mostly."]) : pick(["Again! Again!", "Ta-da!", "Nice throw!"]), 3500);
+    buddySay(pick(hard ? LANDED_HARD : LANDED_OK), 3500);
   }
 };
 
@@ -112,7 +113,7 @@ export function buddyChangesWorld(world) {
 export function toggleBuddyFollow() {
   buddy.setFollowing(!buddy.following);
   buddy.gesture(buddy.following ? "thumbs_up" : "wave");
-  buddySay(buddy.following ? "Lead the way! I'm right beside you." : "Okay, I'll wait here!", 4000);
+  buddySay(buddy.following ? FOLLOW_ON : FOLLOW_OFF, 4000);
   flash(
     buddy.following
       ? `${BUDDY.name} is following you. ${renderer.xr.isPresenting ? "Pinch" : CameraView.touch ? "Tap" : "Click"} ${BUDDY.name} again (or say “stay”) to stop.`
@@ -145,7 +146,7 @@ export function callBuddy() {
   if (!buddy.visible) return placeBuddy();
   buddy.summon(renderer.xr.isPresenting ? 1.4 : 3.0, { side: flatSide() });
   buddy.gesture("wave");
-  buddySay("Coming!", 3000);
+  buddySay(COMING, 3000);
 }
 // (The button used to send her away too; she now always stays.)
 export function toggleBuddy() {
@@ -155,7 +156,7 @@ export function toggleBuddy() {
 // the headset (putting it on counts), on a flat page after your first tap or key press.
 let helloPending = false;
 function hello() {
-  const line = `Hi! I'm ${BUDDY.name}. Ask me for ideas any time, or just talk to me!`;
+  const line = USE_PIP ? `Hi! I'm ${BUDDY.name}. Ask me for ideas any time, or just talk to me!` : HELLO;
   if (renderer.xr.isPresenting) return buddySay(line, 6000);
   buddy.say(line, 6000);
   if (helloPending) return;

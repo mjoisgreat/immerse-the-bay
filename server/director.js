@@ -4,6 +4,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
+import { CHATTER, FALLBACK, TRICKS } from "../src/lines.js";
 
 const MODEL = "claude-opus-5-5";
 // OpenAI alternative. Set OPENAI_MODEL / OPENAI_REASONING_EFFORT to change them.
@@ -372,13 +373,13 @@ function fallback({ event, story, window, immersed = false, companion = null }) 
   // No world yet: whatever they say is the world they want (a plain fallback for Bonnie's real answer).
   if (!story.seed && event.type === "utterance" && addressed && !calling) {
     const world = worldOnly(said.replace(named, "")) || said.replace(named, "").trim();
-    return { narration: "", bible: story.bible, prompt: null, choices: [], companion: { reply: "Fine. One world, coming right up. You're welcome.", gesture: "thumbs_up", move: "none", world } };
+    return { narration: "", bible: story.bible, prompt: null, choices: [], companion: { reply: FALLBACK.world, gesture: "thumbs_up", move: "none", world } };
   }
-  const chat = calling ? { reply: "Yes? You have my undivided attention. Use it wisely.", gesture: "wave", move: "none" } : addressed ? smallTalk(said, { byName }) : null;
+  const chat = calling ? { reply: FALLBACK.calling, gesture: "wave", move: "none" } : addressed ? smallTalk(said, { byName }) : null;
   if (chat) return { narration: "", bible: story.bible, prompt: null, choices: [], companion: chat };
   const extra = {
     choices: CHOICES[choiceTurn++ % CHOICES.length],
-    companion: addressed ? { reply: "Fine, fine. Watch the window, I'm working.", gesture: "thumbs_up", move: "none" } : null,
+    companion: addressed ? { reply: FALLBACK.busy, gesture: "thumbs_up", move: "none" } : null,
   };
   const scene = sceneOf(window?.prompt, story.seed);
   if (event.type === "step_inside") {
@@ -410,13 +411,6 @@ function fallback({ event, story, window, immersed = false, companion = null }) 
 }
 
 // The companion without Claude: understands the basic moves and questions, and doesn't repeat itself.
-const CHATTER = [
-  "Bold of you to stop there. What happens next?",
-  "Cute. Now give me something worthy of my windows.",
-  "Hmm. Are we stepping into one of these worlds, or just admiring my work?",
-  "Ha! Didn't see that coming, and I see everything. Favourite part so far?",
-  "I'm all ears. Literally. Look at them. Go on.",
-];
 let chatterTurn = 0;
 /** A reply if `text` is small talk (a greeting, a question, a move), or null if it asks for a story change. */
 // "a candy kingdom on the left" -> "a candy kingdom": where to put the window isn't part of its world.
@@ -432,7 +426,7 @@ function smallTalk(text, { byName = true } = {}) {
   if (wants) {
     const said = worldOnly(/\b(?:onto|into|of|with|to|showing|that shows|looking (?:at|onto))\s+(.+?)[.!?]*$/i.exec(text)?.[1] || "");
     return {
-      reply: said ? "Fine. New world, coming right up. You're welcome." : "A new world, sure. Which one, though? I'm good, not psychic.",
+      reply: said ? FALLBACK.newWorld : FALLBACK.whichWorld,
       gesture: "thumbs_up", move: "none", world: said,
     };
   }
@@ -452,15 +446,15 @@ function smallTalk(text, { byName = true } = {}) {
     : /\bspin\b|twirl|pirouette/i.test(text) ? "spin" : /\bclap\b/i.test(text) ? "clap"
     : /show off|something cool|a trick|cool stuff|cool move/i.test(text) ? ["flip", "cartwheel", "spin", "moonwalk"][chatterTurn % 4] : null;
   if (trick) {
-    const say = { flip: "Backflip. Try to keep up.", cartwheel: "A cartwheel? Please. Watch a professional.", moonwalk: "Smooth. Like, illegally smooth.", spin: "Pirouette. Applause is customary.", clap: "Slow clap. You earned it. Barely." }[trick];
+    const say = TRICKS[trick];
     chatterTurn++;
     return { reply: say, gesture: trick, move: "none" };
   }
   const hello = /\b(hi|hello|hey)\b/i.test(text);
   const question = /\?\s*$/.test(text);
   if (!(follow || stay || come || dance || hello || question)) return null;
-  const reply = follow ? "Lead on. I'll pretend this was my idea." : stay ? "Fine. I'll stand here looking fabulous." : come ? "Coming. Short legs, big entrance."
-    : dance ? "Oh, you want a show? Clear the floor." : hello ? "Oh, hi. Took you long enough. Missed me?" : CHATTER[chatterTurn++ % CHATTER.length];
+  const reply = follow ? FALLBACK.follow : stay ? FALLBACK.stay : come ? FALLBACK.come
+    : dance ? FALLBACK.dance : hello ? FALLBACK.hello : CHATTER[chatterTurn++ % CHATTER.length];
   return {
     reply,
     gesture: dance ? "dance" : follow || come || hello ? "wave" : stay ? "yes" : "think",

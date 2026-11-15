@@ -3,6 +3,8 @@ import * as THREE from "three";
 import { PushToTalk, micMessage } from "../voice.js";
 import { CameraView } from "../cameraview.js";
 import { speechHeaders } from "../link.js";
+import { BONNIE_VOICE } from "../lines.js";
+import VOICE_LINES from "../voiceLines.json";
 import { credFor } from "../identity.js";
 import { listener, renderer, scene } from "./stage.js";
 import { state } from "./state.js";
@@ -96,11 +98,15 @@ export async function speak(line, speaker, style, anchor = null, { onStart, onEn
     const key = `${speaker}|${style}|${line}`;
     let buf = voiceCache.get(key);
     if (!buf) {
-      const r = await fetch("/api/voice", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ room: ROOM, cred: credFor(ROOM), text: line, speaker, voice: style }),
-      });
+      // A fixed line of Bonnie's has a recorded file (npm run voice-lines): no speech request, no wait.
+      const file = speaker === "Bonnie" && style === BONNIE_VOICE ? VOICE_LINES[line] : null;
+      let r = file ? await fetch(`/voice/bonnie/${file}`).catch(() => null) : null;
+      if (!r?.ok)
+        r = await fetch("/api/voice", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ room: ROOM, cred: credFor(ROOM), text: line, speaker, voice: style }),
+        });
       if (!r.ok) throw new Error(`voice ${r.status}`);
       buf = await listener.context.decodeAudioData(await r.arrayBuffer());
       voiceCache.set(key, buf);
