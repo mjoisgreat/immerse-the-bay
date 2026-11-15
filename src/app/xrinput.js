@@ -178,7 +178,7 @@ function finishTap(ctrl) {
     const floor = loco.enabled && loco.floorHit(new THREE.Ray(t.origin, t.dir));
     if (floor) return loco.teleport(floor), buzz(0.3, 30);
     // With hands, windows are drawn (see below); a controller's trigger tap still opens one ahead.
-    if (ctrl.userData.isHand) return flash("Pinch and draw a square in the air to open a window.", 4000);
+    if (ctrl.userData.isHand) return flash("Pinch and draw a circle in the air, round and round at least twice, to open a window.", 4000);
     return openWindow({ origin: t.origin, dir: t.dir });
   }
   // A heart drawn in the air: Bonnie answers with hearts (inside a world too: she comes along).

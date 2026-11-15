@@ -154,7 +154,7 @@ const touch = new TouchGestureRecognizer({
     drawing = [ray.at(DRAW_AT, new THREE.Vector3()).toArray()];
     trail.start(drawing[0]);
     haptic(20);
-    flash("Draw a rectangle where the window should go (or a heart for Bonnie), then lift your finger.", 4000);
+    flash("Draw a circle, round and round at least twice, where the window should go (or a heart for Bonnie), then lift your finger.", 4000);
     return true;
   },
   onHoldMove(x, y) {

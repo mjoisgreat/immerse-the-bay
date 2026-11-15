@@ -22,6 +22,9 @@ export const immersion = new Immersion(scene, camera, {
 });
 export function stepInside(portal = current?.portal) {
   if (!portal || (immersion.inside && immersion.portal === portal)) return;
+  // Nothing to step into until the world's stream has started: its first frame has arrived (and stays "started"
+  // through a brief stall or reconnect, when the video element's own readiness dips).
+  if (!portal._videoReady) return flash("The world is still forming. Step in once it appears.", 3000);
   immersion.enter(portal, current?.stream.video);
   flash(
     renderer.xr.isPresenting

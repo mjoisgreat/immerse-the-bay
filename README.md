@@ -3,7 +3,7 @@
 **A campfire story you can step into.**
 One person speaks, the room becomes the story, and everyone watching shapes what happens next, live.
 
-You wear a Meta Quest 3S and still see your real room. Draw a square in the air and a portal opens onto a
+You wear a Meta Quest 3S and still see your real room. Draw a circle in the air, round and round like a sorcerer, and a portal opens onto a
 living world streamed live by Visko Orbis, with its own spatial sound. Raise a hand to your mouth
 like a microphone (or hold the A/X button) and narrate. An AI story director (Claude) turns your words into Orbis
 prompts, and the world changes within about 2 seconds without cutting away. There is one window and one
@@ -212,7 +212,7 @@ is in `src/portalresize.js`.
 ## Controls in the headset
 
 **How-to card:** a moment after you enter the headset, a card floats in front of you listing every action and
-the gesture for it (talk, open a window by drawing a square or by asking Bonnie, move / resize a window, pick up a window or the companion with both hands,
+the gesture for it (talk, open a window by drawing a circle or by asking Bonnie, move / resize a window, pick up a window or the companion with both hands,
 step in and out, close a window, call the companion, show the buttons). Pinch the ✕ in its top-right corner to close it; it also fades
 after a minute or when you step inside a world. The rows live in `src/gesturecard.js`.
 
@@ -236,8 +236,8 @@ to bring them back.
 | Step inside a portal | Part your hands like curtains, walk through it, or pinch it and pull it toward you | Walk through it, or press B / Y |
 | Step back out | Bring your hands together or shake them, walk back ~60 cm, or pinch the blue ring | Walk back, or press B / Y |
 
-**Drawing a window:** with your hands, pinch in empty space, draw a square or rectangle in the air, and let go: a
-window opens exactly where you drew it, projected onto the wall at the size it looked (`src/drawportal.js`). A trail
+**Drawing a window:** with your hands, pinch in empty space, draw a circle in the air with at least two full rounds (like a sorcerer's portal), and let go: a
+window opens where you drew it, projected onto the wall as wide as the circle looked (`src/drawportal.js`). A trail
 of gold dots follows your fingers and flashes when it counts. With a controller, a quick trigger tap still opens one
 straight ahead; a quick, still tap pointing at the ground in a 3D world teleports you. These are decided when you let go. Swinging to throw Bonnie, a pinch that slips off her, or pinching while she's in the
 air (and for 1.5 s after a grab or throw) never opens a window.

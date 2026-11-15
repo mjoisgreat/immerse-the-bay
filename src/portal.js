@@ -93,6 +93,7 @@ export class Portal {
       uniforms: {
         map: { value: this.texture },
         shown: { value: 0 },
+        hasVideo: { value: 0 }, // 1 once the first frame has arrived (the step-inside dome shares this)
         time: { value: 0 },
         reveal: { value: 0 },
         fade: { value: 1 },
@@ -129,7 +130,7 @@ export class Portal {
     tex.generateMipmaps = true;
     this.texture = tex;
     this.screenMat.uniforms.map.value = tex;
-    const onFrame = () => (this._videoReady = true);
+    const onFrame = () => ((this._videoReady = true), (this.screenMat.uniforms.hasVideo.value = 1));
     if (video.readyState >= 2) onFrame();
     else video.addEventListener("loadeddata", onFrame, { once: true });
   }
