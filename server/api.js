@@ -2,12 +2,10 @@
 // Each handler takes (store, input) and returns { status, body }.
 import crypto from "node:crypto";
 import { createDirector } from "./director.js";
-import { createCharacter } from "./character.js";
 import { reduce, allowed, askDirector, applyDirection, summary, MAX_PORTALS } from "./core.js";
 import { mintOrbisToken, endOrbisSession, transcribe, speak } from "./services.js";
 
 const director = createDirector();
-const pip = createCharacter();
 const hash = (v) => crypto.createHash("sha256").update(String(v)).digest("hex");
 const ok = (body, status = 200) => ({ status, body });
 const err = (status, error) => ({ status, body: { error } });
@@ -82,7 +80,7 @@ export async function relayPost(store, body) {
     const out = await askDirector(director, snapshot, event);
     await store.withLock(room, async () => {
       const fresh = await store.getState(room); // others may have changed it while the director thought
-      const more = applyDirection(fresh, out, Date.now() - started, event.seq);
+      const more = applyDirection(fresh, out, Date.now() - started, event.seq, event);
       await store.setState(room, fresh);
       await store.pushEvents(room, more);
     });
@@ -101,19 +99,6 @@ export async function token(store, body) {
 export async function sessionCleanup(body) {
   await endOrbisSession(body?.sessionId, body?.jwt);
   return { status: 204, body: null };
-}
-
-/** Talk with the walking companion, Bunny or Pip (only the room's headset). */
-export async function character(store, body) {
-  const room = roomOf(body.room);
-  const { role } = await roleOf(store, room, body.cred);
-  if (role !== "owner") return err(403, "owner only");
-  const text = String(body.text || "").trim().slice(0, 400);
-  if (!text) return err(400, "text required");
-  const history = Array.isArray(body.history) ? body.history.slice(-8) : [];
-  const state = await store.getState(room);
-  const character = body.character === "pip" ? "pip" : "bunny";
-  return ok(await pip.converse({ text, history, story: state.story, character }));
 }
 
 /** Character voices: only the room's headset may spend speech credits. */

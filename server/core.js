@@ -13,6 +13,8 @@ export function initialState() {
     focusId: null,
     immersedId: null, // the portal the storyteller has stepped inside, if any
     choices: [], // what could happen next, offered by the director
+    companion: { id: "bunny", present: false }, // the director's body in the room (Bunny or Pip), if summoned
+    chat: [], // recent exchanges with the companion: [{ you, reply }]
     rendererId: null, // the owner's headset page that currently drives the streams
     meta: { title: "", shared: false, crowd: false },
     suggestions: [], // [{ id, text, voters: [voterId], at, by? }] (by = the author's display name, optional)
@@ -22,7 +24,7 @@ export function initialState() {
 }
 
 /** Who may send which message. Roles come from the room's credentials (see api.js). */
-const OWNER_ONLY = new Set(["hello", "portal_sync", "portal_added", "portal_removed", "portal_status", "heartbeat", "immerse", "touch", "pip_said"]);
+const OWNER_ONLY = new Set(["hello", "portal_sync", "portal_added", "portal_removed", "portal_status", "heartbeat", "immerse", "touch", "companion"]);
 const CONSOLE = new Set(["focus", "close_portal", "manual_prompt", "set_seed", "set_meta", "use_suggestion", "dismiss_suggestion", "reset_story"]);
 const NARRATE = new Set(["utterance", "choose"]);
 const ANYONE = new Set(["whoami", "suggest", "vote"]);
@@ -108,16 +110,10 @@ export function reduce(s, m, ctx = {}) {
       director = { type: "touch", portal_id: m.id, image: image.slice("data:image/jpeg;base64,".length) };
       break;
     }
-    case "pip_said": {
-      // A chat with the companion, kept in the story log so watchers and the theater can follow it.
-      const you = String(m.you || "").trim().slice(0, 300), said = String(m.pip || "").trim().slice(0, 300);
-      const name = m.name === "Pip" ? "Pip" : "Bunny";
-      if (!said) break;
-      if (you) pushLog(s, "pip_you", you);
-      pushLog(s, "speech", `${name}: ${said}`);
-      events.push({ t: "pip", name, line: said });
+    case "companion":
+      // The headset says which companion it has and whether it is in the room right now.
+      s.companion = { id: m.id === "pip" ? "pip" : "bunny", present: Boolean(m.present) };
       break;
-    }
     case "immerse": {
       // The storyteller stepped inside a portal (or back out into the room).
       const id = m.id && find(s, m.id) ? m.id : null;
@@ -140,6 +136,8 @@ export function reduce(s, m, ctx = {}) {
       const text = String(m.text || "").trim().slice(0, 300);
       if (!text) break;
       director = narrate(s, text, ctx.role === "co" ? "guest" : "voice");
+      // The storyteller was looking at the companion while they spoke.
+      if (m.addressed && ctx.role === "owner") director.addressed = true;
       break;
     }
     case "manual_prompt": {
@@ -156,6 +154,7 @@ export function reduce(s, m, ctx = {}) {
       s.story = { seed, bible: `Setting: ${seed}.`, beats: [] };
       s.suggestions = [];
       s.choices = [];
+      s.chat = [];
       s.log = [];
       s.immersedId = null;
       pushLog(s, "story", "The story was reset");
@@ -236,11 +235,31 @@ export function topSuggestion(s) {
 
 /** Asks the director (slow, async). Reads a snapshot; does not mutate. */
 export function askDirector(director, s, event) {
-  return director.direct({ event, story: s.story, portals: s.portals, focusId: s.focusId, immersedId: s.immersedId ?? null });
+  return director.direct({
+    event,
+    story: s.story,
+    portals: s.portals,
+    focusId: s.focusId,
+    immersedId: s.immersedId ?? null,
+    companion: s.companion ?? null,
+    chat: s.chat ?? [],
+  });
 }
 
-/** Applies the director's answer to the *current* state (re-read after the wait). */
-export function applyDirection(s, out, ms, seq = 0) {
+/**
+ * Applies the director's answer to the *current* state (re-read after the wait).
+ * `event` is what the director was asked about (used to tell small talk from story).
+ */
+export function applyDirection(s, out, ms, seq = 0, event = null) {
+  const companion = out.companion?.reply
+    ? { name: s.companion?.id === "pip" ? "Pip" : "Bunny", reply: String(out.companion.reply).slice(0, 300), gesture: out.companion.gesture || "none", move: out.companion.move || "none" }
+    : null;
+  // Small talk with the companion: the story, its choices and its subtitle stay as they were.
+  const chatOnly = Boolean(companion && !out.updates.length && !String(out.narration || "").trim());
+  if (chatOnly && event?.type === "utterance") {
+    const i = s.story.beats.lastIndexOf(event.text);
+    if (i !== -1) s.story.beats.splice(i, 1);
+  }
   // A reply to an older request than one already applied: its portal prompts are out of date
   // (applying them would make the scene jump back), so keep only the newer ones.
   const stale = seq && seq < (s.appliedSeq || 0);
@@ -251,11 +270,17 @@ export function applyDirection(s, out, ms, seq = 0) {
   s.story.bible = out.bible || s.story.bible;
   const updates = out.updates.filter((u) => find(s, u.portal_id));
   for (const u of updates) find(s, u.portal_id).prompt = u.prompt;
-  pushLog(s, "director", `${out.narration} (${ms} ms, ${updates.length} portal updates)`);
-  s.choices = (out.choices || []).map((c) => String(c).slice(0, 80)).filter(Boolean).slice(0, 3);
+  if (!chatOnly) {
+    pushLog(s, "director", `${out.narration} (${ms} ms, ${updates.length} portal updates)`);
+    s.choices = (out.choices || []).map((c) => String(c).slice(0, 80)).filter(Boolean).slice(0, 3);
+  }
   const speech = out.speech?.line ? { ...out.speech, portal_id: find(s, out.speech.portal_id) ? out.speech.portal_id : s.focusId } : null;
   if (speech) pushLog(s, "speech", `${speech.speaker}: ${speech.line}`);
-  return [{ t: "direction", narration: out.narration, updates, choices: s.choices, speech }];
+  if (companion) {
+    pushLog(s, "speech", `${companion.name}: ${companion.reply}`);
+    s.chat = [...(s.chat || []), { you: event?.type === "utterance" ? event.text : null, reply: companion.reply }].slice(-8);
+  }
+  return [{ t: "direction", narration: out.narration, updates, choices: s.choices, speech, companion }];
 }
 
 /** What the gallery shows for a room. */

@@ -233,6 +233,7 @@ const link = createLink(ROOM, {
     }
     if (focusId) send({ t: "focus", id: focusId });
     if (immersion.inside) send({ t: "immerse", id: immersion.portal.id });
+    syncBuddy();
   },
   onMessage(m) {
     if (m.t === "direction") applyDirection(m);
@@ -278,10 +279,14 @@ setInterval(() => {
   }
 }, 3000);
 
-function applyDirection({ narration, updates, choices, speech }) {
+function applyDirection({ narration, updates, choices, speech, companion }) {
   if (guideStep === 1 && roomState?.log?.some((l) => ["voice", "choice", "guest", "crowd"].includes(l.kind))) setTimeout(() => guide(2), 6000);
   showChoices(choices || []);
-  if (speech?.line) playVoice(speech);
+  // The companion and the story are one mind: the same answer may carry its reply. One voice at a time.
+  const replied = Boolean(companion?.reply && buddy.visible);
+  if (replied) buddyReply(companion, !narration);
+  else if (buddy.listening) buddyIdle();
+  if (speech?.line && !replied) playVoice(speech);
   for (const u of updates) {
     const p = portals.get(u.portal_id);
     if (!p) continue;
@@ -340,10 +345,14 @@ async function stopTalking() {
       return flash("Didn't catch that. Hold the orb and speak.");
     }
     flash(`“${text}”`, 4000);
-    // To the companion if you were looking at it, or if you said its name; otherwise to the story.
-    const named = buddy.visible && new RegExp(`\\b${BUDDY.name}\\b`, "i").test(text);
-    if (talkingToBuddy || named) chatWithBuddy(text);
-    else send({ t: "utterance", text });
+    // Everything you say goes to the same mind: it steers the story and answers as the companion.
+    // Looking at the companion while you talk tells it your words are meant for it.
+    if (talkingToBuddy) {
+      buddy.say("…", 15000);
+      clearTimeout(buddyWait);
+      buddyWait = setTimeout(() => buddy.listening && buddyIdle(), 30000); // no answer came back
+      send({ t: "utterance", text, addressed: true });
+    } else send({ t: "utterance", text });
   } catch (e) {
     if (talkingToBuddy) buddy.react({ gesture: "none", move: "none" });
     flash(e.message);
@@ -759,47 +768,34 @@ function guide(step) {
 }
 
 // ---------- The companion (Bunny, or Pip the robot with ?companion=pip) ----------
-// It hops around your room, follows you, and talks with you when you look at it.
+// It hops around your room, follows you, and talks with you. It is the story director's body in
+// the room: what it says and does arrives with each direction (see applyDirection).
 const USE_PIP = new URLSearchParams(location.search).get("companion") === "pip";
 const BUDDY = USE_PIP
   ? { id: "pip", name: "Pip", icon: "🤖", voice: "a small, bright, curious robot companion; quick and playful, warm, a little mischievous" }
   : { id: "bunny", name: "Bunny", icon: "🐰", voice: "a bright, friendly young voice; bubbly, quick and a little cheeky, full of wonder" };
 const buddy = new Companion(scene, camera, { name: BUDDY.name, rig: USE_PIP ? new RobotRig() : new BunnyRig() });
 buddy.load().catch((e) => console.warn("[companion] failed to load", e));
-const buddyHistory = [];
-let buddyBusy = false;
-async function chatWithBuddy(text) {
-  if (buddyBusy) return flash(`${BUDDY.name} is still thinking…`);
-  buddyBusy = true;
-  buddy.listen();
-  buddy.say("…", 15000);
-  flash(`${BUDDY.name} is thinking…`, 15000);
-  try {
-    const r = await fetch("/api/character", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ room: ROOM, cred: credFor(ROOM), text, history: buddyHistory, character: BUDDY.id }),
-    });
-    if (!r.ok) throw new Error(`${BUDDY.name} couldn't answer (${r.status})`);
-    const out = await r.json();
-    buddyHistory.push({ role: "user", text }, { role: "assistant", text: out.reply });
-    buddyHistory.splice(0, Math.max(0, buddyHistory.length - 12));
-    buddy.react(out);
-    buddy.say(out.reply, 12000);
-    flash(`${BUDDY.name}: “${out.reply}”`, 9000);
-    send({ t: "pip_said", name: BUDDY.name, you: text, pip: out.reply });
-    await speak(out.reply, BUDDY.name, BUDDY.voice, buddy.root, {
-      onStart: () => buddy.speaking(true),
-      onEnd: () => buddy.speaking(false),
-    });
-    if (out.story_line && portals.size) send({ t: "utterance", text: out.story_line });
-  } catch (e) {
-    buddy.react({ gesture: "no", move: "stay" });
-    buddy.say("Hmm, I lost my train of thought. Try again?", 5000);
-    flash(e.message);
-  } finally {
-    buddyBusy = false;
-  }
+let buddyWait = 0;
+/** Tells the story director whether its body is in the room, so it knows when it can speak here. */
+function syncBuddy(present = buddy.visible) {
+  send({ t: "companion", id: BUDDY.id, present: Boolean(present) });
+}
+function buddyIdle() {
+  clearTimeout(buddyWait);
+  buddy.react({ gesture: "none", move: "none" });
+  buddy.say("");
+}
+/** The companion's part of a direction: gesture, maybe move, and say the line out loud. */
+function buddyReply({ reply, gesture, move }, announce) {
+  clearTimeout(buddyWait);
+  buddy.react({ gesture, move });
+  buddy.say(reply, 12000);
+  if (announce) flash(`${BUDDY.name}: “${reply}”`, 9000);
+  speak(reply, BUDDY.name, BUDDY.voice, buddy.root, {
+    onStart: () => buddy.speaking(true),
+    onEnd: () => buddy.speaking(false),
+  });
 }
 
 // Pinch / point at the companion to toggle following you around.
@@ -813,7 +809,7 @@ function toggleBuddyFollow() {
   );
 }
 function toggleBuddy() {
-  if (buddy.visible) return buddy.dismiss(), flash(`${BUDDY.name} waves goodbye.`);
+  if (buddy.visible) return buddy.dismiss(), syncBuddy(false), flash(`${BUDDY.name} waves goodbye.`);
   if (!buddy.ready) return flash(`${BUDDY.name} is still waking up…`);
   const xr = renderer.xr.isPresenting;
   buddy.range = xr ? [1.2, 2.4] : [2.6, 3.4];
@@ -825,8 +821,9 @@ function toggleBuddy() {
     pitch = Math.min(pitch, -0.2);
     camera.rotation.set(pitch, yaw, 0, "YXZ");
   }
-  buddy.say(`Hi! I'm ${BUDDY.name}. Look at me and talk!`, 6000);
-  flash(`Meet ${BUDDY.name}! Look at ${BUDDY.name} while you talk to chat. Pinch, or say “follow me”, and ${BUDDY.name} comes with you.`, 8000);
+  syncBuddy(true);
+  buddy.say(`Hi! I'm ${BUDDY.name}. Talk to me any time!`, 6000);
+  flash(`Meet ${BUDDY.name}! Say “${BUDDY.name}”, or look at ${BUDDY.name} while you talk, to chat. Pinch, or say “follow me”, and ${BUDDY.name} comes with you.`, 8000);
 }
 
 // ---------- Room background: see-through (your real room) or a 3D world around you ----------
