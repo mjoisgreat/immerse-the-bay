@@ -125,23 +125,23 @@ test("small talk with the companion is spoken and logged but leaves the story al
   const s = start();
   reduce(s, { t: "companion", id: "bunny", present: true, rid: "r1" }, owner);
   applyDirection(s, { narration: "n", bible: "b", updates: [], choices: ["Go left", "Go right"], speech: null, companion: null }, 10);
-  const { director } = reduce(s, { t: "utterance", text: "Hi Bunny", addressed: true }, owner);
-  assert.deepEqual(director, { type: "utterance", text: "Hi Bunny", addressed: true });
+  const { director } = reduce(s, { t: "utterance", text: "Hi Bonnie", addressed: true }, owner);
+  assert.deepEqual(director, { type: "utterance", text: "Hi Bonnie", addressed: true });
   const [ev] = applyDirection(s, bunny("Hello!"), 10, 0, director);
-  assert.deepEqual(ev.companion, { name: "Bunny", reply: "Hello!", gesture: "wave", move: "none" });
+  assert.deepEqual(ev.companion, { name: "Bonnie", reply: "Hello!", gesture: "wave", move: "none" });
   assert.deepEqual(s.story.beats, []);
   assert.deepEqual(s.choices, ["Go left", "Go right"]);
-  assert.equal(s.log.at(-1).text, "Bunny: Hello!");
+  assert.equal(s.log.at(-1).text, "Bonnie: Hello!");
   assert.equal(s.log.filter((l) => l.kind === "director").length, 1);
-  assert.deepEqual(s.chat, [{ you: "Hi Bunny", reply: "Hello!" }]);
+  assert.deepEqual(s.chat, [{ you: "Hi Bonnie", reply: "Hello!" }]);
 });
 
 test("a companion reply that comes with a story change keeps the beat", () => {
   const s = start();
-  const { director } = reduce(s, { t: "utterance", text: "Bunny, make it snow" }, owner);
+  const { director } = reduce(s, { t: "utterance", text: "Bonnie, make it snow" }, owner);
   const out = bunny("Snow coming up!", { narration: "Snow begins to fall.", updates: [{ portal_id: "A", prompt: "snowy pier" }] });
   const [ev] = applyDirection(s, out, 10, 0, director);
-  assert.deepEqual(s.story.beats, ["Bunny, make it snow"]);
+  assert.deepEqual(s.story.beats, ["Bonnie, make it snow"]);
   assert.equal(s.portals[0].prompt, "snowy pier");
   assert.equal(ev.companion.reply, "Snow coming up!");
 });

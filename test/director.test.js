@@ -56,11 +56,11 @@ const here = { id: "bunny", present: true };
 const say = (text, more = {}) => director.direct({ event: { type: "utterance", text, ...more }, story, portals: portal("A wooden pier at night."), focusId: "A", companion: here, ...more.input });
 
 test("small talk with the companion changes nothing in the story", async () => {
-  const out = await say("Hi Bunny!");
+  const out = await say("Hi Bonnie!");
   assert.deepEqual(out.updates, []);
   assert.equal(out.narration, "");
   assert.ok(out.companion.reply);
-  const called = await say("bunny");
+  const called = await say("bonnie");
   assert.deepEqual(called.updates, []);
   assert.ok(called.companion.reply);
   const follow = await say("follow me", { addressed: true });
@@ -69,15 +69,15 @@ test("small talk with the companion changes nothing in the story", async () => {
 });
 
 test("asking the companion for a story change steers the scene without putting its name in it", async () => {
-  const out = await say("Bunny, make it snow");
+  const out = await say("Bonnie, make it snow");
   assert.ok(out.companion.reply);
   assert.ok(out.updates[0].prompt.includes("make it snow"), out.updates[0].prompt);
-  assert.ok(!/bunny/i.test(out.updates[0].prompt), out.updates[0].prompt);
+  assert.ok(!/bonnie/i.test(out.updates[0].prompt), out.updates[0].prompt);
 });
 
 test("the companion stays quiet when narrating, and when it isn't in the room", async () => {
   assert.equal((await say("A fox appears")).companion, null);
-  const away = await director.direct({ event: { type: "utterance", text: "Hi Bunny!" }, story, portals: portal("x."), focusId: "A", companion: { id: "bunny", present: false } });
+  const away = await director.direct({ event: { type: "utterance", text: "Hi Bonnie!" }, story, portals: portal("x."), focusId: "A", companion: { id: "bunny", present: false } });
   assert.equal(away.companion, null);
   assert.ok(away.updates.length);
 });
