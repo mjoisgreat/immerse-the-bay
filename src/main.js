@@ -2,7 +2,8 @@ import * as THREE from "three";
 import { XRControllerModelFactory } from "three/addons/webxr/XRControllerModelFactory.js";
 import { XRHandModelFactory } from "three/addons/webxr/XRHandModelFactory.js";
 import { Portal, PORTAL_SIZE } from "./portal.js";
-import { resizedScale } from "./portalresize.js";
+import { resizedScale, carriedPosition } from "./portalresize.js";
+import { GestureCard } from "./gesturecard.js";
 import { Immersion } from "./immersion.js";
 import { Toolbar } from "./toolbar.js";
 import { HandGestures } from "./gestures.js";
@@ -107,6 +108,7 @@ function chime(kind) {
 }
 function stepInside(portal) {
   if (!portal || (immersion.inside && immersion.portal === portal)) return;
+  hideGestureCard(); // you've clearly found your way around
   setFocus(portal.id);
   immersion.enter(portal, [...portals.values()].find((p) => p.portal === portal)?.stream.video);
   flash(`You stepped into window ${portal.id}. Bring your hands together, or shake them, to step back out (or press B/Y).`, 5000);
@@ -432,6 +434,7 @@ function targets() {
   const ui = immersion.inside ? [micOrb, exitOrb] : [micOrb];
   if (renderer.xr.isPresenting) ui.push(...toolbar.targets);
   if (buddy.visible) ui.push(buddy.hitbox);
+  if (gestureCard.visible) ui.push(gestureCard.mesh);
   return [...ui.filter((o) => o.visible || o === buddy.hitbox), ...[...portals.values()].filter((p) => p.portal.group.visible).map((p) => p.portal.screen)];
 }
 
@@ -477,6 +480,7 @@ function onSelectStart(ctrl) {
     return startTalking();
   }
   if (hit?.object.userData.exit) return stepOut();
+  if (hit?.object.userData.gestureCard) return hideGestureCard();
   if (hit?.object.userData.button) {
     ctrl.userData.button = hit.object.userData.button;
     if (ctrl.userData.button !== armed) disarm(); // any other button cancels a pending confirm
@@ -485,7 +489,17 @@ function onSelectStart(ctrl) {
   if (hit?.object.userData.choice !== undefined) return pickChoice(hit.object.userData.choice);
   // Pick the companion up (pointing at it, or reaching out and touching it). A quick tap toggles
   // following (see onSelectEnd); holding carries it, and letting go throws it.
-  if (hit?.object.userData.companion || buddyTouched(ctrl)) {
+  const otherHand = [0, 1].map((i) => renderer.xr.getController(i)).find((c) => c !== ctrl);
+  if (hit?.object.userData.companion || buddyTouched(ctrl) || (otherHand?.userData.heldBuddy && nearBuddy(ctrl, 0.5))) {
+    // The other hand already holds it: lift it with both, held between your hands.
+    if (otherHand?.userData.heldBuddy && buddy.held) {
+      ctrl.userData.heldBuddy = ctrl.userData.twoHand = otherHand.userData.twoHand = true;
+      cradle.hands = [otherHand, ctrl];
+      updateCradle();
+      buddy.rehold(cradle.obj);
+      buzz(0.4, 40);
+      return;
+    }
     if (buddy.grab(ctrl)) ctrl.userData.heldBuddy = true;
     return;
   }
@@ -496,7 +510,11 @@ function onSelectStart(ctrl) {
     holder.userData.tap = null; // this is not a tap on the world
     ctrl.userData.resizing = portal;
     const a = holder.getWorldPosition(new THREE.Vector3()), b = ctrl.getWorldPosition(new THREE.Vector3());
-    resize = { portal, holder, ctrl, dist: a.distanceTo(b), scale: portal.group.scale.x };
+    resize = {
+      portal, holder, ctrl, dist: a.distanceTo(b), scale: portal.group.scale.x,
+      mid: a.clone().add(b).multiplyScalar(0.5).toArray(), // where the window was lifted, to carry it by both hands
+      pos: portal.group.getWorldPosition(new THREE.Vector3()).toArray(),
+    };
     return buzz(0.3, 30);
   }
   if (portal) {
@@ -522,15 +540,39 @@ function onSelectStart(ctrl) {
   openPortal(ray.origin.clone(), ray.direction.clone());
 }
 
-// Two-hand resize in progress: { portal, holder (hand carrying the window), ctrl (second hand), dist, scale }.
+// Two-hand pick-up of a window: { portal, holder (hand carrying the window), ctrl (second hand), dist,
+// scale, mid, pos }. The window is carried by the midpoint of your hands and sized by how far apart they are.
 let resize = null;
 function updateResize() {
   if (!resize) return;
   const a = resize.holder.getWorldPosition(new THREE.Vector3()), b = resize.ctrl.getWorldPosition(new THREE.Vector3());
   resize.portal.group.scale.setScalar(resizedScale(resize.scale, resize.dist, a.distanceTo(b)));
+  const mid = a.clone().add(b).multiplyScalar(0.5).toArray();
+  // The window hangs off the carrying hand, so ask for its place in that hand's space.
+  resize.portal.group.position.copy(resize.holder.worldToLocal(new THREE.Vector3(...carriedPosition(resize.pos, resize.mid, mid))));
+}
+
+// Two-hand pick-up of Bonnie: she rides on a point midway between your hands, kept upright.
+const cradle = { obj: new THREE.Object3D(), hands: null };
+scene.add(cradle.obj);
+function updateCradle() {
+  if (!cradle.hands) return;
+  const [a, b] = cradle.hands.map((c) => c.getWorldPosition(new THREE.Vector3()));
+  cradle.obj.position.copy(a.add(b).multiplyScalar(0.5));
+  cradle.obj.updateMatrixWorld(true);
+}
+function nearBuddy(ctrl, r) {
+  return buddy.visible && ctrl.getWorldPosition(tmpV).distanceTo(buddy.centerWorld()) < r;
 }
 
 function onSelectEnd(ctrl) {
+  if (ctrl.userData.heldBuddy && ctrl.userData.twoHand) {
+    // Either hand letting go drops (or throws) her; the other hand's release then does nothing.
+    for (const c of cradle.hands) c.userData.heldBuddy = c.userData.twoHand = false;
+    cradle.hands = null;
+    buddy.release();
+    return;
+  }
   if (ctrl.userData.heldBuddy) {
     ctrl.userData.heldBuddy = false;
     if (buddy.release() === "tap") toggleBuddyFollow();
@@ -867,6 +909,27 @@ const BUDDY = USE_PIP
   ? { id: "pip", name: "Pip", icon: "🤖", voice: "a small, bright, curious robot companion; quick and playful, warm, a little mischievous" }
   : { id: "bunny", name: "Bonnie", icon: "🐰", voice: "a bright, friendly young voice; bubbly, quick and a little cheeky, full of wonder" };
 const buddy = new Companion(scene, camera, { name: BUDDY.name, rig: USE_PIP ? new RobotRig() : new BunnyRig() });
+
+// The how-to card: at the start of a headset session, every action and its hand gesture. Pinch it to close
+// it; otherwise it fades after a minute, or as soon as you step inside a world.
+const gestureCard = new GestureCard(BUDDY.name);
+scene.add(gestureCard.mesh);
+let gestureCardTimer = 0;
+function showGestureCard() {
+  gestureCard.show(camera);
+  clearTimeout(gestureCardTimer);
+  gestureCardTimer = setTimeout(hideGestureCard, 60000);
+}
+function hideGestureCard() {
+  clearTimeout(gestureCardTimer);
+  gestureCard.hide();
+}
+renderer.xr.addEventListener("sessionstart", () => {
+  clearTimeout(gestureCardTimer);
+  // A moment after the session starts, so the headset's pose has settled and the card lands in front of you.
+  gestureCardTimer = setTimeout(() => renderer.xr.isPresenting && !immersion.inside && showGestureCard(), 1800);
+});
+renderer.xr.addEventListener("sessionend", hideGestureCard);
 buddy.load().catch((e) => console.warn("[companion] failed to load", e));
 let buddyWait = 0;
 /** Tells the story director whether its body is in the room, so it knows when it can speak here. */
@@ -1285,11 +1348,7 @@ const gestures = new HandGestures(renderer, camera, {
     callBuddy();
   },
   palm: () => (gestures.pulse(0xffffff), setButtonsHidden(!toolbar.collapsed)),
-  firstSeen: () =>
-    flash(
-      `Hands: raise one to your mouth to talk · part both like curtains to step inside · shake both to close a window · snap to call ${BUDDY.name} · pinch a window to move it, with both hands to resize · left palm shows the buttons.`,
-      12000,
-    ),
+  // (the how-to card at the start of the session now teaches every gesture)
 });
 scene.add(gestures.fx);
 
@@ -1467,6 +1526,7 @@ renderer.setAnimationLoop(() => {
   updateToolbar();
   gestures.update();
   updateResize();
+  updateCradle();
   buddy.update(dt);
   updateRipples();
   updateTitle();

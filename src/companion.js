@@ -683,6 +683,25 @@ export class Companion {
     return true;
   }
 
+  /**
+   * Hand the held body to another holder (e.g. a point midway between both hands) without it jumping.
+   * Returns false if it is not being held.
+   */
+  rehold(holder) {
+    const p = this.phys;
+    if (p?.state !== "held") return false;
+    holder.updateWorldMatrix(true, false);
+    const q = this.pivot.getWorldQuaternion(new THREE.Quaternion());
+    p.holder = holder;
+    p.offset = holder.worldToLocal(this.centerWorld());
+    p.rel = holder.getWorldQuaternion(new THREE.Quaternion()).invert().multiply(q);
+    p.reel = false;
+    p.start = holder.getWorldPosition(new THREE.Vector3());
+    p.travel = Math.max(p.travel, 1); // lifted with both hands on purpose: letting go is a throw, never a "tap"
+    this.tracker.reset();
+    return true;
+  }
+
   /** Let go. Returns "tap" (a short press that barely moved: nothing happened) or "throw". */
   release() {
     const p = this.phys;
