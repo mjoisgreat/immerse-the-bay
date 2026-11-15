@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { SplatWorlds, markSplatSlow } from "./worlds.js";
+import { buildMoon } from "./moon.js";
 
 // Room background: "see-through" (your real room, passthrough) or a pre-built 3D world (a
 // Gaussian splat, e.g. Stanford's Main Quad) all around you, which you can walk around in.
@@ -35,7 +36,10 @@ export class Backdrop {
     if (this.loading) return false;
     this.loading = true;
     try {
-      const holder = await this.worlds.load(id, { quality, onProgress });
+      const holder =
+        id === "moon"
+          ? await (this.moon ??= buildMoon().catch((e) => (console.warn("[moon]", e), (this.moon = null))))
+          : await this.worlds.load(id, { quality, onProgress });
       if (!holder) return false;
       if (this.holder && this.holder !== holder) this.holder.removeFromParent();
       const eye = this.camera.getWorldPosition(new THREE.Vector3());
@@ -48,7 +52,7 @@ export class Backdrop {
       this.holder = holder;
       this.worldId = id;
       // Watch the first half minute of the full version for frozen frames (see update).
-      this.watchUntil = quality === "high" ? performance.now() + 30000 : 0;
+      this.watchUntil = quality === "high" && id !== "moon" ? performance.now() + 30000 : 0;
       this.lastFrame = 0;
       return true;
     } finally {
@@ -84,6 +88,6 @@ export class Backdrop {
 
   /** The scene background to use: a sky colour once the world is fully in, else whatever it was. */
   background(fallback) {
-    return this.opacity >= 1 ? SKY : fallback;
+    return this.opacity >= 1 ? (this.holder?.userData.sky ?? SKY) : fallback;
   }
 }
