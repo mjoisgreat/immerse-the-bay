@@ -254,6 +254,7 @@ export class Toolbar {
   }
 
   _layout() {
+    this.storyPanel.visible = this.open && Boolean(this._hasStory); // the story shows only while the menu is open
     this.rows.forEach((row) => (row.mesh.visible = this.open && Boolean(row.item)));
     // Stack the lines upwards from the button: the last one sits just above it, the header on top.
     const n = this.choices.length;
@@ -292,13 +293,14 @@ export class Toolbar {
     this.chatTex.needsUpdate = true;
   }
 
-  /** The story log: shows its newest story lines below the button (redrawn only when they change). */
+  /** The story log: shows its newest story lines below the button while the menu is open (redrawn only when they change). */
   setStory(log) {
     const lines = (log || []).filter(isStoryLine).slice(-STORY_LINES).reverse(); // newest first
     const key = JSON.stringify(lines.map((l) => [l.at, l.kind, l.text]));
     if (key === this._storyKey) return;
     this._storyKey = key;
-    this.storyPanel.visible = lines.length > 0;
+    this._hasStory = lines.length > 0;
+    this._layout();
     if (lines.length) this._drawStory(lines);
   }
 
