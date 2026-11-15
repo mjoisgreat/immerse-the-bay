@@ -10,7 +10,7 @@ import { camera, renderer, scene } from "./stage.js";
 import { state } from "./state.js";
 import { flash } from "./feedback.js";
 import { buddy, callBuddy, toggleBuddyFollow } from "./buddy.js";
-import { setButtonsHidden, toolbar } from "./buttons.js";
+import { setButtonsHidden } from "./buttons.js";
 import { closePortal, immersion, openPortal, portals, setFocus, stepInside, stepOut } from "./portals.js";
 import { disarm, skipWorld, touchPortal, touchWorld } from "./story.js";
 import { startTalking, stopTalking } from "./talk.js";
@@ -114,7 +114,7 @@ addEventListener("keydown", (e) => {
   if (e.code === "Backspace" && state.focusId && !/INPUT|TEXTAREA/.test(e.target.tagName)) closePortal(state.focusId);
   if (e.code === "KeyE" && !/INPUT|TEXTAREA/.test(e.target.tagName)) immersion.inside ? stepOut() : stepInside(portals.get(state.focusId)?.portal);
   if (e.code === "Escape") stepOut(), disarm(), skipWorld();
-  if (e.code === "KeyH" && !/INPUT|TEXTAREA/.test(e.target.tagName)) setButtonsHidden(!toolbar.collapsed);
+  if (e.code === "KeyH" && !/INPUT|TEXTAREA/.test(e.target.tagName)) setButtonsHidden(!document.body.classList.contains("clean"));
 });
 addEventListener("keyup", (e) => {
   if (e.code === "Space") stopTalking();

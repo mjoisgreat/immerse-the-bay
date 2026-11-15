@@ -1,28 +1,122 @@
-// app/buttons.js: the toolbar, the desktop bar and the phone dock.
+// app/buttons.js: the headset menu (a small button that opens a list), the desktop bar and the phone dock.
 import * as THREE from "three";
-import { Toolbar } from "../toolbar.js";
+import { Toolbar, menuFor } from "../toolbar.js";
 import { CameraView } from "../cameraview.js";
 import { $, camera, renderer, scene } from "./stage.js";
 import { state } from "./state.js";
 import { BUDDY, WORLD_CYCLE, worldInfo } from "./config.js";
-import { buzz, chime, flash } from "./feedback.js";
+import { flash } from "./feedback.js";
 import { buddy, toggleBuddy } from "./buddy.js";
 import { camView, haptic, toggleCamera } from "./desktop.js";
-import { gestureCard } from "./guide.js";
+import { cheatSheet, showCheatSheet } from "./guide.js";
 import { closePortal, immersion, openPortal, portals, stepInside, stepOut } from "./portals.js";
-import { disarm, newStoryPressed, resetPressed } from "./story.js";
+import { disarm, newStoryPressed, pickChoice, resetPressed } from "./story.js";
 import { startTalking, stopTalking } from "./talk.js";
 import { toggleWide } from "./wide.js";
-import { backdrop, nextWorld, toggleBackdrop } from "./world.js";
+import { backdrop, nextWorld, toggleBackdrop, toggleWorld, worldKey } from "./world.js";
 import { tmpMat } from "./xrinput.js";
 
-// ---------- Buttons (floating panel in the headset, bar at the bottom on desktop) ----------
-export function openInFront() {
+// ---------- The headset menu ----------
+// A small round button in the lower left of your view. Point at it (controller or pinch) to open its list.
+// The list depends on where you are (see menuFor in toolbar.js).
+export const toolbar = new Toolbar(camera);
+renderer.xr.addEventListener("sessionstart", () => toolbar.recenter());
+scene.add(toolbar.group); // in the scene, not on the camera: it follows your gaze (see Toolbar.update)
+const STANFORD = WORLD_CYCLE.find((id) => id !== "moon") || "stanford-church";
+function menuItems() {
+  const act = {
+    exitwin: stepOut,
+    reset: resetPressed,
+    stanford: () => void toggleWorld(STANFORD),
+    "exit-stanford": () => void toggleWorld(STANFORD),
+    moon: () => void toggleWorld("moon"),
+    "exit-moon": () => void toggleWorld("moon"),
+    wide: toggleWide,
+    cheat: showCheatSheet,
+    exitvr: () => renderer.xr.getSession()?.end(),
+  };
+  const entries = menuFor({ inside: immersion.inside, world: worldKey(), loading: backdrop.loading, armed: state.armed, wideOn: state.wideOn });
+  return entries.map((e) => ({ ...e, press: act[e.id] }));
+}
+// How close (metres) a ray must pass to a menu item to zone in on it.
+const MENU_ZONE = 0.03;
+/**
+ * The menu item a ray zones in on, if it points at the menu's face within MENU_ZONE of an item.
+ * Returns { part, point } where point is the item's centre (where the pointer dot goes), or null.
+ */
+export function menuSnap(ray) {
+  if (!renderer.xr.isPresenting || !toolbar.group.visible) return null;
+  toolbar.group.updateMatrixWorld();
+  const inv = toolbar.group.matrixWorld.clone().invert();
+  const o = ray.origin.clone().applyMatrix4(inv);
+  const d = ray.direction.clone().transformDirection(inv);
+  if (Math.abs(d.z) < 1e-4) return null;
+  const t = -o.z / d.z; // where the ray crosses the menu's face
+  if (t <= 0) return null;
+  const part = toolbar.nearestPart(o.addScaledVector(d, t), MENU_ZONE);
+  return part ? { part, point: toolbar.group.localToWorld(part.position.clone()) } : null;
+}
+/** Any action other than a menu press (a window, Bonnie, talking, a gesture, a button) shuts the menu. */
+export function closeMenu() {
+  toolbar.setOpen(false);
+}
+/** Runs a menu part that was pointed at and pressed: a choice card, or a button or entry of the menu. */
+export function pressMenuPart(part) {
+  if (part.userData.choice !== undefined) return pickChoice(part.userData.choice);
+  if (part.userData.button !== state.armed) disarm(); // any other button cancels a pending confirm
+  toolbar.press(part.userData.button);
+}
+const hoverRay = new THREE.Raycaster();
+export function updateToolbar() {
+  toolbar.group.visible = renderer.xr.isPresenting;
+  if (!toolbar.group.visible) return;
+  toolbar.update();
+  if (!toolbar.open) cheatSheet.hide(); // the cheat sheet closes with the menu, however it was shut
+  toolbar.setItems(menuItems());
+  const hits = [];
+  let point = null;
+  const panel = toolbar.targets;
+  for (let i = 0; i < 2; i++) {
+    const c = renderer.xr.getController(i);
+    if (!c.visible && !c.parent) continue;
+    tmpMat.identity().extractRotation(c.matrixWorld);
+    hoverRay.ray.origin.setFromMatrixPosition(c.matrixWorld);
+    hoverRay.ray.direction.set(0, 0, -1).applyMatrix4(tmpMat);
+    const h = hoverRay.intersectObjects(panel, false)[0];
+    const snap = h ? null : menuSnap(hoverRay.ray);
+    if (c.userData.isHand && c.userData.laser) c.userData.laser.visible = Boolean(h || snap); // a hand's laser shows only over the menu
+    if (h) hits.push(h.object), (point ??= h.point);
+    else if (snap) hits.push(snap.part), (point ??= snap.point);
+  }
+  toolbar.hover(hits);
+  toolbar.pointAt(point);
+  syncButtons();
+}
+
+// Hide / show the desktop bar and the phone dock's sheet state. In the headset the menu is always there;
+// the palm and thumbstick click open and close its list.
+const BAR_KEY = "lw:bar";
+export function setButtonsHidden(on, remember = true) {
+  document.body.classList.toggle("clean", on);
+  if (remember) {
+    try {
+      localStorage.setItem(BAR_KEY, on ? "hidden" : "shown");
+    } catch {}
+  }
+}
+/** The start screen on or off. The bar and the dock show only once you are past it. */
+export function setStartScreen(on) {
+  $("#overlay").hidden = !on;
+  $("#bar").hidden = on;
+}
+
+function openInFront() {
   const origin = camera.getWorldPosition(new THREE.Vector3());
   const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.getWorldQuaternion(new THREE.Quaternion()));
   dir.y = Math.max(-0.2, Math.min(0.2, dir.y));
   openPortal(origin, dir.normalize());
 }
+export { openInFront };
 function toggleStep() {
   if (immersion.inside) stepOut();
   else if (!portals.size) flash("Open a window first.");
@@ -42,91 +136,16 @@ function closePressed() {
   syncButtons();
   flash(`Tap Close window again to close window ${id}.`, 600000);
 }
-// Top row: what you do all the time, Talk in the middle. Bottom row: the rest, with the buttons that
-// throw work away grouped at the far end (red, and they ask for a second tap). See toolbar.js.
-export const toolbar = new Toolbar(
-  camera,
-  [
-    { id: "new", icon: "＋", label: "New window", press: openInFront },
-    { id: "step", icon: "🚪", label: "Step inside", press: toggleStep },
-    { id: "talk", icon: "🎙", label: "Hold to talk", big: true, press: () => startTalking(), release: () => stopTalking() },
-    { id: "buddy", icon: BUDDY.icon, label: `Call ${BUDDY.name}`, press: toggleBuddy },
-    { id: "world", icon: worldInfo(WORLD_CYCLE[0]).icon, label: worldInfo(WORLD_CYCLE[0]).label, press: toggleBackdrop },
-    { id: "hide", icon: "▾", label: "Hide", row: "more", press: () => setButtonsHidden(true) },
-    { id: "wide", icon: "🔭", label: "Wide view", row: "more", press: toggleWide },
-    { id: "newstory", icon: "✨", label: "New story", row: "more", danger: true, press: newStoryPressed },
-    { id: "reset", icon: "↺", label: "Reset story", row: "more", danger: true, press: resetPressed },
-    { id: "close", icon: "✕", label: "Close window", row: "more", danger: true, press: closePressed },
-  ],
-  {
-    onPress: (id) => (chime("click"), buzz(id === "talk" ? 0.5 : 0.35, 25)),
-    onDisabled: (why) => (chime("deny"), buzz(0.2, 40), flash(why, 3000)),
-  },
-);
-// Hide / show the buttons (the exit ring hides with them; A/X and B/Y still work).
-// They start hidden (less to take in on a first visit: H, the ☰ handle, a thumbstick click or
-// your left palm brings them out) and after that stay the way you last left them.
-const BAR_KEY = "lw:bar";
-export function setButtonsHidden(on, remember = true) {
-  toolbar.setCollapsed(on);
-  state.autoHidden = false;
-  document.body.classList.toggle("clean", on);
-  if (remember) {
-    try {
-      localStorage.setItem(BAR_KEY, on ? "hidden" : "shown");
-    } catch {}
-  }
-}
-scene.add(toolbar.group);
-const hoverRay = new THREE.Raycaster();
-export function updateToolbar() {
-  toolbar.group.visible = renderer.xr.isPresenting;
-  if (!toolbar.group.visible) return;
-  toolbar.update();
-  const hits = [];
-  const panel = toolbar.targets;
-  for (let i = 0; i < 2; i++) {
-    const c = renderer.xr.getController(i);
-    if (!c.visible && !c.parent) continue;
-    tmpMat.identity().extractRotation(c.matrixWorld);
-    hoverRay.ray.origin.setFromMatrixPosition(c.matrixWorld);
-    hoverRay.ray.direction.set(0, 0, -1).applyMatrix4(tmpMat);
-    const h = hoverRay.intersectObjects(panel, false)[0];
-    if (h) hits.push(h.object);
-    if (gestureCard.visible && hoverRay.intersectObject(gestureCard.closeButton, false).length) hits.push(gestureCard.closeButton);
-  }
-  if (toolbar.hover(hits)) buzz(0.12, 12); // a light tick as the pointer lands on a button
-  gestureCard.hoverClose(hits.includes(gestureCard.closeButton));
-  syncButtons();
-}
+
 // Called every frame: the DOM is only touched when a label or state actually changed.
 const setText = (el, text) => el.textContent !== text && (el.textContent = text);
 const setClass = (el, name, on) => el.classList.contains(name) !== on && el.classList.toggle(name, on);
 export function syncButtons() {
-  // The world button names where it takes you next.
   const nw = nextWorld(), inside = immersion.inside;
   const resetLabel = state.armed === "reset" ? "Tap again to confirm" : "Reset story";
   const newLabel = state.armed === "newstory" ? "Tap again to confirm" : "New story";
-  toolbar.set("world", { label: nw ? worldInfo(nw).label : "See-through", icon: nw ? worldInfo(nw).icon : "👓", state: backdrop.loading ? "active" : "idle" });
-  toolbar.set("wide", { state: state.wideOn ? "active" : "idle", label: state.wideOn ? "Wide: on" : "Wide view" });
-  toolbar.set("talk", { state: state.talking ? "active" : "idle", label: state.talking ? "Listening…" : "Hold to talk" });
-  toolbar.set("step", {
-    label: inside ? "Step out" : "Step inside",
-    icon: inside ? "↩" : "🚪",
-    disabled: !inside && !portals.size,
-    why: "Open a window first: press ＋ New window, or pinch and draw a square.",
-  });
-  const closable = Boolean(inside ? immersion.portal : state.focusId && portals.has(state.focusId));
-  toolbar.set("close", {
-    disabled: !closable,
-    why: "No window to close.",
-    state: state.armed === "close" ? "warn" : "idle",
-    label: state.armed === "close" ? "Tap again" : "Close window",
-  });
   setText(bar.close, state.armed === "close" ? "Tap again to close" : "Close window");
   setClass(bar.close, "warn", state.armed === "close");
-  toolbar.set("reset", { state: state.armed === "reset" ? "warn" : "idle", label: resetLabel });
-  toolbar.set("newstory", { state: state.armed === "newstory" ? "warn" : "idle", label: newLabel });
   setText(bar.world, nw ? worldInfo(nw).bar : "See-through");
   setText(bar.wide, state.wideOn ? "Wide view: on" : "Wide view");
   setClass(bar.wide, "on", state.wideOn);
@@ -154,15 +173,14 @@ bar.reset.onclick = resetPressed;
 bar.newstory.onclick = newStoryPressed;
 // Any other button cancels a pending confirm (capture: runs before the button's own handler).
 $("#bar").addEventListener("click", (e) => e.target.closest("[data-act]")?.dataset.act !== state.armed && disarm(), true);
-bar.info.onclick = () => ($("#overlay").hidden = !$("#overlay").hidden);
+bar.info.onclick = () => setStartScreen($("#overlay").hidden);
 bar.hide.onclick = () => setButtonsHidden(true);
 bar.world.onclick = toggleBackdrop;
 bar.wide.onclick = toggleWide;
 bar.camera.onclick = toggleCamera;
 bar.buddy.onclick = toggleBuddy;
 bar.buddy.textContent = BUDDY.name;
-$("#showbar").onclick = () => setButtonsHidden(false);
-$("#bar").hidden = false; // only clickable once everything is wired up
+setStartScreen(true); // the start screen first; the bar appears once you are past it
 {
   let pref = null;
   try {

@@ -44,6 +44,7 @@ export function nextWorld() {
   const i = WORLD_CYCLE.indexOf(backdrop.worldId);
   return i >= 0 && i < WORLD_CYCLE.length - 1 ? WORLD_CYCLE[i + 1] : null;
 }
+/** The world button: cycles your room → the Moon → Stanford → your room. */
 export async function toggleBackdrop() {
   if (backdrop.loading) return;
   const next = nextWorld();
@@ -51,6 +52,22 @@ export async function toggleBackdrop() {
     backdrop.hide();
     return flash("Back to your room.", 3000);
   }
+  return loadWorld(next);
+}
+/** The menu's world entries: go to that world from wherever you are, or leave it if you are in it. */
+export async function toggleWorld(id) {
+  if (backdrop.loading) return;
+  if (backdrop.worldId === id) {
+    backdrop.hide();
+    return flash("Back to your room.", 3000);
+  }
+  return loadWorld(id);
+}
+/** Which world is on, for the menu: "moon", "stanford" or null. */
+export function worldKey() {
+  return backdrop.worldId ? (backdrop.worldId === "moon" ? "moon" : "stanford") : null;
+}
+async function loadWorld(next) {
   const info = worldInfo(next);
   const quality = splatQuality(renderer);
   const light = next !== "moon" && quality === "low" && backdrop.worlds.hasLight(next) ? " (light version)" : "";

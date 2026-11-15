@@ -1,16 +1,16 @@
 import * as THREE from "three";
-import { CameraView, headingOf } from "./cameraview.js";
+import { headingOf } from "./cameraview.js";
 import { $, DESKTOP_BG, camera, listener, previewRoom, renderer, scene } from "./app/stage.js";
 import { state } from "./app/state.js";
 import { RID, ROOM, handlers, link, send } from "./app/room.js";
 import { toastMesh } from "./app/feedback.js";
 import { aimedAtBuddy, buddy, buddyOpensWindow, syncBuddy, updateCradle } from "./app/buddy.js";
-import { openInFront, setButtonsHidden, syncButtons, toolbar, updateToolbar } from "./app/buttons.js";
-import { camView, desktopWalk, seeThrough, toggleCamera } from "./app/desktop.js";
+import { openInFront, setStartScreen, syncButtons, updateToolbar } from "./app/buttons.js";
+import { camView, desktopWalk, seeThrough } from "./app/desktop.js";
 import { guide, showTitle, updateTitle } from "./app/guide.js";
-import { closePortal, exitOrb, immersion, portals, retire, setFocus, stepInside, stepOut } from "./app/portals.js";
+import { closeAllStreams, closePortal, immersion, portals, retire, setFocus, stepInside, stepOut } from "./app/portals.js";
 import { applyDirection, askWorld, clearAsk, resetLocal, showChoices, updateRipples } from "./app/story.js";
-import { ptt } from "./app/talk.js";
+import { ptt, stopTalking } from "./app/talk.js";
 import { trail } from "./app/trail.js";
 import { heartsFor, updateHearts } from "./app/hearts.js";
 import { updateSides } from "./app/wide.js";
@@ -62,44 +62,22 @@ Object.assign(handlers, {
 
 // ---------- Enter mixed reality ----------
 const enterBtn = $("#enter");
-// The start screen asks to use the camera on phones and computers (not in the headset's browser,
-// which has the real see-through). Starting from this tap lets iPhones ask for motion access too.
-function offerCamera(xrOk) {
-  const quest = /OculusBrowser|Quest/i.test(navigator.userAgent);
-  if (quest || !navigator.mediaDevices?.getUserMedia) return;
-  const phone = CameraView.touch;
-  const btn = Object.assign(document.createElement("button"), {
-    id: "camEnter",
-    textContent: phone ? "📷 Look through your camera" : "📷 Use your webcam",
-    className: xrOk || !phone ? "ghost" : "",
-  });
-  btn.onclick = async () => {
-    $("#overlay").hidden = true;
-    await toggleCamera();
-    if (camView.on) setButtonsHidden(false, false); // Talk, Step inside and the rest within reach
-  };
-  enterBtn.after(btn);
-  const why = Object.assign(document.createElement("p"), {
-    id: "camNote",
-    textContent: phone
-      ? "Your camera shows your real surroundings and the story's windows appear in them. Move your phone to look around. You'll be asked to allow the camera" +
-        (typeof globalThis.DeviceOrientationEvent?.requestPermission === "function" ? " and motion." : ".")
-      : "Your webcam fills the background and the windows float over it. You'll be asked to allow the camera.",
-  });
-  btn.after(why);
-}
+// The start screen's "More info" button: the hints, hidden until asked for.
+$("#cheat-toggle").onclick = (e) => {
+  const cheat = $("#cheat");
+  cheat.hidden = !cheat.hidden;
+  e.currentTarget.setAttribute("aria-expanded", String(!cheat.hidden));
+  e.currentTarget.textContent = cheat.hidden ? "More info" : "Hide info";
+};
 
 async function setupXR() {
   const cfg = await fetch("/api/config").then((r) => r.json()).catch(() => ({}));
   state.maxPortals = cfg.maxPortals || state.maxPortals;
   const xrOk = Boolean(navigator.xr) && (await navigator.xr.isSessionSupported("immersive-ar").catch(() => false));
-  offerCamera(xrOk);
   if (!xrOk) {
     // No mixed reality here: offer the desktop preview, and say where the real thing runs.
     enterBtn.textContent = "Explore the preview";
-    enterBtn.className = CameraView.touch ? "ghost" : ""; // on a phone the camera is the main way in
-    enterBtn.onclick = () => ($("#overlay").hidden = true);
-    if (CameraView.touch) ($("#camNote") ?? $("#camEnter"))?.after(enterBtn); // camera first on a phone
+    enterBtn.onclick = () => setStartScreen(false);
     enterBtn.insertAdjacentHTML("afterend", `<p id="note">For full mixed reality, open this page in the Meta Quest browser.</p>`);
     return;
   }
@@ -114,11 +92,13 @@ async function setupXR() {
     await renderer.xr.setSession(session);
     camView.stop(); // the headset (or phone AR) has its own see-through
     loco.start();
-    $("#overlay").hidden = true;
+    setStartScreen(false);
     session.addEventListener("end", () => {
       immersion.reset();
       loco.stop();
-      $("#overlay").hidden = false;
+      stopTalking();
+      closeAllStreams();
+      setStartScreen(true);
     });
     showTitle();
     // A world question that was waiting on the flat page is asked again, out loud.
@@ -128,6 +108,7 @@ async function setupXR() {
   };
 }
 setupXR();
+state.started = true; // every module has loaded: the background timers may run now
 document.addEventListener("click", () => listener.context.state === "suspended" && listener.context.resume());
 
 // ---------- Loop ----------
@@ -150,7 +131,6 @@ renderer.setAnimationLoop(() => {
   desktopWalk(dt);
   scene.background = backdrop.background(renderer.xr.isPresenting ? null : camView.on ? camView.texture : DESKTOP_BG);
   previewRoom.visible = !seeThrough() && !immersion.active && !backdrop.on;
-  exitOrb.visible = immersion.inside && renderer.xr.isPresenting && !toolbar.collapsed;
   updateToolbar();
   gestures.update();
   updateResize();

@@ -8,20 +8,8 @@ import { $, camera, listener, renderer, say, scene } from "./stage.js";
 import { state } from "./state.js";
 import { ROOM, send } from "./room.js";
 import { buzz, flash } from "./feedback.js";
-import { toolbar } from "./buttons.js";
-import { hideGestureCard } from "./guide.js";
 import { ASK, askWorld, clearAsk, refreshCards } from "./story.js";
-import { sides } from "./wide.js";
-
-// Exit orb (blue, right side): only shown while you're inside a world. Pinch it to step back out.
-export const exitOrb = new THREE.Mesh(
-  new THREE.TorusGeometry(0.028, 0.009, 16, 40),
-  new THREE.MeshStandardMaterial({ color: 0x6aa8ff, emissive: 0x10264a, roughness: 0.3 }),
-);
-exitOrb.position.set(0.22, -0.2, -0.55);
-exitOrb.userData.exit = true;
-exitOrb.visible = false;
-camera.add(exitOrb);
+import { sides, stopSides } from "./wide.js";
 
 // ---------- Step inside ----------
 export const immersion = new Immersion(scene, camera, {
@@ -29,14 +17,10 @@ export const immersion = new Immersion(scene, camera, {
   onChange(id) {
     send({ t: "immerse", id }); // the director reframes that world as a first-person view
     buzz();
-    // Tuck the buttons away inside a world for an unobstructed view; bring them back on leaving.
-    if (id && !toolbar.collapsed) (toolbar.setCollapsed(true), (state.autoHidden = true));
-    else if (!id && state.autoHidden) (toolbar.setCollapsed(false), (state.autoHidden = false));
   },
 });
 export function stepInside(portal) {
   if (!portal || (immersion.inside && immersion.portal === portal)) return;
-  hideGestureCard(); // you've clearly found your way around
   setFocus(portal.id);
   immersion.enter(portal, entryOf(portal)?.stream.video);
   flash(
@@ -147,6 +131,11 @@ addEventListener("pagehide", () => {
   for (const side of ["L", "R"]) sides[side]?.closeOnUnload();
 });
 
+/** Exiting VR: close every Orbis stream (each window's, and the wide view's side views), so no credits are spent out of the headset. The page stays open. */
+export function closeAllStreams() {
+  for (const p of portals.values()) p.stream.close();
+  stopSides();
+}
 export function retire(text = `Your room “${ROOM}” is now playing in another tab or device.`) {
   // Stop our streams so credits aren't spent twice.
   immersion.reset();

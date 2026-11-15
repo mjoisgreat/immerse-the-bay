@@ -55,8 +55,12 @@ history, kept per `portal_id` in `server/core.js` (`state.threads`). Each window
   opens the first window onto that world. Skip it and the first window asks its own question.
 * **Prepare demo** (start card and console): a fresh story in a chosen world with its first window opened
   straight away, because a window takes 20–30 s to reach video. Do it before the headset goes on.
-* The buttons start hidden on a first visit (**H**, the **☰ Buttons** handle, a thumbstick click or your left
-  palm brings them out) and then stay the way you last left them.
+* **In the headset** a small round **☰** button rests in the lower left of your view, like the casting symbol. It holds
+  still while you look around inside a dead zone (about 26°), and glides to its spot again once you look beyond it. Point at
+  it (trigger or a pinch) to open its list: **Reset**, **Stanford** (or **Exit Stanford**), **Cheat sheet** and
+  **Exit VR**. Inside a window the list is **Exit window**, **Reset** and **Cheat sheet**. A thumbstick click or
+  your left palm opens and closes the list. The cheat sheet lists every hand gesture and every controller button.
+* On desktop there are no bottom buttons: the keyboard does it (click empty space to open a window, Space to talk, Backspace to close, E to step in or out).
 
 ## Rooms and community (live site)
 
@@ -136,7 +140,7 @@ Add `?companion=pip` to the headset URL to get Pip, the robot, instead ("RobotEx
 
 ## Room background: see-through or Stanford's Main Quad
 
-Press **Stanford** on the panel (**Stanford Quad** on desktop) and your room is replaced by a real 3D place all around
+Press **Stanford** in the headset menu (**Stanford Quad** on desktop) and your room is replaced by a real 3D place all around
 you: Stanford's Main Quad at golden hour (a Gaussian splat made with World Labs Marble, from the
 `feature/splat-worlds` branch: `public/worlds/stanford.spz`, listed in `worlds/manifest.json`, drawn with
 [Spark](https://sparkjs.dev)). It's placed where you stand, facing the way you face, and you can walk around in it.

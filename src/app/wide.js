@@ -26,7 +26,8 @@ function startSides() {
   }
   flash("Wide view: live views to your left and right are on their way (about 20–30 s).", 6000);
 }
-function stopSides() {
+/** Closes the wide view's side streams (also used when leaving VR). */
+export function stopSides() {
   for (const side of ["L", "R"]) {
     sides[side]?.close();
     sides[side] = null;

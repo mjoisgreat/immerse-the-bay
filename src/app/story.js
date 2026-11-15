@@ -1,6 +1,6 @@
 // app/story.js: direction, crowd mode, snapshots, touching the world, idea cards, the world question, reset / new story, prepare demo.
 import * as THREE from "three";
-import { PRESETS } from "../presets.js";
+import { stopSides } from "./wide.js";
 import { CameraView } from "../cameraview.js";
 import { credFor } from "../identity.js";
 import { LAYER } from "../layers.js";
@@ -37,7 +37,7 @@ setInterval(() => !state.retired && send({ t: "heartbeat" }), 30000);
 const snapCanvas = Object.assign(document.createElement("canvas"), { width: 480, height: 270 });
 let snapTurn = 0, snapBusy = false, snapNext = 0;
 setInterval(() => {
-  if (state.retired || snapBusy || performance.now() < snapNext) return;
+  if (!state.started || state.retired || snapBusy || performance.now() < snapNext) return; // not before the app has finished loading
   const live = [...portals].filter(([, p]) => p.stream.status === "streaming" && p.stream.video.readyState >= 2);
   if (!live.length) return;
   const [id, p] = live[snapTurn++ % live.length];
@@ -272,7 +272,7 @@ export function disarm() {
 }
 /** Reset: every window closes and every story, idea and seed is forgotten. */
 export function resetPressed() {
-  if (!confirmTap("reset")) return;
+  if (!confirmTap("reset")) return true; // waiting for the second tap: the menu stays open
   clearAsk();
   send({ t: "reset_story" });
   flash("Clearing the story…", 4000);
@@ -292,40 +292,10 @@ export function resetLocal({ ask = false, open = false, seed = "" } = {}) {
   clearAsk();
   showChoices([]);
   for (const id of [...portals.keys()]) closePortal(id);
+  stopSides(); // the wide view's side streams too
   state.pendingSeed = seed;
   if (open) return openInFront(), flash(seed ? `A new story begins: ${seed}` : "A new story begins.", 6000);
   if (ask) return askWorld("story");
   flash(seed ? `New story: ${seed}. Open a window to begin.` : "Story cleared. Open a window to begin a new one.", 8000);
 }
 
-// ---------- Prepare demo ----------
-// One tap before the headset goes on: a fresh story in a chosen world with its first window
-// already opening, because a window needs 20-30 s to reach video.
-let demoWatch = 0;
-function prepareDemo(seed) {
-  state.armed = null;
-  clearAsk();
-  send({ t: "reset_story", seed, open: true });
-  const el = $("#demoStatus");
-  const began = performance.now();
-  clearInterval(demoWatch);
-  demoWatch = setInterval(() => {
-    const p = portals.values().next().value;
-    const secs = Math.round((performance.now() - began) / 1000);
-    if (p?.stream.status === "streaming") {
-      clearInterval(demoWatch);
-      el.textContent = `Demo ready: window ${p.portal.id} is live (took ${secs} s). Put the headset on and enter.`;
-    } else el.textContent = `Preparing the demo… ${p ? labelFor(p.stream.status === "idle" ? "connecting" : p.stream.status) || "starting" : "resetting the room"} (${secs} s)`;
-  }, 500);
-}
-$("#demoSeed").innerHTML =
-  PRESETS.map(([label, seed]) => `<option value="${seed.replace(/"/g, "&quot;")}">${label}</option>`).join("") + `<option value="">Ask me (no world chosen)</option>`;
-$("#demo").addEventListener("submit", (e) => {
-  e.preventDefault();
-  if (listener.context.state === "suspended") listener.context.resume();
-  const seed = $("#demoSeed").value;
-  if (seed) return prepareDemo(seed);
-  // No world chosen: a clean room that asks for one.
-  send({ t: "reset_story", ask: true });
-  $("#demoStatus").textContent = "Room cleared. The headset will ask what world the story is set in.";
-});

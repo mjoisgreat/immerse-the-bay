@@ -12,9 +12,9 @@ import { camera, renderer, scene } from "./stage.js";
 import { state } from "./state.js";
 import { buzz, chime, flash } from "./feedback.js";
 import { buddy, buddyAimed, buddyTouched, cradle, nearBuddy, toggleBuddyFollow, updateCradle } from "./buddy.js";
-import { setButtonsHidden, toolbar } from "./buttons.js";
-import { gestureCard, hideGestureCard } from "./guide.js";
-import { closePortal, exitOrb, immersion, openPortal, portals, setFocus, stepInside, stepOut } from "./portals.js";
+import { closeMenu, menuSnap, pressMenuPart, toolbar } from "./buttons.js";
+import { cheatSheet } from "./guide.js";
+import { closePortal, immersion, openPortal, portals, setFocus, stepInside, stepOut } from "./portals.js";
 import { disarm, pickChoice, touchPortal, touchWorld } from "./story.js";
 import { startTalking, stopTalking } from "./talk.js";
 import { trail } from "./trail.js";
@@ -27,10 +27,10 @@ const controllerFactory = new XRControllerModelFactory();
 const handFactory = new XRHandModelFactory();
 
 export function targets() {
-  const ui = immersion.inside ? [exitOrb] : [];
+  const ui = [];
   if (renderer.xr.isPresenting) ui.push(...toolbar.targets);
   if (buddy.visible) ui.push(buddy.hitbox);
-  if (gestureCard.visible) ui.push(gestureCard.closeButton, gestureCard.mesh);
+  if (cheatSheet.visible) ui.push(cheatSheet.mesh);
   return [...ui.filter((o) => o.visible || o === buddy.hitbox), ...[...portals.values()].filter((p) => p.portal.group.visible).map((p) => p.portal.screen)];
 }
 
@@ -47,10 +47,13 @@ for (let i = 0; i < 2; i++) {
     new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3(0, 0, -1)]),
     new THREE.LineBasicMaterial({ color: 0xffd08a, transparent: true, opacity: 0.6 }),
   );
-  line.scale.z = 3;
+  // A short ray, not an endless line. The only dot is the pointer on the menu (see Toolbar.pointAt).
+  line.scale.z = 0.4;
   ctrl.add(line);
   ctrl.addEventListener("connected", (e) => {
-    line.visible = !e.data.hand; // hands have their own visuals
+    // A hand's laser only shows while it points at the menu (controllers always show theirs).
+    ctrl.userData.laser = line;
+    line.visible = !e.data.hand;
     ctrl.userData.isHand = Boolean(e.data.hand);
   });
   ctrl.addEventListener("selectstart", () => onSelectStart(ctrl));
@@ -70,16 +73,12 @@ for (let i = 0; i < 2; i++) {
 
 function onSelectStart(ctrl) {
   const ray = rayFrom(ctrl);
+  const snap = menuSnap(ray); // pointing near a menu item zones in on it
+  if (snap) return pressMenuPart(snap.part);
   const hit = raycaster.intersectObjects(targets(), false)[0];
-  if (hit?.object.userData.exit) return stepOut();
-  if (hit?.object.userData.cardClose) return hideGestureCard(), buzz(0.3, 30);
-  if (hit?.object.userData.gestureCard) return; // pinching the card itself does nothing; only its ✕ closes it
-  if (hit?.object.userData.button) {
-    ctrl.userData.button = hit.object.userData.button;
-    if (ctrl.userData.button !== state.armed) disarm(); // any other button cancels a pending confirm
-    return toolbar.press(ctrl.userData.button, ctrl);
-  }
-  if (hit?.object.userData.choice !== undefined) return pickChoice(hit.object.userData.choice);
+  if (!(hit?.object.userData.button || hit?.object.userData.choice !== undefined)) closeMenu(); // any other action shuts the menu
+  if (hit?.object.userData.gestureCard) return cheatSheet.hide(); // pinching the cheat sheet closes it
+  if (hit?.object.userData.button || hit?.object.userData.choice !== undefined) return pressMenuPart(hit.object);
   // Pick the companion up (pointing at it, or reaching out and touching it). A quick tap toggles
   // following (see onSelectEnd); holding carries it, and letting go throws it.
   const otherHand = [0, 1].map((i) => renderer.xr.getController(i)).find((c) => c !== ctrl);
@@ -235,10 +234,6 @@ function onSelectEnd(ctrl) {
     return;
   }
   if (resize && resize.holder === ctrl) resize = null; // let go of the carrying hand: resizing ends too
-  if (ctrl.userData.button) {
-    toolbar.release(ctrl.userData.button, ctrl);
-    ctrl.userData.button = null;
-  }
   const p = ctrl.userData.grabbed;
   const tap = ctrl.userData.tap;
   ctrl.userData.tap = null;
@@ -279,12 +274,13 @@ export function pollButtons() {
     if (src.gamepad?.buttons?.[5]?.pressed) step = i;
     if (src.gamepad?.buttons?.[3]?.pressed) stick = true;
   });
-  if (stick && !stickHeld) setButtonsHidden(!toolbar.collapsed); // thumbstick click: hide / show buttons
+  if (stick && !stickHeld) toolbar.toggleOpen(); // thumbstick click: open / close the menu
   stickHeld = stick;
-  if (pressed && !buttonHeld) startTalking();
+  if (pressed && !buttonHeld) (closeMenu(), startTalking());
   if (!pressed && buttonHeld) stopTalking();
   buttonHeld = pressed;
   if (step !== null && !stepHeld) {
+    closeMenu();
     if (immersion.inside) stepOut();
     else {
       rayFrom(renderer.xr.getController(step));
@@ -345,10 +341,11 @@ export function facingPortal() {
   return best;
 }
 export const gestures = new HandGestures(renderer, camera, {
-  "talk-start": () => (gestures.pulse(0xff5533), startTalking(true)),
+  "talk-start": () => (closeMenu(), gestures.pulse(0xff5533), startTalking(true)),
   "talk-end": () => (gestures.pulse(0xffd08a), stopTalking()),
   "talk-mouth": () => state.talking && flash("Listening… lower your hand when you're done", 60000),
   open() {
+    closeMenu();
     if (immersion.inside) return;
     if ([0, 1].some((i) => renderer.xr.getController(i).userData.grabbed || renderer.xr.getController(i).userData.heldBuddy)) return; // dragging a window, not parting curtains
     const p = portals.get(state.focusId)?.portal || facingPortal();
@@ -357,18 +354,19 @@ export const gestures = new HandGestures(renderer, camera, {
     stepInside(p);
   },
   close() {
+    closeMenu();
     if (!immersion.inside) return; // outside, hands coming together means nothing
     confirmGesture("close", 0xffd08a);
     stepOut();
   },
   shake() {
+    closeMenu();
     if (immersion.inside) return confirmGesture("close", 0xffd08a), stepOut();
     if (!portals.has(state.focusId)) return;
     confirmGesture("shake", 0xff6a4a);
     flash(`Window ${state.focusId} wiped away.`, 2500);
     closePortal(state.focusId);
   },
-  palm: () => (gestures.pulse(0xffffff), setButtonsHidden(!toolbar.collapsed)),
-  // (the how-to card at the start of the session now teaches every gesture)
+  palm: () => (gestures.pulse(0xffffff), toolbar.toggleOpen()),
 });
 scene.add(gestures.fx);

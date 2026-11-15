@@ -1,6 +1,6 @@
 // app/guide.js: title card, the first-time guide, and the how-to gesture card.
 import * as THREE from "three";
-import { GestureCard } from "../gesturecard.js";
+import { GestureCard, buttonRows, gestureRows } from "../gesturecard.js";
 import { TAGLINE } from "../presets.js";
 import { camera, renderer, scene } from "./stage.js";
 import { state } from "./state.js";
@@ -71,23 +71,13 @@ export function guide(step) {
   if (renderer.xr.isPresenting) speak(GUIDE[step], ...NARRATOR);
 }
 
-// The how-to card: at the start of a headset session, every action and its hand gesture. Pinch it to close
-// it; otherwise it fades after a minute, or as soon as you step inside a world.
-export const gestureCard = new GestureCard(BUDDY.name);
-scene.add(gestureCard.mesh);
-let gestureCardTimer = 0;
-function showGestureCard() {
-  gestureCard.show(camera);
-  clearTimeout(gestureCardTimer);
-  gestureCardTimer = setTimeout(hideGestureCard, 60000);
+// The cheat sheet: every hand gesture, controller button and desktop key. It opens only from the menu's
+// Cheat sheet entry, and closes when the menu closes or when you pinch it.
+export const cheatSheet = new GestureCard(BUDDY.name, { rows: [...gestureRows(BUDDY.name), ...buttonRows()], title: "Cheat sheet", row: 66 });
+scene.add(cheatSheet.mesh);
+// Returns true so the menu stays open: the cheat sheet lives only while the menu does.
+export function showCheatSheet() {
+  cheatSheet.show(camera);
+  return true;
 }
-export function hideGestureCard() {
-  clearTimeout(gestureCardTimer);
-  gestureCard.hide();
-}
-renderer.xr.addEventListener("sessionstart", () => {
-  clearTimeout(gestureCardTimer);
-  // A moment after the session starts, so the headset's pose has settled and the card lands in front of you.
-  gestureCardTimer = setTimeout(() => renderer.xr.isPresenting && !immersion.inside && showGestureCard(), 1800);
-});
-renderer.xr.addEventListener("sessionend", hideGestureCard);
+renderer.xr.addEventListener("sessionend", () => cheatSheet.hide());
