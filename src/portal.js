@@ -43,32 +43,54 @@ void main(){
   gl_FragColor = vec4(col, feather * iris * fade * shown);
 }`;
 
-/** A rounded text panel (a window's caption, the in-headset toast). `mesh` is what you add to the scene. */
+const CAP_MIN_H = 192, CAP_LINE = 52, CAP_MAX_H = 1024;
+
+/** A rounded text panel (a window's caption, the in-headset toast). `mesh` is what you add to the scene.
+ *  It grows downward to fit however many lines the text needs; its top edge stays put. */
 export class Caption {
   constructor() {
-    this.canvas = Object.assign(document.createElement("canvas"), { width: 1024, height: 192 });
+    this.canvas = Object.assign(document.createElement("canvas"), { width: 1024, height: CAP_MIN_H });
     this.tex = new THREE.CanvasTexture(this.canvas);
     this.tex.colorSpace = THREE.SRGBColorSpace;
     this.mesh = new THREE.Mesh(
-      new THREE.PlaneGeometry(W, W * (192 / 1024)),
+      this._geometry(CAP_MIN_H),
       new THREE.MeshBasicMaterial({ map: this.tex, transparent: true, depthWrite: false }),
     );
   }
 
+  /** Plane for a panel `h` px tall, shifted so its top edge matches the minimum-height panel's. */
+  _geometry(h) {
+    const geo = new THREE.PlaneGeometry(W, W * (h / 1024));
+    geo.translate(0, -W * ((h - CAP_MIN_H) / 2 / 1024), 0);
+    return geo;
+  }
+
   set(text, kind = "story") {
     const c = this.canvas, g = c.getContext("2d");
-    g.clearRect(0, 0, c.width, c.height);
+    let h = CAP_MIN_H, lines = [];
+    const font = `${kind === "story" ? "italic 500" : "500"} 44px Georgia, serif`;
     if (text) {
-      g.font = `${kind === "story" ? "italic 500" : "500"} 44px Georgia, serif`;
-      const lines = wrap(g, text, c.width - 80).slice(0, 2);
+      g.font = font;
+      lines = wrap(g, text, c.width - 80);
+      h = Math.min(CAP_MAX_H, Math.max(CAP_MIN_H, lines.length * CAP_LINE + 80));
+      lines = lines.slice(0, Math.floor((h - 80) / CAP_LINE));
+    }
+    if (c.height !== h) {
+      c.height = h; // resizing clears the canvas and resets the context
+      this.mesh.geometry.dispose();
+      this.mesh.geometry = this._geometry(h);
+    } else g.clearRect(0, 0, c.width, c.height);
+    if (text) {
+      g.font = font;
       g.fillStyle = "rgba(10,12,20,0.55)";
-      roundRect(g, 20, 20, c.width - 40, c.height - 40, 30);
+      roundRect(g, 20, 20, c.width - 40, h - 40, 30);
       g.fill();
       g.fillStyle = kind === "story" ? "#ffe9c7" : "#bcd3ff";
       g.textAlign = "center";
       g.textBaseline = "middle";
-      lines.forEach((l, i) => g.fillText(l, c.width / 2, c.height / 2 + (i - (lines.length - 1) / 2) * 52));
+      lines.forEach((l, i) => g.fillText(l, c.width / 2, h / 2 + (i - (lines.length - 1) / 2) * CAP_LINE));
     }
+    this.tex.dispose(); // new texture size needs a fresh GPU upload
     this.tex.needsUpdate = true;
   }
 
