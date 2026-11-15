@@ -398,6 +398,9 @@ export function applyDirection(s, out, ms, seq = 0, event = null) {
   const prompt = s.window && out.prompt ? out.prompt : null;
   // A new world asked for while one is showing comes with a transition prompt: the story moves there in
   // one continuous shot (no restart, so the client is not told to reopen the window).
+  const norm = (v) => String(v || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  // Naming the world that is already showing (she often does when it opens) changes nothing.
+  if (companion?.world && s.story.seed && norm(companion.world) === norm(s.story.seed)) delete companion.world;
   const transition = Boolean(prompt && s.story.seed && companion?.world);
   if (prompt) {
     s.window.prompt = prompt;
