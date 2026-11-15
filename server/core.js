@@ -171,6 +171,7 @@ function step(s, m, ctx) {
         s.story = newStory(); // a new page has no window yet; the same page reconnecting keeps its story
         s.prompts = [];
         s.choices = [];
+        s.chat = []; // her memory of earlier exchanges belongs to the earlier page
       }
       s.rendererId = m.rid ?? null;
       s.window = null;
@@ -194,6 +195,7 @@ function step(s, m, ctx) {
       s.story = newStory();
       s.prompts = [];
       s.choices = [];
+      s.chat = [];
       pushLog(s, "window", "Window opened");
       if (s.nextSeed) director = openWorld(s, s.nextSeed);
       s.nextSeed = "";
@@ -204,6 +206,7 @@ function step(s, m, ctx) {
       s.prompts = [];
       s.choices = [];
       s.immersed = false;
+      s.chat = [];
       pushLog(s, "window", "Window closed");
       break;
     case "window_status":

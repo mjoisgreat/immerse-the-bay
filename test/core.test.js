@@ -130,8 +130,10 @@ test("a new window has no world until Bonnie makes one: the owner's words go to 
 
 test("closing the window forgets its story", () => {
   const s = start();
+  s.chat = [{ you: "hi", reply: "old" }];
   reduce(s, { t: "window_closed", rid: "r1" }, owner);
   assert.equal(s.window, null);
+  assert.deepEqual(s.chat, []); // Bonnie forgets the old exchanges too
   assert.equal(s.story.seed, "");
   assert.deepEqual(s.choices, []);
 });
