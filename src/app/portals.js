@@ -108,6 +108,7 @@ export function closeWindow() {
   const { portal, stream } = current;
   if (immersion.portal === portal) immersion.reset();
   stream.close();
+  stopSides(); // the wide view's side streams go with the window, not a frame later
   portal.dispose();
   current = null;
   send({ t: "window_closed" });
