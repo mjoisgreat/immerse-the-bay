@@ -1,4 +1,6 @@
 import * as THREE from "three";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
 
 // The Moon hub: a lunar landscape built in code (no big download), lit by a low sun with long
 // baked shadows, under a black sky with stars, the Sun and the Earth.
@@ -10,7 +12,15 @@ import * as THREE from "three";
 // keeps it cheap on the Quest and independent of the lights the rest of the scene uses.
 
 const R = 98; // terrain radius, metres
-const GRID = 400; // heightmap cells per side
+const GRID = 440; // heightmap cells per side
+// Size of the ground's features (craters, bumps, grain); the field's radius stays put.
+const S = 1;
+// Scale of the ground and hills around where you stand (the lander keeps its real size): below 1
+// the land feels smaller and closer, as if you were taller. `?moonscale=` overrides it for tuning.
+const WORLD_SCALE = (() => {
+  const q = Number(new URLSearchParams(globalThis.location?.search ?? "").get("moonscale"));
+  return q > 0.1 && q <= 2 ? q : 0.6;
+})();
 const CELL = (2 * R + 4) / GRID;
 const HALF = (GRID * CELL) / 2;
 const SUN = new THREE.Vector3(-0.55, Math.sin(THREE.MathUtils.degToRad(19)), 0.83).normalize(); // behind-left of you
@@ -69,8 +79,9 @@ function buildHeights() {
       const x = -HALF + i * CELL, z = -HALF + j * CELL;
       const r = Math.hypot(x, z);
       const flat = smooth(3, 16, r);
-      let h = flat * ((fbm(x / 35, z / 35, 4, 1) - 0.5) * 2.4 + (fbm(x / 7, z / 7, 3, 2) - 0.5) * 0.35);
-      h += (fbm(x / 2, z / 2, 2, 3) - 0.5) * 0.06;
+      const xs = x / S, zs = z / S;
+      let h = flat * S * ((fbm(xs / 35, zs / 35, 4, 1) - 0.5) * 2.4 + (fbm(xs / 7, zs / 7, 3, 2) - 0.5) * 0.35);
+      h += (fbm(xs / 2, zs / 2, 2, 3) - 0.5) * 0.06 * S;
       const rim = Math.pow(smooth(42, 96, r), 1.6);
       h += rim * (3 + 12 * fbm(x / 22 + 40, z / 22, 5, 4));
       H[at(i, j)] = h;
@@ -79,16 +90,20 @@ function buildHeights() {
   const rand = rng(1969);
   const craters = [];
   const place = (n, rMin, rMax, dMin, dMax, depthK) => {
+    // Same density at any scale: S times smaller craters, 1/S² as many.
+    n = Math.round(n / (S * S));
+    rMin = Math.max(rMin * S, 0.45);
+    rMax = Math.max(rMax * S, rMin);
     for (let k = 0; k < n; k++) {
       const cr = rMin + (rMax - rMin) * Math.pow(rand(), 2);
       const d = dMin + (dMax - dMin) * Math.sqrt(rand());
       const a = rand() * Math.PI * 2;
       const cx = Math.cos(a) * d, cz = Math.sin(a) * d;
-      if (d < cr + 5) continue;
+      if (d < cr + 5 || d > 97) continue;
       craters.push({ cx, cz, cr, depth: cr * depthK * (0.4 + 0.6 * rand()) });
     }
   };
-  place(3, 10, 20, 32, 70, 0.18);
+  place(3, 10, 20, 32 * S, 92, 0.18);
   place(45, 2, 8, 10, 90, 0.2);
   place(380, 0.35, 1.8, 3, 95, 0.16);
   for (const { cx, cz, cr, depth } of craters) {
@@ -267,7 +282,75 @@ function sunDisc() {
   return mesh;
 }
 
-// ---------- lander (an original, simple descent + ascent stage) ----------
+// An opaque black dome behind everything. In passthrough three.js clears to transparent whatever
+// the background colour is, so without this your real room would show through the sky.
+// It's drawn in the opaque pass, first of all (a custom blend still fades it there): the transparent
+// pass comes after the step-inside world (immersion.js draws it opaque in the headset), so there the
+// sky covered the world in black while you stepped into a window on the Moon, and back out.
+function blackSky() {
+  const m = new THREE.ShaderMaterial({
+    uniforms: { opacity: { value: 1 } },
+    vertexShader: SKY_VERT_HEAD + "void main() { gl_Position = skyPosition(position); }",
+    fragmentShader: "uniform float opacity; void main() { gl_FragColor = vec4(0.0, 0.0, 0.0, opacity); }",
+    transparent: false,
+    blending: THREE.CustomBlending,
+    blendSrc: THREE.SrcAlphaFactor,
+    blendDst: THREE.OneMinusSrcAlphaFactor,
+    blendSrcAlpha: THREE.OneFactor,
+    blendDstAlpha: THREE.OneMinusSrcAlphaFactor,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+  });
+  m.userData.keepPass = true; // the fader leaves it in the opaque pass
+  const mesh = new THREE.Mesh(new THREE.SphereGeometry(SKY_DIST, 32, 16), m);
+  mesh.frustumCulled = false;
+  mesh.renderOrder = -40; // before the step-inside world (-30) and the windows' wall masks (-20)
+  return mesh;
+}
+
+// ---------- NASA's Apollo Lunar Module (NASA 3D Resources, credit NASA/Michael D. Carbajal) ----------
+const LANDER_AT = new THREE.Vector3(-9, 0, -12);
+async function nasaLander(groundY) {
+  const draco = new DRACOLoader().setDecoderPath("/draco/"); // the model is Draco-compressed
+  const gltf = await new GLTFLoader().setDRACOLoader(draco).loadAsync("/moon/lander.glb");
+  draco.dispose();
+  const root = gltf.scene;
+  root.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(root);
+  const k = 7 / (box.max.y - box.min.y); // the real LM stood about 7 m tall
+  const place = new THREE.Matrix4().compose(
+    new THREE.Vector3(LANDER_AT.x, groundY - 0.05 - box.min.y * k, LANDER_AT.z),
+    new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0.5, 0)),
+    new THREE.Vector3(k, k, k),
+  );
+  const group = new THREE.Group(), mats = new Map(), n = new THREE.Vector3();
+  root.traverse((o) => {
+    if (!o.isMesh) return;
+    // Flat shading: split the triangles apart so each face gets its own normal (and light).
+    const src0 = o.geometry.index ? o.geometry.toNonIndexed() : o.geometry.clone();
+    const g = src0.applyMatrix4(place.clone().multiply(o.matrixWorld));
+    g.computeVertexNormals();
+    const nor = g.attributes.normal, cols = new Float32Array(nor.count * 3);
+    for (let i = 0; i < nor.count; i++) {
+      n.fromBufferAttribute(nor, i).normalize();
+      const l = Math.max(0, n.dot(SUN)) * 1.1 + 0.05 + 0.05 * Math.max(0, n.y); // sun + earthshine + ground bounce
+      cols[i * 3] = cols[i * 3 + 1] = cols[i * 3 + 2] = l;
+    }
+    g.setAttribute("color", new THREE.BufferAttribute(cols, 3));
+    const src = o.material;
+    if (!mats.has(src)) mats.set(src, new THREE.MeshBasicMaterial({ color: src.color, map: src.map, vertexColors: true, side: src.side }));
+    group.add(new THREE.Mesh(g, mats.get(src)));
+  });
+  // Boxes the terrain uses to bake the lander's shadow (descent stage, then ascent stage).
+  const sz = box.getSize(new THREE.Vector3()).multiplyScalar(k);
+  const boxes = [
+    new THREE.Box3(new THREE.Vector3(-sz.x * 0.25, 0.4, -sz.z * 0.25), new THREE.Vector3(sz.x * 0.25, sz.y * 0.4, sz.z * 0.25)),
+    new THREE.Box3(new THREE.Vector3(-sz.x * 0.2, sz.y * 0.4, -sz.z * 0.2), new THREE.Vector3(sz.x * 0.2, sz.y * 0.75, sz.z * 0.2)),
+  ].map((b) => b.applyMatrix4(new THREE.Matrix4().compose(new THREE.Vector3(LANDER_AT.x, groundY, LANDER_AT.z), new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0.5, 0)), new THREE.Vector3(1, 1, 1))));
+  return { group, boxes };
+}
+
+// ---------- fallback lander (an original, simple descent + ascent stage) ----------
 function bake(geometry, color, matrix) {
   const g = (geometry.index ? geometry.toNonIndexed() : geometry.clone()).applyMatrix4(matrix);
   g.computeVertexNormals();
@@ -308,7 +391,7 @@ function lander(groundY) {
     const s = new THREE.Vector3(Math.cos(a) * 1.75, 0.8, Math.sin(a) * 1.75), e = new THREE.Vector3(Math.cos(a) * 2.6, 0.75, Math.sin(a) * 2.6);
     parts.push({ geo: new THREE.CylinderGeometry(0.04, 0.04, s.distanceTo(e), 6), color: grey, m: new THREE.Matrix4().compose(s.clone().add(e).multiplyScalar(0.5), new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), e.clone().sub(s).normalize()), new THREE.Vector3(1, 1, 1)) });
   }
-  const place = new THREE.Matrix4().compose(new THREE.Vector3(-9, groundY - 0.05, -12), new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0.5, 0)), new THREE.Vector3(1, 1, 1));
+  const place = new THREE.Matrix4().compose(new THREE.Vector3(LANDER_AT.x, groundY - 0.05, LANDER_AT.z), new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0.5, 0)), new THREE.Vector3(1, 1, 1));
   const mat = new THREE.MeshBasicMaterial({ vertexColors: true });
   const group = new THREE.Group();
   for (const p of parts) group.add(new THREE.Mesh(bake(p.geo, p.color, place.clone().multiply(p.m)), mat));
@@ -321,33 +404,52 @@ function lander(groundY) {
 }
 
 // ---------- terrain ----------
-function terrain(height, landerBoxes, maps) {
-  const RINGS = 150, SEGS = 240;
-  const ringR = (i) => R * Math.pow(i / RINGS, 1.6);
-  const pos = new Float32Array((RINGS + 1) * SEGS * 3), light = new Float32Array((RINGS + 1) * SEGS);
+// Sunlight over the whole field as a texture (one texel per ~0.5 m of ground before scaling), so shading and
+// shadow edges are sharp per pixel instead of smeared between mesh corners.
+function lightMap(height, landerBoxes, landerAt) {
+  const N = 384, span = 2 * HALF;
+  const data = new Uint8Array(N * N * 4);
   const tanE = SUN.y / Math.hypot(SUN.x, SUN.z);
   const sx = SUN.x / Math.hypot(SUN.x, SUN.z), sz = SUN.z / Math.hypot(SUN.x, SUN.z);
   const ray = new THREE.Ray(), o = new THREE.Vector3(), n = new THREE.Vector3();
-  for (let i = 0; i <= RINGS; i++)
-    for (let s = 0; s < SEGS; s++) {
-      const a = (s / SEGS) * Math.PI * 2, r = ringR(i);
-      const x = Math.cos(a) * r, z = Math.sin(a) * r, y = height(x, z);
-      const k = i * SEGS + s;
-      pos.set([x, y, z], k * 3);
-      const e = 0.35;
+  const e = span / N;
+  for (let j = 0; j < N; j++)
+    for (let i = 0; i < N; i++) {
+      const x = -HALF + (i + 0.5) * e, z = -HALF + (j + 0.5) * e, y = height(x, z);
       n.set(height(x - e, z) - height(x + e, z), 2 * e, height(x, z - e) - height(x, z + e)).normalize();
       let lit = Math.max(0, n.dot(SUN));
       // Terrain self-shadow: march towards the sun over the heightmap.
-      for (let t = 0.3; t < 160 && lit > 0; t *= 1.12) {
+      for (let t = 0.25; t < 160 && lit > 0; t *= 1.1) {
         const px = x + sx * t, pz = z + sz * t;
         if (Math.abs(px) > HALF || Math.abs(pz) > HALF) break;
-        if (height(px, pz) > y + t * tanE + 0.03) lit = 0;
+        if (height(px, pz) > y + t * tanE + 0.02) lit = 0;
       }
-      if (lit > 0 && Math.hypot(x + 9, z + 12) < 30) {
+      if (lit > 0 && Math.hypot(x - landerAt.x, z - landerAt.z) < 40) {
         ray.set(o.set(x, y + 0.02, z), SUN);
         if (landerBoxes.some((b) => ray.intersectsBox(b))) lit = 0;
       }
-      light[k] = lit * 1.15 + 0.03 + 0.02 * n.y; // sun + earthshine
+      const light = lit * 1.15 + 0.03 + 0.02 * n.y; // sun + earthshine
+      const k = (i + j * N) * 4;
+      data[k] = data[k + 1] = data[k + 2] = Math.min(255, Math.round((light / 1.4) * 255));
+      data[k + 3] = 255;
+    }
+  const t = new THREE.DataTexture(data, N, N);
+  t.magFilter = THREE.LinearFilter;
+  t.minFilter = THREE.LinearMipmapLinearFilter;
+  t.generateMipmaps = true;
+  t.needsUpdate = true;
+  return t;
+}
+
+function terrain(height, maps) {
+  const RINGS = 160, SEGS = 256;
+  const ringR = (i) => R * Math.pow(i / RINGS, 1.6);
+  const pos = new Float32Array((RINGS + 1) * SEGS * 3);
+  for (let i = 0; i <= RINGS; i++)
+    for (let s = 0; s < SEGS; s++) {
+      const a = (s / SEGS) * Math.PI * 2, r = ringR(i);
+      const x = Math.cos(a) * r, z = Math.sin(a) * r;
+      pos.set([x, height(x, z), z], (i * SEGS + s) * 3);
     }
   const idx = [];
   for (let i = 0; i < RINGS; i++)
@@ -357,30 +459,47 @@ function terrain(height, landerBoxes, maps) {
     }
   const g = new THREE.BufferGeometry();
   g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
-  g.setAttribute("light", new THREE.BufferAttribute(light, 1));
   g.setIndex(idx);
   g.computeBoundingSphere();
+  const sunXZ = new THREE.Vector2(SUN.x, SUN.z).normalize();
   const m = new THREE.ShaderMaterial({
-    uniforms: { detail: { value: maps.detail }, macro: { value: maps.macro }, opacity: { value: 1 } },
+    uniforms: {
+      detail: { value: maps.detail },
+      macro: { value: maps.macro },
+      lightmap: { value: maps.light },
+      halfSize: { value: HALF },
+      sunXZ: { value: sunXZ },
+      opacity: { value: 1 },
+      scale: { value: S },
+    },
     vertexShader: /* glsl */ `
-      attribute float light; varying float vLight; varying vec2 vXZ; varying float vDist;
+      varying vec2 vXZ; varying float vDist;
       void main() {
-        vLight = light; vXZ = position.xz;
+        vXZ = position.xz;
         vec4 mv = modelViewMatrix * vec4(position, 1.0);
         vDist = -mv.z;
         gl_Position = projectionMatrix * mv;
       }`,
     fragmentShader: /* glsl */ `
-      uniform sampler2D detail; uniform sampler2D macro; uniform float opacity;
-      varying float vLight; varying vec2 vXZ; varying float vDist;
+      uniform sampler2D detail; uniform sampler2D macro; uniform sampler2D lightmap;
+      uniform float halfSize; uniform vec2 sunXZ; uniform float opacity; uniform float scale;
+      varying vec2 vXZ; varying float vDist;
       void main() {
+        float light = texture2D(lightmap, (vXZ + halfSize) / (2.0 * halfSize)).r * 1.4;
         // NASA LRO colour of a patch around Mare Tranquillitatis, stretched over the whole field.
         vec3 tone = texture2D(macro, vec2(0.555, 0.53) + vXZ * vec2(0.00022, -0.00044)).rgb;
         tone = tone / max(0.001, dot(tone, vec3(0.333))) * 0.5;
-        float d1 = texture2D(detail, vXZ / 3.1).r, d2 = texture2D(detail, vXZ / 17.3 + 0.37).r, d3 = texture2D(detail, vXZ * 1.7).r;
-        float grain = d1 * 0.55 + d2 * 0.45;
-        grain = mix(grain, grain * (0.75 + 0.5 * d3), smoothstep(8.0, 1.0, vDist));
-        vec3 c = tone * (0.35 + 0.75 * grain) * 0.62 * vLight;
+        vec2 q = vXZ / scale;
+        float d1 = texture2D(detail, q / 2.3).r, d2 = texture2D(detail, q / 13.1 + 0.37).r;
+        // Fine relief up close: the grain texture read as tiny bumps, lit from the sun's side.
+        vec2 fq = q * 1.3;
+        float f0 = texture2D(detail, fq).r;
+        vec2 grad = vec2(texture2D(detail, fq + vec2(0.004, 0.0)).r - f0, texture2D(detail, fq + vec2(0.0, 0.004)).r - f0);
+        float near = smoothstep(14.0, 1.5, vDist);
+        float bump = 1.0 + near * clamp(dot(grad, sunXZ) * 9.0, -0.6, 0.6) * step(0.12, light);
+        float grain = d1 * 0.6 + d2 * 0.4;
+        grain = mix(grain, grain * (0.8 + 0.4 * f0), near);
+        vec3 c = tone * (0.35 + 0.75 * grain) * 0.62 * light * bump;
         gl_FragColor = vec4(c, opacity);
         #include <colorspace_fragment>
       }`,
@@ -398,10 +517,20 @@ export async function buildMoon() {
   const [earthTex, lroc] = await Promise.all([load("/moon/earth.jpg"), load("/moon/lroc_color.jpg")]);
   await new Promise((r) => setTimeout(r, 30)); // let a loading message paint before the heavy part
   const height = buildHeights();
-  const lm = lander(height(-9, -12));
-  const ground = terrain(height, lm.boxes, { detail: detailTexture(), macro: lroc ?? new THREE.DataTexture(new Uint8Array([128, 128, 128, 255]), 1, 1) });
+  // The ground is shrunk around you by WORLD_SCALE; the lander keeps its real size.
+  const toLocal = 1 / WORLD_SCALE;
+  const landerLocal = LANDER_AT.clone().multiplyScalar(toLocal);
+  const groundY = height(landerLocal.x, landerLocal.z) * WORLD_SCALE;
+  const lm = await nasaLander(groundY).catch((e) => (console.warn("[moon] lander model:", e), lander(groundY)));
+  const localBoxes = lm.boxes.map((b) => b.clone().applyMatrix4(new THREE.Matrix4().makeScale(toLocal, toLocal, toLocal)));
+  const ground = terrain(height, {
+    detail: detailTexture(),
+    macro: lroc ?? new THREE.DataTexture(new Uint8Array([128, 128, 128, 255]), 1, 1),
+    light: lightMap(height, localBoxes, landerLocal),
+  });
+  ground.scale.setScalar(WORLD_SCALE);
   const holder = new THREE.Group();
-  holder.add(stars(), sunDisc(), ground, lm.group);
+  holder.add(blackSky(), stars(), sunDisc(), ground, lm.group);
   if (earthTex) holder.add(earth(earthTex));
   const mats = [];
   holder.traverse((o) => o.material && !mats.includes(o.material) && mats.push(o.material));
@@ -416,7 +545,7 @@ export async function buildMoon() {
       for (const m of mats) {
         if (m.uniforms?.opacity) m.uniforms.opacity.value = v;
         else m.opacity = v;
-        if (m.blending === THREE.AdditiveBlending) continue;
+        if (m.blending === THREE.AdditiveBlending || m.userData.keepPass) continue;
         const t = v < 1;
         if (m.transparent !== t) ((m.transparent = t), (m.needsUpdate = true));
       }
