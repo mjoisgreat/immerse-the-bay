@@ -61,7 +61,7 @@ export function settlePortal(portal) {
 
 /**
  * Opens the window, which asks "what world is behind this window?" unless a world was chosen ahead of time
- * (New story, Prepare demo, the console) or is given here.
+ * (New story, the console) or is given here.
  * opts.at: where it goes ([x, y, z] where you drew it, or {x, y, z}), facing you; else in front of you
  * (along opts.origin / opts.dir if given, else where you look); opts.scale: its size (a drawn window);
  * opts.world: the world it starts in (no question asked).

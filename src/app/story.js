@@ -1,4 +1,4 @@
-// app/story.js: direction, crowd mode, snapshots, touching the world, idea cards, the world question, reset / new story, prepare demo.
+// app/story.js: direction, crowd mode, snapshots, touching the world, idea cards, the world question, reset / new story.
 import * as THREE from "three";
 import { stopSides } from "./wide.js";
 import { CameraView } from "../cameraview.js";
@@ -10,10 +10,11 @@ import { state } from "./state.js";
 import { ROOM, send } from "./room.js";
 import { buzz, flash } from "./feedback.js";
 import { buddy, buddyIdle, buddyChangesWorld, buddyReply } from "./buddy.js";
-import { openInFront, syncButtons, toolbar } from "./buttons.js";
+import { syncButtons, toolbar } from "./buttons.js";
 import { NARRATOR, guide } from "./guide.js";
 import { closeWindow, getWindow, immersion, setWorld } from "./portals.js";
 import { playVoice, speak } from "./talk.js";
+import { PRESETS } from "../presets.js";
 import { liveViewers } from "./livecast.js";
 import { steerSides } from "./wide.js";
 
@@ -242,13 +243,16 @@ $("#choices").addEventListener("click", (e) => {
 export const ASK = { story: "What world is this story set in?", window: "What world is behind this window?" };
 export function askWorld(kind) {
   state.asking = { kind };
+  // Three random starter worlds for a new window, as chips to tap.
+  const ideas = kind === "window" ? [...PRESETS].sort(() => Math.random() - 0.5).slice(0, 3) : [];
   $("#askQ").textContent = ASK[kind];
+  $("#askIdeas").innerHTML = ideas.map(([label, seed]) => `<button type="button" class="ghost" data-seed="${seed.replace(/"/g, "&quot;")}">${label}</button>`).join("");
   $("#ask").hidden = false;
   const xr = renderer.xr.isPresenting;
   if (kind === "window") getWindow()?.portal.setCaption(ASK.window, "status");
   flash(`${ASK[kind]} ${xr ? "Raise a hand to your mouth (or hold A) and say it." : CameraView.touch ? "Type it, or hold 🎙 and say it." : "Type it, or hold Space and say it."}`, 600000);
   if (xr) speak(ASK[kind], ...NARRATOR);
-  else if ($("#overlay").hidden) $("#askText").focus();
+  if (!xr && $("#overlay").hidden) $("#askText").focus();
 }
 export function clearAsk(quiet = false) {
   if (!state.asking) return;
@@ -275,6 +279,10 @@ $("#ask").addEventListener("submit", (e) => {
   answerWorld($("#askText").value);
 });
 $("#askSkip").onclick = skipWorld;
+$("#askIdeas").addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-seed]");
+  if (b) answerWorld(b.dataset.seed);
+});
 
 // ---------- Reset and New story ----------
 // One tap arms the button, which then reads "Tap again to confirm" until you do (or press any
@@ -307,7 +315,7 @@ export function newStoryPressed() {
   flash("Starting a new story…", 4000);
 }
 // The server confirmed a reset: close everything. Nothing of the old story is kept, its seed included.
-export function resetLocal({ ask = false, open = false, seed = "" } = {}) {
+export function resetLocal({ ask = false, seed = "" } = {}) {
   state.armed = null;
   syncButtons();
   immersion.reset();
@@ -316,7 +324,6 @@ export function resetLocal({ ask = false, open = false, seed = "" } = {}) {
   closeWindow();
   stopSides(); // the wide view's side streams too
   state.pendingSeed = seed;
-  if (open) return openInFront(), flash(seed ? `A new story begins: ${seed}` : "A new story begins.", 6000);
   if (ask) return askWorld("story");
   flash(seed ? `New story: ${seed}. Open a window to begin.` : "Story cleared. Open a window to begin a new one.", 8000);
 }

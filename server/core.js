@@ -17,7 +17,7 @@ export function initialState() {
     story: newStory(), // its world (seed), bible and beats
     prompts: [], // the prompts the window has been given, oldest first
     choices: [], // what could happen next, offered by the director
-    nextSeed: "", // a world chosen ahead of time (New story, Prepare demo, console) for the window to open onto
+    nextSeed: "", // a world chosen ahead of time (New story, console) for the window to open onto
     immersed: false, // the storyteller has stepped inside the window
     companion: { id: "bunny", present: false }, // the director's body in the room (Bonnie or Pip), if summoned
     chat: [], // recent exchanges with the companion: [{ you, reply }]
@@ -275,7 +275,7 @@ function step(s, m, ctx) {
       s.chat = [];
       s.log = [];
       pushLog(s, "story", s.nextSeed ? `New story: ${s.nextSeed}` : "The story was reset");
-      events.push({ t: "reset", ask: Boolean(m.ask) && !s.nextSeed, open: Boolean(m.open), seed: s.nextSeed });
+      events.push({ t: "reset", ask: Boolean(m.ask) && !s.nextSeed, seed: s.nextSeed });
       break;
     }
     case "set_seed": {

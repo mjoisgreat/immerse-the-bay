@@ -89,7 +89,7 @@ test("reset clears everything: the window, the story, ideas, choices and the see
   reduce(s, { t: "suggest", text: "A whale" }, { role: "viewer", voter: "v1" });
   s.choices = ["x"];
   const { events } = reduce(s, { t: "reset_story" }, { role: "console" });
-  assert.deepEqual(events, [{ t: "reset", ask: false, open: false, seed: "" }]);
+  assert.deepEqual(events, [{ t: "reset", ask: false, seed: "" }]);
   assert.equal(s.window, null);
   assert.deepEqual(s.story, { seed: "", bible: "", beats: [] });
   assert.equal(s.nextSeed, "");
@@ -106,9 +106,9 @@ test("reset clears everything: the window, the story, ideas, choices and the see
 test("a new story can name its world up front, or have the headset ask for it", () => {
   const s = start();
   let { events } = reduce(s, { t: "reset_story", ask: true }, owner);
-  assert.deepEqual(events, [{ t: "reset", ask: true, open: false, seed: "" }]);
-  ({ events } = reduce(s, { t: "reset_story", seed: "A coral city", open: true }, owner));
-  assert.deepEqual(events, [{ t: "reset", ask: false, open: true, seed: "A coral city" }]);
+  assert.deepEqual(events, [{ t: "reset", ask: true, seed: "" }]);
+  ({ events } = reduce(s, { t: "reset_story", seed: "A coral city" }, owner));
+  assert.deepEqual(events, [{ t: "reset", ask: false, seed: "A coral city" }]);
   const { director } = reduce(s, { t: "window_opened", rid: "r1" }, owner);
   assert.deepEqual(director, { type: "world", world: "A coral city" });
   assert.equal(s.nextSeed, ""); // used once, never again

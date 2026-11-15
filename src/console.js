@@ -190,17 +190,13 @@ $("#titleForm").addEventListener("submit", (e) => {
 });
 $("#shared").addEventListener("change", (e) => send({ t: "set_meta", shared: e.target.checked }));
 $("#crowd").addEventListener("change", (e) => send({ t: "set_meta", crowd: e.target.checked }));
-// Reset, New story and Prepare demo wipe the room, so each asks for a second tap. The button
+// Reset and New story wipe the room, so each asks for a second tap. The button
 // stays in its "Tap again to confirm" state until you do, or click anywhere else.
 const CONFIRM = {
   reset: () => send({ t: "reset_story" }),
   newStoryBtn() {
     const seed = $("#newWorld").value.trim();
     send({ t: "reset_story", seed, ask: !seed });
-    $("#newWorld").value = "";
-  },
-  prepare() {
-    send({ t: "reset_story", seed: $("#newWorld").value.trim() || PRESETS[0][1], open: true });
     $("#newWorld").value = "";
   },
 };
