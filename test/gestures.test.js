@@ -14,14 +14,24 @@ function run(steps) {
   for (const [n, hands] of steps) for (let i = 0; i < n; i++) out.push(...d.update({ now: (t += 16), head, hands }));
   return out;
 }
-const atMouth = { ...rest, right: { palm: [0.02, 1.53, -0.05], palmNormal: [-1, 0, 0] } };
+// Thumbs up: a hand-sized fist (wrist → middle knuckle 9 cm) with the thumb pointing up, or not.
+const fist = (pose = "up", base = [0.25, 1.2, -0.35]) => {
+  const [x, y, z] = base;
+  const tipsCurled = [[x + 0.03, y + 0.04, z - 0.05], [x + 0.01, y + 0.04, z - 0.055], [x - 0.01, y + 0.035, z - 0.05], [x - 0.03, y + 0.03, z - 0.045]];
+  const tipsOpen = [[x + 0.03, y + 0.17, z], [x + 0.01, y + 0.18, z], [x - 0.01, y + 0.17, z], [x - 0.03, y + 0.15, z]];
+  const th = {
+    up: { thumbBase: [x + 0.04, y + 0.05, z - 0.03], thumbTip: [x + 0.045, y + 0.12, z - 0.03] },
+    side: { thumbBase: [x + 0.04, y + 0.05, z - 0.03], thumbTip: [x + 0.11, y + 0.055, z - 0.03] },
+    down: { thumbBase: [x + 0.04, y + 0.03, z - 0.03], thumbTip: [x + 0.045, y - 0.04, z - 0.03] },
+  }[pose === "open" ? "up" : pose];
+  return { palm: [x, y + 0.03, z], palmNormal: [-1, 0, 0], fingers: { wrist: [x, y - 0.03, z], knuckle: [x, y + 0.06, z - 0.01], ...th, tips: pose === "open" ? tipsOpen : tipsCurled } };
+};
+// Talking = a thumbs up held to the mouth like a microphone.
+const atMouth = { ...rest, right: fist("up", [0.02, 1.5, -0.05]) };
 const lHand = (x) => ({ palm: [-x, 1.2, -0.35], palmNormal: [1, 0, 0] });
 const rHand = (x) => ({ palm: [x, 1.2, -0.35], palmNormal: [-1, 0, 0] });
 const leftPalmUp = { left: { palm: [-0.05, 1.45, -0.35], palmNormal: [0.05, 0.4, 0.9] } };
 
-test("hand to mouth talks, lowering it sends", () => {
-  assert.deepEqual(run([[10, rest], [30, atMouth], [10, rest]]), ["talk-start", "talk-end"]);
-});
 test("a quick brush past the mouth is ignored", () => {
   assert.deepEqual(run([[5, rest], [6, atMouth], [5, rest]]), []);
 });
@@ -93,18 +103,6 @@ test("right palm is ignored", () => {
   assert.deepEqual(run([[60, { right: { palm: [0.05, 1.45, -0.35], palmNormal: [-0.05, 0.4, 0.9] } }]]), []);
 });
 
-// Thumbs up: a hand-sized fist (wrist → middle knuckle 9 cm) with the thumb pointing up, or not.
-const fist = (pose = "up", base = [0.25, 1.2, -0.35]) => {
-  const [x, y, z] = base;
-  const tipsCurled = [[x + 0.03, y + 0.04, z - 0.05], [x + 0.01, y + 0.04, z - 0.055], [x - 0.01, y + 0.035, z - 0.05], [x - 0.03, y + 0.03, z - 0.045]];
-  const tipsOpen = [[x + 0.03, y + 0.17, z], [x + 0.01, y + 0.18, z], [x - 0.01, y + 0.17, z], [x - 0.03, y + 0.15, z]];
-  const th = {
-    up: { thumbBase: [x + 0.04, y + 0.05, z - 0.03], thumbTip: [x + 0.045, y + 0.12, z - 0.03] },
-    side: { thumbBase: [x + 0.04, y + 0.05, z - 0.03], thumbTip: [x + 0.11, y + 0.055, z - 0.03] },
-    down: { thumbBase: [x + 0.04, y + 0.03, z - 0.03], thumbTip: [x + 0.045, y - 0.04, z - 0.03] },
-  }[pose === "open" ? "up" : pose];
-  return { palm: [x, y + 0.03, z], palmNormal: [-1, 0, 0], fingers: { wrist: [x, y - 0.03, z], knuckle: [x, y + 0.06, z - 0.01], ...th, tips: pose === "open" ? tipsOpen : tipsCurled } };
-};
 const thumbsUp = { ...rest, right: fist("up") };
 test("isThumbsUp: a fist with the thumb up, and not a thumb sideways, down or an open hand", async () => {
   const { isThumbsUp } = await import("../src/gestures.js");
@@ -114,28 +112,20 @@ test("isThumbsUp: a fist with the thumb up, and not a thumb sideways, down or an
   assert.equal(isThumbsUp(fist("open").fingers), false);
   assert.equal(isThumbsUp(undefined), false);
 });
-test("thumbs up starts a hands-free talk; lowering the hand keeps it; thumbs up again sends", () => {
-  assert.deepEqual(run([[10, rest], [30, thumbsUp], [60, rest], [30, thumbsUp], [10, rest]]), ["talk-start", "talk-end"]);
+const micFist = atMouth;
+const micOpen = { ...rest, right: fist("open", [0.02, 1.5, -0.05]) };
+test("thumbs up at the mouth talks, lowering the hand sends", () => {
+  assert.deepEqual(run([[10, rest], [30, micFist], [30, rest]]), ["talk-start", "talk-end"]);
 });
-test("holding the thumbs up doesn't toggle it on and off", () => {
-  assert.deepEqual(run([[10, rest], [200, thumbsUp]]), ["talk-start"]);
+test("a hand at the mouth without a thumbs up does nothing", () => {
+  assert.deepEqual(run([[10, rest], [60, micOpen], [10, rest]]), []);
 });
-test("a thumbs up flashed for a moment is ignored", () => {
-  assert.deepEqual(run([[10, rest], [8, thumbsUp], [30, rest]]), []);
+test("a thumbs up away from the mouth does nothing", () => {
+  assert.deepEqual(run([[10, rest], [60, thumbsUp], [10, rest]]), []);
 });
-test("a thumbs up while talking into your hand doesn't end that talk", () => {
-  assert.deepEqual(run([[10, rest], [30, atMouth], [30, { ...atMouth, left: fist("up", [-0.25, 1.2, -0.35]) }]]), ["talk-start"]);
+test("dropping the thumb at the mouth ends the talk", () => {
+  assert.deepEqual(run([[10, rest], [30, micFist], [30, micOpen]]), ["talk-start", "talk-end"]);
 });
-test("a hands-free talk sends by itself after a minute", () => {
-  const out = run([[10, rest], [30, thumbsUp], [3900, rest]]); // ~63 s
-  assert.deepEqual(out, ["talk-start", "talk-end"]);
-});
-
-// Holding your hand at your mouth like a microphone is a fist with the thumb up.
-const micFist = { ...rest, right: fist("up", [0.02, 1.5, -0.05]) };
-test("a thumb-up fist at the mouth is a normal talk: lowering it sends", () => {
-  assert.deepEqual(run([[10, rest], [60, micFist], [10, rest]]), ["talk-start", "talk-end"]);
-});
-test("a thumbs up read on the way to the mouth still ends when the hand is lowered", () => {
-  assert.deepEqual(run([[10, rest], [30, thumbsUp], [60, micFist], [10, rest]]), ["talk-start", "talk-mouth", "talk-end"]);
+test("a one-frame tracking flicker of the thumbs up doesn't cut the talk", () => {
+  assert.deepEqual(run([[10, rest], [30, micFist], [2, micOpen], [30, micFist], [30, rest]]), ["talk-start", "talk-end"]);
 });

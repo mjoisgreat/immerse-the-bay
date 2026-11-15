@@ -7,8 +7,7 @@ import { LAYER } from "./layers.js";
 /** [icon, action, gesture]. `name` is the companion's name. */
 export function gestureRows(name = "Bonnie") {
   return [
-    ["🎙", "Talk", `Hand to your mouth like a microphone (${name} comes to listen); lower it to send`],
-    ["👍", "Talk hands-free", "Thumbs up to start, thumbs up again to send"],
+    ["🎙", "Talk", `Thumbs up held to your mouth like a microphone (${name} comes to listen); lower your hand to send`],
     ["＋", "Open a window", "Pinch and draw a square in the air"],
     ["❤️", `Send ${name} love`, `Pinch and draw a heart in the air: ${name} answers with hearts`],
     ["🐰", `Ask ${name} for a window`, `Say "${name}, open a window onto a snowy village": she walks over and opens it`],

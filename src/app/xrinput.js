@@ -343,7 +343,6 @@ export function facingPortal() {
 export const gestures = new HandGestures(renderer, camera, {
   "talk-start": () => (closeMenu(), gestures.pulse(0xff5533), startTalking(true)),
   "talk-end": () => (gestures.pulse(0xffd08a), stopTalking()),
-  "talk-mouth": () => state.talking && flash("Listening… lower your hand when you're done", 60000),
   open() {
     closeMenu();
     if (immersion.inside) return;
