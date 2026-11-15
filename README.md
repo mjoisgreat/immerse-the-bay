@@ -97,21 +97,21 @@ history, kept per `portal_id` in `server/core.js` (`state.threads`). Each window
   the trigger when you're inside it. The frame with the touched spot marked goes to Claude, which works out what
   you touched and makes it respond. On desktop: click the focused window.
 
-## Bunny, your companion
+## Bonnie, your companion
 
-Press **Bunny** (panel or desktop bar) and a little white VR bunny (after the Stanford XR mascot: long ears, one
+Press **Bonnie** (panel or desktop bar) and a little white VR bunny (after the Stanford XR mascot: long ears, one
 tilted, black headset visor with side straps, an "x" nose and a round tail) hops around your real floor, with a
 soft shadow under it. It's built from simple shapes and animated in code (no model file): it hops with squash and
 stretch and flowing ears, breathes and twitches its ears when idle, waves an ear, nods, shakes its head, does happy
 hops, spins in the air and dances, and its visor glows while it listens and pulses while it talks.
-It wanders in front of you, and comes over when you ask. **Pinch Bunny, or say "follow me",** and it hops beside you
+It wanders in front of you, and comes over when you ask. **Pinch Bonnie, or say "follow me",** and it hops beside you
 wherever you go (a little ahead and to your left, bounding to catch up, popping back if you leave the room); pinch
-again or say "stay" to stop. **Bunny and the story director are the same mind:** everything you say goes to one
-Claude call that both steers the windows and decides what Bunny says and does, so Bunny sees what is in every
-window and "Bunny, make it snow!" changes the world in the same breath as its answer. Say its name, or **look at
-Bunny while you talk** (orb, A/X or hand to mouth), and it always answers out loud from where it sits (OpenAI TTS
+again or say "stay" to stop. **Bonnie and the story director are the same mind:** everything you say goes to one
+Claude call that both steers the windows and decides what Bonnie says and does, so Bonnie sees what is in every
+window and "Bonnie, make it snow!" changes the world in the same breath as its answer. Say its name, or **look at
+Bonnie while you talk** (orb, A/X or hand to mouth), and it always answers out loud from where it sits (OpenAI TTS
 for the voice) with a matching gesture; while you're just narrating it mostly stays quiet and only chimes in now
-and then. Small talk ("hi Bunny", "follow me") leaves the story untouched. Its lines appear in the watch feed and
+and then. Small talk ("hi Bonnie", "follow me") leaves the story untouched. Its lines appear in the watch feed and
 on the theater view.
 
 Add `?companion=pip` to the headset URL to get Pip, the robot, instead ("RobotExpressive" by Tomás Laulhé
@@ -125,7 +125,7 @@ you: Stanford's Main Quad at golden hour (a Gaussian splat made with World Labs 
 [Spark](https://sparkjs.dev)). It's placed where you stand, facing the way you face, and you can walk around in it.
 Press **See-through** to fade back to your real room. The story windows aren't affected: they keep floating in front
 of you (without the "hole in the wall" effect, since there's no real wall), stepping inside a window still shows its
-live video (the Quad hides while you're inside and comes back when you step out), and Bunny comes along. The splat
+live video (the Quad hides while you're inside and comes back when you step out), and Bonnie comes along. The splat
 renderer is only downloaded the first time you press the button.
 
 **Loading and weak hardware:** pressing the button shows a loading state (download percentage, then "Building the

@@ -319,7 +319,7 @@ export class RobotRig {
 // The companion's behaviour: wandering, following, coming when called, talking, speech bubble.
 // ---------------------------------------------------------------------------------------------
 export class Companion {
-  constructor(scene, camera, { name = "Bunny", rig = new BunnyRig() } = {}) {
+  constructor(scene, camera, { name = "Bonnie", rig = new BunnyRig() } = {}) {
     this.name = name;
     this.scene = scene;
     this.camera = camera;

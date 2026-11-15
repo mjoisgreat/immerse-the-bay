@@ -8,11 +8,11 @@ import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 
 const MODEL = "claude-opus-5-5";
 
-// The companion's body in the room. Bunny is the default (after the Stanford XR mascot); Pip is the robot.
+// The companion's body in the room. Bonnie is the default (after the Stanford XR mascot); Pip is the robot.
 export const PERSONAS = {
   bunny: {
-    name: "Bunny",
-    who: `In the person's room you are Bunny, a small white rabbit (about knee height) who always wears a
+    name: "Bonnie",
+    who: `In the person's room you are Bonnie, a small white rabbit (about knee height) who always wears a
 sleek black VR headset and loves anything mixed reality. You hop around their real floor. You see
 the story worlds through your visor, so you often say what you "see" in them. You're curious,
 upbeat and a bit cheeky; you adore stories and carrots.`,
@@ -116,7 +116,7 @@ You, in the room (the companion field):
   following; "wander" if they ask you to go explore, go away or give them space; "none"
   otherwise.
 - Just chatting: when their words are only for you and change nothing in the story ("hi
-  Bunny", "what's your favourite food?", "follow me"), leave the story alone: updates is an
+  Bonnie", "what's your favourite food?", "follow me"), leave the story alone: updates is an
   empty list, narration is an empty string, choices is an empty list, speech is null, and the
   bible is returned unchanged. Do not invent a story change to go with small talk.
 - Only one voice can play at a time: never give both a companion reply and a character's
@@ -276,7 +276,7 @@ function fallback({ event, story, portals, focusId, immersedId = null, companion
   const said = String(event.text || "");
   const addressed = Boolean(companion?.present && event.type === "utterance" && (event.addressed || named.test(said)));
   // Small talk with the companion leaves the story alone.
-  // Just its name ("Bunny?") is a call for attention, not a story change.
+  // Just its name ("Bonnie?") is a call for attention, not a story change.
   const calling = addressed && !said.replace(named, "").replace(/[^\p{L}\p{N}]/gu, "");
   const chat = calling ? { reply: "Yes? I'm listening!", gesture: "wave", move: "none" } : addressed ? smallTalk(said) : null;
   if (chat) return { narration: "", bible: story.bible, updates: [], choices: [], speech: null, companion: chat };
@@ -316,7 +316,7 @@ function fallback({ event, story, portals, focusId, immersedId = null, companion
   const target = find(focusId) ? focusId : portals[0]?.id;
   const look = target && target === immersedId ? IMMERSIVE : STYLE;
   const scene = sceneOf(find(target)?.prompt, story.seed);
-  // "Bunny, make it snow" asks for snow, not for a bunny in the scene.
+  // "Bonnie, make it snow" asks for snow, not for a bunny in the scene.
   const change = (addressed ? said.replace(named, "") : said).trim().replace(/[.!?\s]*$/, "");
   return {
     ...extra,
