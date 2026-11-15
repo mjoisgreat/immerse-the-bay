@@ -139,3 +139,14 @@ test("backup: where to put the window is not part of its world", async () => {
   assert.equal((await ask("Bonnie, open a window onto a snowy village behind me")).companion.open_window, "a snowy village");
   assert.equal((await ask("Bonnie, take us to a candy kingdom on the left")).companion.place, "left");
 });
+
+test("asking Bonnie for several windows at once", async () => {
+  const two = (await ask("Bonnie, open two windows")).companion;
+  assert.equal(two.open_window, "");
+  assert.deepEqual(two.more_windows, [""]);
+  const listed = (await ask("Bonnie, open windows onto a sunny beach and a snowy forest")).companion;
+  assert.equal(listed.open_window, "a sunny beach");
+  assert.deepEqual(listed.more_windows, ["a snowy forest"]);
+  const one = (await ask("Bonnie, open a window onto a misty pine forest")).companion;
+  assert.deepEqual(one.more_windows, []);
+});

@@ -35,3 +35,34 @@ test("the window stands just behind her, away from you, at the height given", ()
   near(w.x, 1), near(w.z, -0.7), assert.equal(w.y, 1.3);
   assert.deepEqual(windowSpot(eye, eye, 1.4), { x: eye.x, y: 1.4, z: eye.z }); // standing on you: no division by zero
 });
+
+import { windowSlot } from "../src/errand.js";
+const dist = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
+test("windowSlot: the first window goes where asked, straight ahead for 'here'", () => {
+  const s = windowSlot("here", eye, fwd, [], { r: 2.2 });
+  near(s.angle, 0);
+  near(s.window.x, 1), near(s.window.z, 2 - 2.2);
+});
+test("windowSlot: more windows line up side by side, never on top of each other", () => {
+  const placed = [];
+  for (let i = 0; i < 3; i++) placed.push(windowSlot("here", eye, fwd, placed, { r: 2.2, gapDeg: 46 }).window);
+  for (let i = 0; i < placed.length; i++)
+    for (let j = i + 1; j < placed.length; j++) assert.ok(dist(placed[i], placed[j]) > 1.6, "windows overlap");
+  // The second and third are either side of the first.
+  assert.ok(placed[1].x !== placed[2].x);
+});
+test("windowSlot: a side request goes to that side, and the next one on that side moves toward the front", () => {
+  const a = windowSlot("left", eye, fwd, [], { r: 2.2 });
+  assert.ok(a.window.x < eye.x); // looking down -z, left is -x
+  const b = windowSlot("left", eye, fwd, [a.window], { r: 2.2, gapDeg: 46 });
+  assert.ok(b.angle < a.angle && b.angle > -1, `${b.angle}`);
+});
+test("windowSlot: Bonnie stands beside the window, not in front of it", () => {
+  const s = windowSlot("here", eye, fwd, [], { r: 2.2, halfWidth: 0.8 });
+  // Off to the side of the window's centre by more than half its width, and nearer to you than the window.
+  const toWin = { x: s.window.x - eye.x, z: s.window.z - eye.z };
+  const l = Math.hypot(toWin.x, toWin.z);
+  const sideways = Math.abs(((s.stand.x - s.window.x) * -toWin.z + (s.stand.z - s.window.z) * toWin.x) / l);
+  assert.ok(sideways > 0.8, `sideways ${sideways}`);
+  assert.ok(dist(s.stand, eye) < dist(s.window, eye));
+});
