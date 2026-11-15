@@ -29,6 +29,7 @@ export function menuFor({ inside = false, world = null, loading = false, armed =
       { id: "exitwin", icon: "↩", label: "Exit window" },
       resetEntry(armed),
       { id: "cheat", icon: "?", label: "Cheat sheet" },
+      { id: "exitvr", icon: "⏏", label: "Exit VR" },
     ];
   }
   // Each world has one entry: enter it from your room, or exit it while you are in it. From one world you

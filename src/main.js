@@ -8,9 +8,9 @@ import { aimedAtBuddy, buddy, syncBuddy, updateCradle } from "./app/buddy.js";
 import { openInFront, setStartScreen, syncButtons, updateToolbar } from "./app/buttons.js";
 import { camView, desktopWalk, seeThrough } from "./app/desktop.js";
 import { guide, showTitle, updateTitle } from "./app/guide.js";
-import { closePortal, immersion, portals, retire, setFocus, stepInside, stepOut } from "./app/portals.js";
+import { closeAllStreams, closePortal, immersion, portals, retire, setFocus, stepInside, stepOut } from "./app/portals.js";
 import { applyDirection, askWorld, clearAsk, resetLocal, showChoices, updateRipples } from "./app/story.js";
-import { ptt } from "./app/talk.js";
+import { ptt, stopTalking } from "./app/talk.js";
 import { trail } from "./app/trail.js";
 import { updateSides } from "./app/wide.js";
 import { backdrop, loco, locoRays } from "./app/world.js";
@@ -95,6 +95,8 @@ async function setupXR() {
     session.addEventListener("end", () => {
       immersion.reset();
       loco.stop();
+      stopTalking();
+      closeAllStreams();
       setStartScreen(true);
     });
     showTitle();

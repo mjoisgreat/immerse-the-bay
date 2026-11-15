@@ -131,6 +131,10 @@ addEventListener("pagehide", () => {
   for (const side of ["L", "R"]) sides[side]?.closeOnUnload();
 });
 
+/** Exiting VR: stop every window's video stream (so credits aren't spent while you are out of the headset). */
+export function closeAllStreams() {
+  for (const p of portals.values()) p.stream.close();
+}
 export function retire(text = `Your room “${ROOM}” is now playing in another tab or device.`) {
   // Stop our streams so credits aren't spent twice.
   immersion.reset();

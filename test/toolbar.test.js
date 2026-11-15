@@ -24,9 +24,9 @@ test("on the Moon the menu says exit Moon and can still go to Stanford", () => {
   assert.equal(entry(list, "exit-moon").label, "Exit Moon");
 });
 
-test("inside a window the menu offers exit window, reset and the cheat sheet only", () => {
-  assert.deepEqual(ids(menuFor({ inside: true })), ["exitwin", "reset", "cheat"]);
-  assert.deepEqual(ids(menuFor({ inside: true, world: "stanford" })), ["exitwin", "reset", "cheat"]);
+test("inside a window the menu offers exit window, reset, the cheat sheet and exit VR", () => {
+  assert.deepEqual(ids(menuFor({ inside: true })), ["exitwin", "reset", "cheat", "exitvr"]);
+  assert.deepEqual(ids(menuFor({ inside: true, world: "stanford" })), ["exitwin", "reset", "cheat", "exitvr"]);
 });
 
 test("reset asks for a second tap, and says so", () => {
