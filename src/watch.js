@@ -72,8 +72,9 @@ function render(s) {
     ? sug
         .map((x) => {
           const mine = x.voters.includes(voterId);
+          const by = x.by ? ` <span class="muted" style="font-style:normal">· ${esc(x.by)}</span>` : "";
           return `<div class="sugg"><button class="vote ${mine ? "on" : ""}" data-vote="${esc(x.id)}" aria-pressed="${mine}">▲ ${x.voters.length}</button>
-            <span class="text">${esc(x.text)}</span></div>`;
+            <span class="text">${esc(x.text)}${by}</span></div>`;
         })
         .join("")
     : "No ideas yet. Be the first.";
@@ -101,13 +102,21 @@ function renderSnaps() {
 }
 pollSnaps();
 
-// Suggestions and votes (anyone).
+// Suggestions and votes (anyone). The optional name is shown with the idea, in the headset too.
+const NAME_KEY = "lw:name";
+try {
+  $("#who").value = localStorage.getItem(NAME_KEY) || "";
+} catch {}
 $("#suggest").addEventListener("submit", async (e) => {
   e.preventDefault();
   const text = $("#idea").value.trim();
   if (!text) return;
+  const name = $("#who").value.trim();
+  try {
+    localStorage.setItem(NAME_KEY, name);
+  } catch {}
   $("#idea").value = "";
-  await link.request({ t: "suggest", text });
+  await link.request({ t: "suggest", text, name });
 });
 $("#choices").addEventListener("click", (e) => {
   const b = e.target.closest("[data-choose]");

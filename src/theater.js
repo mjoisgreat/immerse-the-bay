@@ -89,7 +89,9 @@ function start() {
     if (key !== choicesKey) (choicesKey = key), renderChoices(s.choices || []);
     const ideas = [...(s.suggestions || [])].sort((a, b) => b.voters.length - a.voters.length || a.at - b.at).slice(0, 3);
     $("#ideasCard").hidden = !ideas.length;
-    $("#ideas").innerHTML = ideas.map((x) => `<div><em>▲ ${x.voters.length}</em><span>${esc(x.text)}</span></div>`).join("");
+    $("#ideas").innerHTML = ideas
+      .map((x) => `<div><em>▲ ${x.voters.length}</em><span>${esc(x.text)}${x.by ? ` <small>· ${esc(x.by)}</small>` : ""}</span></div>`)
+      .join("");
     renderSnaps();
   }
 

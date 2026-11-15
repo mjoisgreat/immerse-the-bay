@@ -239,7 +239,7 @@ const link = createLink(ROOM, {
     if (m.t === "direction") applyDirection(m);
     else if (m.t === "state") {
       roomState = m;
-      if (!sameChoices(m.choices || [])) showChoices(m.choices || []);
+      showChoices(m.choices || []); // also refreshes the audience's ideas and votes on the cards
       if (m.focusId && m.focusId !== focusId && portals.has(m.focusId)) setFocus(m.focusId, false);
     } else if (m.t === "close_portal") closePortal(m.id);
     else if (m.t === "reset") resetLocal();
@@ -247,11 +247,16 @@ const link = createLink(ROOM, {
   },
 });
 
-// Crowd Mode: the audience's top-voted line becomes the next story beat every 20 s.
+// Crowd Mode: the audience's top-voted line becomes the next story beat every 20 s. The message
+// names the idea and who suggested it: inside a world the cards are hidden, so this is the only
+// place the storyteller sees a friend's idea arrive.
 setInterval(() => {
   if (retired || talking || wantTalk || !roomState?.meta?.crowd || !roomState.suggestions?.length || !portals.size) return;
-  send({ t: "use_suggestion", id: "top" });
-  flash("The crowd has spoken…", 3000);
+  const top = [...roomState.suggestions].sort((a, b) => b.voters.length - a.voters.length || a.at - b.at)[0];
+  roomState.suggestions = roomState.suggestions.filter((x) => x.id !== top.id);
+  send({ t: "use_suggestion", id: top.id }); // by id, so the message names the idea actually used
+  refreshCards();
+  flash(`“${top.text}”, ${top.by ? `${top.by}'s idea` : "the crowd's pick"}`, 4000);
 }, 20000);
 
 // Keep the room marked "live" for the community page.
@@ -600,20 +605,52 @@ function updateRipples() {
   }
 }
 
-// "What happens next?" options from the director.
-let currentChoices = [];
-const sameChoices = (list) => list.length === currentChoices.length && list.every((c, i) => c === currentChoices[i]);
+// "What happens next?" cards: the audience's top-voted ideas first (with who suggested them and
+// how many votes they have), then the director's options, three cards at most. Friends playing
+// along on their phones become visible to the storyteller, who picks with a pinch.
+const MAX_CROWD_CARDS = 3;
+let directorChoices = [];
+let cards = []; // [{ kind: "crowd", id, text, by, votes } | { kind: "choice", index, text }]
+let cardsKey = "";
 function showChoices(list) {
-  currentChoices = list;
-  toolbar.setChoices(list);
-  $("#choices").innerHTML = list.map((c, i) => `<button data-choice="${i}">${c.replace(/[&<>"]/g, "")}</button>`).join("");
+  directorChoices = list || [];
+  refreshCards();
+}
+function refreshCards() {
+  const crowd = [...(roomState?.suggestions || [])]
+    .sort((a, b) => b.voters.length - a.voters.length || a.at - b.at)
+    .slice(0, MAX_CROWD_CARDS)
+    .map((x) => ({ kind: "crowd", id: x.id, text: x.text, by: x.by || "", votes: x.voters.length }));
+  const director = directorChoices.map((text, index) => ({ kind: "choice", index, text }));
+  const next = [...crowd, ...director].slice(0, 3);
+  const key = JSON.stringify(next);
+  if (key === cardsKey) return; // state arrives often; only redraw when something changed
+  cardsKey = key;
+  cards = next;
+  toolbar.setChoices(cards.map((c) => (c.kind === "crowd" ? { text: c.text, by: c.by, votes: c.votes } : c.text)));
+  const clean = (s) => String(s).replace(/[&<>"]/g, "");
+  $("#choices").innerHTML = cards
+    .map((c, i) =>
+      c.kind === "crowd"
+        ? `<button data-choice="${i}" class="crowd"><small>${clean(c.by || "A friend")} · ▲ ${c.votes}</small>${clean(c.text)}</button>`
+        : `<button data-choice="${i}">${clean(c.text)}</button>`,
+    )
+    .join("");
 }
 function pickChoice(i) {
-  const text = currentChoices[i];
-  if (!text) return;
-  showChoices([]);
-  send({ t: "choose", index: i });
-  flash(`“${text}”`, 4000);
+  const c = cards[i];
+  if (!c) return;
+  if (c.kind === "crowd") {
+    // Hide it now; the server removes it and the director turns it into the next beat.
+    if (roomState) roomState.suggestions = (roomState.suggestions || []).filter((x) => x.id !== c.id);
+    showChoices([]);
+    send({ t: "use_suggestion", id: c.id });
+    flash(`“${c.text}”${c.by ? `, ${c.by}'s idea` : ""}`, 4000);
+  } else {
+    showChoices([]);
+    send({ t: "choose", index: c.index });
+    flash(`“${c.text}”`, 4000);
+  }
 }
 $("#choices").addEventListener("click", (e) => {
   const b = e.target.closest("[data-choice]");

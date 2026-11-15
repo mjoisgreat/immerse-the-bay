@@ -100,6 +100,25 @@ test("suggestions and votes", () => {
   assert.equal(s.suggestions[0].voters.length, 1);
 });
 
+test("ideas keep their author's name, cleaned and optional", () => {
+  const s = start();
+  reduce(s, { t: "suggest", text: "A full moon rises", name: "  Maya <b>Ö'Neil</b>  the second " }, { role: "viewer", voter: "v1" });
+  reduce(s, { t: "suggest", text: "Lanterns float up" }, { role: "viewer", voter: "v2" });
+  assert.equal(s.suggestions[0].by, "Maya bÖ'Neilb the se"); // tags stripped, 20 characters max
+  assert.equal("by" in s.suggestions[1], false);
+});
+
+test("using a crowd idea moves the story on and clears the director's old options", () => {
+  const s = start();
+  applyDirection(s, { narration: "n", bible: "b", updates: [], choices: ["Go left"], speech: null }, 10);
+  reduce(s, { t: "suggest", text: "A full moon rises", name: "Maya" }, { role: "viewer", voter: "v1" });
+  const { director } = reduce(s, { t: "use_suggestion", id: s.suggestions[0].id }, owner);
+  assert.equal(director.text, "A full moon rises");
+  assert.deepEqual(s.choices, []);
+  assert.equal(s.suggestions.length, 0);
+  assert.equal(s.log.at(-1).kind, "crowd");
+});
+
 const bunny = (reply, more = {}) => ({ narration: "", bible: "b", updates: [], choices: [], speech: null, companion: { reply, gesture: "wave", move: "none" }, ...more });
 
 test("small talk with the companion is spoken and logged but leaves the story alone", () => {
