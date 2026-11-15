@@ -47,22 +47,28 @@ void main(){
   float amt = sqrt(clamp(min(mn.g, 1.0 - mx.g) / max(mx.g, 0.001), 0.0, 1.0)) * 0.22;
   vec3 sharp = clamp((c + (c * 4.0 - n - s - e - w) * amt), 0.0, 1.0);
 
-  // Beyond the frame: a soft, ever blurrier extension of it fading into the scene's colour.
-  vec3 avg = texture2D(map, vec2(0.5, 0.5), 14.0).rgb;
-  // Edge colours smeared outward and heavily blurred (like ambient light), never a recognisable copy.
-  vec2 edgeUv = clamp(uv, 0.002, 0.998);
+  // Beyond the frame: a soft, ever blurrier glow of the picture fading into the scene's colour.
+  // Every pixel computes it (no branch) at a fixed blur level (textureLod): mip selection inside a
+  // branch, or across the frame edge where uv jumps, is undefined and showed up as boxes and seams.
+  vec3 avg = textureLod(map, vec2(0.5, 0.5), 10.0).rgb;
+  // Continuous with the edge: the picture reflected at its edge (seamless, no stretched-row streaks),
+  // already well blurred at the frame and blurring more (higher mip level, wider taps) further out,
+  // so it never reads as a copy or shows a line.
+  vec2 eUv = mirror(uv);
+  float lod = min(4.5 + outside * 5.0, 9.0);
+  float blurR = 0.05 + min(outside, 1.5) * 0.06;
+  vec3 ext = textureLod(map, eUv, lod).rgb * 0.4
+    + textureLod(map, mirror(eUv + vec2(blurR, 0.0)), lod).rgb * 0.15
+    + textureLod(map, mirror(eUv - vec2(blurR, 0.0)), lod).rgb * 0.15
+    + textureLod(map, mirror(eUv + vec2(0.0, blurR)), lod).rgb * 0.15
+    + textureLod(map, mirror(eUv - vec2(0.0, blurR)), lod).rgb * 0.15;
+  // Corners are beyond two edges at once, where a reflection would show shapes: fade to the scene's colour sooner there.
+  float corner = smoothstep(0.0, 0.25, min(max(-uv.x, uv.x - 1.0), max(-uv.y, uv.y - 1.0)) + 0.1);
+  ext = mix(ext, avg, max(smoothstep(0.05, 0.9, outside), corner)) * mix(1.0, 0.3, smoothstep(0.0, 1.6, outside));
+  // A wide, soft blend from the sharp picture into the glow (no visible frame line).
   float edge = min(min(uv.x, 1.0 - uv.x), min(uv.y, 1.0 - uv.y));
-  float inFrame = outside > 0.0 ? 0.0 : smoothstep(0.0, 0.07, edge);
-  vec3 video = sharp;
-  if (inFrame < 1.0) {
-    vec3 ext = vec3(0.0);
-    float spread = 0.06 + outside * 0.08;
-    for (int i = -1; i <= 1; i++) for (int j = -1; j <= 1; j++)
-      ext += texture2D(map, clamp(edgeUv + vec2(float(i), float(j)) * spread, 0.0, 1.0), 5.0 + outside * 2.0).rgb;
-    ext /= 9.0;
-    ext = mix(ext, avg, smoothstep(0.05, 1.0, outside)) * mix(0.85, 0.3, smoothstep(0.0, 1.6, outside));
-    video = mix(ext, sharp, inFrame);
-  }
+  float inFrame = smoothstep(0.0, 0.12, edge) * step(outside, 0.0);
+  vec3 video = mix(ext, sharp, inFrame);
   video += (hash(gl_FragCoord.xy + fract(time) * 91.0) - 0.5) * 0.022; // fine grain hides compression blocks
 
   // Before frames arrive: the same swirl the portal shows while a world forms.
