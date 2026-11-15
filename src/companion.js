@@ -16,7 +16,13 @@ const RUN_SPEED = 1.3; // when it has fallen behind
 const RETURN_AFTER = 6000; // ms after landing from a throw before it trots back to you
 const STRAY_DIST = 4; // m: farther than this from you and it comes back on its own
 const LOST_DIST = 12; // m: farther than this (or NaN) and it is simply put back next to you
-const GESTURES = { wave: "Wave", yes: "Yes", no: "No", thumbs_up: "ThumbsUp", jump: "Jump", dance: "Dance" };
+const GESTURES = {
+  wave: "Wave", yes: "Yes", no: "No", thumbs_up: "ThumbsUp", jump: "Jump", dance: "Dance",
+  // Tricks (Bonnie's arms and legs; Pip falls back to its closest clip, see RobotRig.play).
+  flip: "Flip", cartwheel: "Cartwheel", spin: "Spin", clap: "Clap", moonwalk: "Moonwalk",
+};
+/** What she may do on her own now and then, to show off. */
+export const SHOW_OFF = ["dance", "spin", "clap", "flip", "moonwalk", "cartwheel"];
 const ONE_SHOT = new Set(Object.values(GESTURES));
 // Grab and throw: how the throw feels.
 const THROW_BOOST = 1.6; // tracked hands under-read a flick, so throws get extra oomph
@@ -30,6 +36,12 @@ const _c = new THREE.Vector3();
 const _q1 = new THREE.Quaternion();
 // BunnyRig per-frame pose scratch.
 const _earWave = [0, 0], _earBack = [0, 0], _hc = { hop: 0, squash: 0 };
+// Limb pose scratch: arms [raise sideways, forward, elbow bend], legs [swing forward, splay sideways].
+const _pose = { aL: [0, 0, 0], aR: [0, 0, 0], lL: [0, 0], lR: [0, 0], pitch: 0, roll: 0, slide: 0 };
+const LEG = 0.075; // how far her legs lift the body off the floor
+const setArm = (a, raise, fwd, elbow) => ((a[0] = raise), (a[1] = fwd), (a[2] = elbow));
+const setLeg = (l, swing, splay = 0) => ((l[0] = swing), (l[1] = splay));
+const ease = (x) => (x <= 0 ? 0 : x >= 1 ? 1 : x * x * (3 - 2 * x));
 
 function blobShadow(size) {
   const c = Object.assign(document.createElement("canvas"), { width: 128, height: 128 });
@@ -77,8 +89,8 @@ function hopCycle(t, freq, height) {
 // ---------------------------------------------------------------------------------------------
 export class BunnyRig {
   constructor() {
-    this.height = 0.78; // to the ear tips
-    this.center = 0.19; // middle of the round body: what you hold, and what it tumbles around
+    this.height = 0.78 + LEG; // to the ear tips (her legs lift her a little)
+    this.center = 0.19 + LEG; // middle of the round body: what you hold, and what it tumbles around
     this.radius = 0.18; // the ball it bounces as
     this.current = "Idle";
     this.t = 0; // time in the current animation
@@ -101,10 +113,18 @@ export class BunnyRig {
       return m;
     };
 
-    this.model = new THREE.Group(); // hops and squashes as a whole
+    this.model = new THREE.Group(); // hops and spins as a whole
     parent.add(this.model);
-    this.body = new THREE.Group(); // squash & stretch pivot at the floor
-    this.model.add(this.body);
+    // Flips and cartwheels turn her around the middle of her body, not her feet.
+    this.tumble = new THREE.Group();
+    this.tumble.position.y = this.center;
+    this.model.add(this.tumble);
+    this.inner = new THREE.Group();
+    this.inner.position.y = -this.center;
+    this.tumble.add(this.inner);
+    this.body = new THREE.Group(); // squash & stretch pivot at the bottom of the body, on top of the legs
+    this.body.position.y = LEG;
+    this.inner.add(this.body);
 
     // Body: a big soft pear, wider at the bottom and flat on the floor (like the logo).
     // One smooth lathed profile (radius, height) so there are no seams between parts.
@@ -118,12 +138,42 @@ export class BunnyRig {
     const torso = mesh(new THREE.LatheGeometry(profile, 56), white);
     torso.scale.set(1, 1, 0.9);
     this.body.add(torso);
-    // Little feet tucked under the front, and the round tail at the back.
-    for (const s of [-1, 1]) {
-      const foot = mesh(new THREE.SphereGeometry(0.045, 20, 14), white, s * 0.07, 0.02, 0.12);
-      foot.scale.set(0.85, 0.45, 1.1);
-      this.body.add(foot);
-    }
+    // Arms: stubby, with an elbow and a round paw. Pivots at the shoulder (arm hangs down -y).
+    const limb = (r, len) => {
+      const g = new THREE.CapsuleGeometry(r, len, 6, 14);
+      g.translate(0, -len / 2, 0);
+      return g;
+    };
+    this.arms = [-1, 1].map((s) => {
+      const shoulder = new THREE.Group();
+      shoulder.position.set(s * 0.14, 0.215, 0.025);
+      shoulder.add(mesh(limb(0.034, 0.085), white));
+      const elbow = new THREE.Group();
+      elbow.position.y = -0.1;
+      elbow.add(mesh(limb(0.031, 0.075), white));
+      const paw = mesh(new THREE.SphereGeometry(0.043, 18, 14), white, 0, -0.095, 0.004);
+      paw.scale.set(1, 0.95, 0.9);
+      const pad = mesh(new THREE.SphereGeometry(0.02, 12, 10), pink, 0, -0.104, 0.034);
+      pad.scale.set(1, 0.8, 0.4);
+      elbow.add(paw, pad);
+      shoulder.add(elbow);
+      this.body.add(shoulder);
+      return { shoulder, elbow, s };
+    });
+    // Legs: short, under the body, with big bunny feet. Pivots at the hip (not squashed with the body).
+    this.legs = [-1, 1].map((s) => {
+      const hip = new THREE.Group();
+      hip.position.set(s * 0.075, LEG + 0.03, 0.02);
+      hip.add(mesh(limb(0.036, 0.045), white));
+      const foot = mesh(new THREE.SphereGeometry(0.045, 20, 14), white, 0, -LEG - 0.01, 0.035);
+      foot.scale.set(0.85, 0.42, 1.45);
+      const sole = mesh(new THREE.SphereGeometry(0.03, 14, 10), pink, 0, -LEG - 0.024, 0.045);
+      sole.scale.set(0.8, 0.25, 1.3);
+      hip.add(foot, sole);
+      this.inner.add(hip);
+      return { hip, s };
+    });
+    // The round tail at the back.
     this.tail = mesh(new THREE.SphereGeometry(0.065, 24, 18), white, 0.03, 0.1, -0.15);
     this.body.add(this.tail);
 
@@ -172,6 +222,8 @@ export class BunnyRig {
     if (name === this.current) return;
     this.current = name;
     this.t = 0;
+    // A different dance each time: disco, noodle arms, party hops.
+    if (name === "Dance") this.routine = ((this.routine ?? Math.floor(Math.random() * 3)) + 1) % 3;
   }
 
   setFace(name, amount) {
@@ -184,35 +236,54 @@ export class BunnyRig {
     let hop = 0, squash = 0, spin = 0, nodX = 0, shakeY = 0, tiltZ = 0;
     const earWave = _earWave, earBack = _earBack;
     earWave[0] = earWave[1] = earBack[0] = earBack[1] = 0;
+    // Arms and legs: a relaxed rest pose with a little sway, which the moves below override.
+    const P = _pose, sway = Math.sin(T * 1.3) * 0.05;
+    setArm(P.aL, 0.2 + sway, 0.15, 0.3), setArm(P.aR, 0.2 - sway, 0.15, 0.3);
+    setLeg(P.lL, 0), setLeg(P.lR, 0);
+    P.pitch = P.roll = P.slide = 0;
 
     switch (this.current) {
-      case "Walking":
-        hopCycle(t, 2.1, 0.055);
-        (hop = _hc.hop), (squash = _hc.squash);
+      case "Walking": {
+        hopCycle(t, 2.1, 0.03);
+        (hop = _hc.hop), (squash = _hc.squash * 0.5);
+        const w = Math.sin(t * Math.PI * 2.1); // one step per hop
+        setLeg(P.lL, w * 0.55), setLeg(P.lR, -w * 0.55);
+        setArm(P.aL, 0.2, -w * 0.45 + 0.1, 0.4), setArm(P.aR, 0.2, w * 0.45 + 0.1, 0.4);
         break;
-      case "Running":
-        hopCycle(t, 3.0, 0.1);
+      }
+      case "Running": {
+        hopCycle(t, 3.0, 0.08);
         (hop = _hc.hop), (squash = _hc.squash);
+        const w = Math.sin(t * Math.PI * 3.0);
+        setLeg(P.lL, w * 0.85), setLeg(P.lR, -w * 0.85);
+        setArm(P.aL, 0.25, -w * 0.8 + 0.2, 1.1), setArm(P.aR, 0.25, w * 0.8 + 0.2, 1.1);
         break;
+      }
       case "Wave": {
         const k = Math.min(1, t / 0.25) * Math.max(0, Math.min(1, (1.7 - t) / 0.3));
         earWave[1] = Math.sin(t * 14) * 0.45 * k; // waves its tilted ear
+        setArm(P.aR, 0.2 + 2.5 * k, 0.15, 0.3 + (0.6 + Math.sin(t * 13) * 0.55) * k); // and a paw
         hop = Math.max(0, Math.sin(Math.min(t, 0.5) * Math.PI * 2)) * 0.03;
         if (t > 1.7) this._done();
         break;
       }
       case "Yes":
         nodX = Math.sin(t * 13) * 0.22 * Math.max(0, 1 - t / 1.3);
+        setArm(P.aL, 0.3, 0.5, 1.2), setArm(P.aR, 0.3, 0.5, 1.2); // paws together, pleased
         if (t > 1.3) this._done();
         break;
-      case "No":
+      case "No": {
         shakeY = Math.sin(t * 12) * 0.35 * Math.max(0, 1 - t / 1.3);
+        const k = Math.min(1, t / 0.2);
+        setArm(P.aL, 0.9 * k, 0.4, 0.6), setArm(P.aR, 0.9 * k, 0.4, 0.6); // a little shrug
         if (t > 1.3) this._done();
         break;
+      }
       case "ThumbsUp": {
         const p = Math.min(1, t / 0.7);
         hop = Math.sin(Math.PI * p) * 0.16;
         squash = p < 0.15 ? 0.6 * (1 - p / 0.15) : -Math.sin(Math.PI * p) * 0.3;
+        setArm(P.aR, 0.5, 1.4 * Math.min(1, t / 0.25), 1.4); // paw up, forward
         this.face.perk = 1;
         if (t > 1.1) (this.face.perk = 0), this._done();
         break;
@@ -223,17 +294,116 @@ export class BunnyRig {
         spin = p * Math.PI * 2; // a full spin in the air
         squash = p < 0.12 ? 0.7 * (1 - p / 0.12) : -Math.sin(Math.PI * p) * 0.4;
         earBack[0] = earBack[1] = Math.sin(Math.PI * p) * 0.7;
+        const up = Math.sin(Math.PI * p);
+        setArm(P.aL, 0.2 + 2.6 * up, 0.2, 0.2), setArm(P.aR, 0.2 + 2.6 * up, 0.2, 0.2); // arms up!
+        setLeg(P.lL, 0.6 * up), setLeg(P.lR, 0.6 * up); // knees tucked
         if (t > 1.05) this._done();
         break;
       }
       case "Dance": {
-        hopCycle(t, 2.6, 0.07);
-        (hop = _hc.hop), (squash = _hc.squash);
-        spin = Math.sin(t * 2.2) * 0.7;
-        tiltZ = Math.sin(t * 5.2) * 0.18;
+        const beat = t * 2.2; // beats
+        const b = Math.sin(beat * Math.PI); // -1..1 every beat
+        const end = Math.max(0, Math.min(1, (4.5 - t) / 0.3)); // settle at the end
+        if (this.routine === 0) {
+          // Disco: one paw points up to one side, then down across; the other on the hip; side steps.
+          const up = Math.floor(beat) % 2 === 0;
+          setArm(P.aR, up ? 2.5 : -0.2, up ? 0.3 : 0.9, 0.1);
+          setArm(P.aL, 0.7, -0.2, 1.6); // hand on hip
+          setLeg(P.lL, 0, Math.max(0, b) * 0.35), setLeg(P.lR, 0, Math.max(0, -b) * 0.35);
+          tiltZ = b * 0.15;
+          hop = Math.abs(b) * 0.03;
+          spin = Math.sin(beat * 0.5) * 0.5;
+        } else if (this.routine === 1) {
+          // Noodle arms: a wave rolls through both arms, knees bounce, a slow turn.
+          setArm(P.aL, 1.3 + Math.sin(t * 7) * 0.5, 0.2, 0.6 + Math.sin(t * 7 - 1.2) * 0.6);
+          setArm(P.aR, 1.3 + Math.sin(t * 7 + 1.6) * 0.5, 0.2, 0.6 + Math.sin(t * 7 + 0.4) * 0.6);
+          squash = Math.abs(b) * 0.5;
+          setLeg(P.lL, Math.abs(b) * 0.3), setLeg(P.lR, Math.abs(b) * 0.3);
+          spin = t * 1.4;
+          nodX = b * 0.12;
+        } else {
+          // Party: hop on every beat and clap overhead, with a full spin in the middle.
+          hopCycle(t, 2.2, 0.09);
+          (hop = _hc.hop), (squash = _hc.squash);
+          const clap = Math.abs(Math.sin(beat * Math.PI));
+          setArm(P.aL, 2.7 - clap * 0.5, 0.25, 0.3), setArm(P.aR, 2.7 - clap * 0.5, 0.25, 0.3);
+          setLeg(P.lL, 0, 0.25 * clap), setLeg(P.lR, 0, 0.25 * clap);
+          spin = ease((t - 1.8) / 0.9) * Math.PI * 2;
+        }
         earWave[0] = Math.sin(t * 10) * 0.4;
         earWave[1] = Math.sin(t * 10 + 1.5) * 0.4;
+        if (end < 1) for (const a of [P.aL, P.aR]) (a[0] *= end), (a[1] *= end);
         if (t > 4.5) this._done();
+        break;
+      }
+      case "Flip": {
+        // A backflip: crouch, launch, tuck and rotate, land with a squash.
+        const crouch = 0.25, air = 0.75;
+        if (t < crouch) {
+          squash = 0.6 * ease(t / crouch);
+          setArm(P.aL, -0.3, -0.6, 0.4), setArm(P.aR, -0.3, -0.6, 0.4); // arms swing back
+        } else {
+          const p = Math.min(1, (t - crouch) / air);
+          hop = Math.sin(Math.PI * p) * 0.5;
+          P.pitch = -ease(p) * Math.PI * 2;
+          const tuck = Math.sin(Math.PI * p);
+          setArm(P.aL, 0.3 + 2.4 * tuck, 0.4, 0.3), setArm(P.aR, 0.3 + 2.4 * tuck, 0.4, 0.3);
+          setLeg(P.lL, 1.0 * tuck), setLeg(P.lR, 1.0 * tuck);
+          squash = p > 0.92 ? 0.6 * ((p - 0.92) / 0.08) : -tuck * 0.3;
+          earBack[0] = earBack[1] = tuck * 0.8;
+        }
+        if (t > crouch + air + 0.25) this._done();
+        break;
+      }
+      case "Cartwheel": {
+        const p = Math.min(1, t / 1.3);
+        P.roll = -ease(p) * Math.PI * 2;
+        hop = Math.sin(Math.PI * p) * 0.2;
+        const k = Math.sin(Math.PI * p);
+        setArm(P.aL, 0.2 + 1.5 * k, 0, 0.1), setArm(P.aR, 0.2 + 1.5 * k, 0, 0.1); // arms out like a star
+        setLeg(P.lL, 0, 0.7 * k), setLeg(P.lR, 0, 0.7 * k);
+        if (t > 1.45) this._done();
+        break;
+      }
+      case "Spin": {
+        // A pirouette: arms out, then pulled in to spin faster, then "ta-da".
+        const p = Math.min(1, t / 1.4);
+        spin = ease(p) * Math.PI * 6;
+        hop = Math.sin(Math.PI * p) * 0.05;
+        const pull = Math.sin(Math.PI * p);
+        setArm(P.aL, 1.5 - pull * 1.2, 0.3, 0.4 + pull), setArm(P.aR, 1.5 - pull * 1.2, 0.3, 0.4 + pull);
+        setLeg(P.lR, 0.5 * pull, 0.2 * pull); // one foot tucked
+        if (t > 1.4) {
+          const ta = Math.min(1, (t - 1.4) / 0.2);
+          setArm(P.aL, 2.4 * ta, 0.3, 0.2), setArm(P.aR, 2.4 * ta, 0.3, 0.2);
+          this.face.perk = 1;
+        }
+        if (t > 2.0) (this.face.perk = 0), this._done();
+        break;
+      }
+      case "Clap": {
+        // Paws in front, clapping fast, a little bounce on each clap.
+        const c = Math.abs(Math.sin(t * Math.PI * 4));
+        setArm(P.aL, -0.35 + c * 0.6, 1.25, 0.5), setArm(P.aR, -0.35 + c * 0.6, 1.25, 0.5);
+        hop = (1 - c) * 0.02;
+        this.face.perk = 1;
+        earWave[0] = earWave[1] = (1 - c) * 0.15;
+        if (t > 1.6) (this.face.perk = 0), this._done();
+        break;
+      }
+      case "Moonwalk": {
+        // Gliding backwards: one foot slides back while the other stays flat, then they swap; a lean
+        // forward, a little arm swing; glides back to where she started on the last beat.
+        const step = t * 2.4;
+        const ph = step % 1, swap = Math.floor(step) % 2 === 0;
+        const back = -0.55 * ease(ph), flat = 0.25 * (1 - ease(ph));
+        setLeg(P.lL, swap ? back : flat), setLeg(P.lR, swap ? flat : back);
+        const glide = Math.min(1, t / 2.0), home = Math.max(0, (t - 2.0) / 0.4);
+        P.slide = -0.3 * glide * (1 - ease(home));
+        nodX = 0.12;
+        setArm(P.aL, 0.3, Math.sin(step * Math.PI) * 0.4, 0.9), setArm(P.aR, 0.3, -Math.sin(step * Math.PI) * 0.4, 0.9);
+        hop = Math.abs(Math.sin(step * Math.PI)) * 0.015;
+        if (t > 2.4) this._done();
         break;
       }
       default: {
@@ -251,8 +421,18 @@ export class BunnyRig {
     const glow = talking ? 0.7 + Math.sin(speakT * 11) * 0.4 : listening ? 0.35 + Math.sin(T * 4) * 0.15 : 0;
     this.visorMat.emissiveIntensity += (glow - this.visorMat.emissiveIntensity) * Math.min(1, dt * 10);
 
-    this.model.position.y = hop;
+    this.model.position.set(0, hop, P.slide);
     this.model.rotation.y = spin;
+    this.tumble.rotation.set(P.pitch, 0, P.roll);
+    for (const { shoulder, elbow, s } of this.arms) {
+      const [raise, fwd, bend] = s < 0 ? P.aL : P.aR;
+      shoulder.rotation.set(-fwd, 0, s * raise);
+      elbow.rotation.x = -bend;
+    }
+    for (const { hip, s } of this.legs) {
+      const [swing, splay] = s < 0 ? P.lL : P.lR;
+      hip.rotation.set(-swing, 0, s * splay);
+    }
     const sq = THREE.MathUtils.clamp(squash, -0.5, 0.8) * 0.18;
     this.body.scale.set(1 + sq * 0.6, 1 - sq, 1 + sq * 0.6);
     this.head.rotation.set(nodX, shakeY, tiltZ);
@@ -316,6 +496,8 @@ export class RobotRig {
   }
 
   play(name, fade = 0.3) {
+    // Bonnie's tricks, on Pip's closest clips.
+    name = { Flip: "Jump", Cartwheel: "Jump", Spin: "Dance", Clap: "ThumbsUp", Moonwalk: "Dance" }[name] ?? name;
     const next = this.actions?.[name], prev = this.actions?.[this.current];
     if (!next || name === this.current) return;
     clearTimeout(this._danceTimer); // a stale Dance timeout must not end a later dance early
@@ -427,6 +609,7 @@ export class Companion {
     this.following = false; // walks beside you wherever you go
     this.errand = null; // { point, done, until }: walking somewhere to do something (see goTo)
     this.attendUntil = 0; // you are talking: she comes over and faces you until then (see attend)
+    this.nextShowOff = performance.now() + 40000; // now and then, when idle, she does a trick on her own
     this.returnAt = 0; // when to walk back to you after a throw (0 = not pending)
     this.strayT = 0; // ms spent too far away
     rig.onFinished = () => {
@@ -686,7 +869,12 @@ export class Companion {
       this.mode = "idle";
       this.idleUntil = now + 4000 + Math.random() * 4000;
     } else if (this.mode === "idle" && now > this.idleUntil && !this.emoting) {
-      if (this.followUser) this.idleUntil = now + 2000;
+      if (now > this.nextShowOff && !this.followUser) {
+        // Showing off: a dance or a trick, about once a minute, instead of wandering this time.
+        this.nextShowOff = now + 50000 + Math.random() * 40000;
+        this.idleUntil = now + 3500;
+        this.gesture(SHOW_OFF[Math.floor(Math.random() * SHOW_OFF.length)]);
+      } else if (this.followUser) this.idleUntil = now + 2000;
       else {
         this.target = this._pickWanderTarget(eye);
         if (this.target) this.mode = "walk";
