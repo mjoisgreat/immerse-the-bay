@@ -2,6 +2,7 @@ import "./site.css";
 import { createLink, speechHeaders } from "./link.js";
 import { urlRoom, voterId, esc } from "./identity.js";
 import { PushToTalk, micMessage } from "./voice.js";
+import { myName, peopleSummary, startPresence, thisDeviceKind } from "./people.js";
 
 const $ = (s) => document.querySelector(s);
 const room = urlRoom;
@@ -16,6 +17,9 @@ const link = createLink(room, {
     if (m.t === "direction" && m.narration) $("#narration").textContent = m.narration;
   },
 });
+
+// Tell the room I'm here (the storyteller sees "Ana joined on a phone"); the name is the one typed below, if any.
+startPresence(link.request, { kind: thisDeviceKind(), getName: () => $("#who")?.value.trim() || myName() });
 
 // Am I a co-narrator (invite link)?
 link.request({ t: "whoami" }).then((me) => {
@@ -34,6 +38,9 @@ function render(s) {
   const live = Date.now() - (s.lastActive || 0) < 60_000;
   $("#live").textContent = live ? "● live" : "offline";
   $("#live").className = live ? "pill live" : "pill";
+  const here = peopleSummary(s.people);
+  $("#people").hidden = !here;
+  $("#people").textContent = `here: ${here}`;
   $("#crowdNote").textContent = s.meta?.crowd
     ? "Crowd Mode is on: the top-voted idea becomes the next scene every 20 seconds."
     : "The storyteller picks from the most-voted ideas.";

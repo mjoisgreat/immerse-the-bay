@@ -32,6 +32,7 @@ export function initialState() {
     rendererId: null, // the owner's headset page that currently drives the streams
     meta: { title: "", shared: false, crowd: false },
     suggestions: [], // [{ id, text, voters: [voterId], at, by? }] (by = the author's display name, optional)
+    people: [], // who is here right now: [{ id, kind, role, name, at }], see "here" (clients get livePeople())
     lastActive: Date.now(),
     log: [],
   };
@@ -41,7 +42,23 @@ export function initialState() {
 const OWNER_ONLY = new Set(["hello", "portal_sync", "portal_added", "portal_removed", "portal_status", "heartbeat", "immerse", "touch", "companion"]);
 const CONSOLE = new Set(["focus", "close_portal", "manual_prompt", "set_seed", "set_meta", "use_suggestion", "dismiss_suggestion", "reset_story"]);
 const NARRATE = new Set(["utterance", "choose"]);
-const ANYONE = new Set(["whoami", "suggest", "vote"]);
+const ANYONE = new Set(["whoami", "suggest", "vote", "here"]);
+
+// Presence: every page says "here" every ~10 s with what kind of device it is. Someone who has been quiet for
+// PRESENCE_TTL is gone. Stale people are dropped when reading (livePeople), so a leave doesn't need a write.
+export const KINDS = ["quest", "phone", "computer", "screen"]; // screen = the theater view on a TV
+export const PRESENCE_TTL = 25_000;
+const MAX_PEOPLE = 24;
+/** A stable, public id for a device (voter ids stay private): a small FNV-1a hash. */
+function presenceId(voter, kind) {
+  let h = 0x811c9dc5;
+  for (const c of `${voter}|${kind}`) h = Math.imul(h ^ c.codePointAt(0), 0x01000193) >>> 0;
+  return h.toString(16).padStart(8, "0");
+}
+/** The people to show: only those who were heard from recently, without their timestamps (so the state only changes when someone comes or goes). */
+export function livePeople(people, now = Date.now()) {
+  return (people || []).filter((p) => now - p.at < PRESENCE_TTL).map(({ at, ...p }) => p);
+}
 
 export function allowed(role, t) {
   if (ANYONE.has(t)) return true;
@@ -74,6 +91,7 @@ export function reduce(s, m, ctx = {}) {
 function upgrade(s) {
   s.meta ??= { title: "", shared: false, crowd: false };
   s.suggestions ??= [];
+  s.people ??= [];
   if (s.threads) return;
   s.threads = {};
   s.nextSeed = "";
@@ -131,6 +149,22 @@ function step(s, m, ctx) {
   if (OWNER_ONLY.has(m.t)) s.lastActive = Date.now();
 
   switch (m.t) {
+    case "here": {
+      // Presence: this device is in the room. Not story activity, so it never touches lastActive.
+      if (!ctx.voter) break;
+      const kind = KINDS.includes(m.kind) ? m.kind : "computer";
+      const name = String(m.name || "").replace(/\s+/g, " ").trim().slice(0, 20);
+      const now = Date.now();
+      s.people = (s.people || []).filter((p) => now - p.at < PRESENCE_TTL);
+      const id = presenceId(ctx.voter, kind);
+      const known = s.people.find((p) => p.id === id);
+      if (known) Object.assign(known, { role: ctx.role, name, at: now });
+      else if (s.people.length < MAX_PEOPLE) {
+        s.people.push({ id, kind, role: ctx.role, name, at: now });
+        events.push({ t: "joined", id, kind, role: ctx.role, name });
+      }
+      break;
+    }
     case "hello":
       // The owner's newest headset page takes over; the same page reconnecting re-sends its portals.
       if (m.rid !== s.rendererId) {

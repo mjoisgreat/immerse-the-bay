@@ -41,7 +41,15 @@ export function menuFor({ inside = false, world = null, loading = false, armed =
     ? { id: "exit-moon", icon: "↩", label: "Exit Moon" }
     : { id: "moon", icon: "🌙", label: "Moon", state };
   const wide = { id: "wide", icon: "🔭", label: wideOn ? "Wide: on" : "Wide view" };
-  return [resetEntry(armed), stanford, moon, wide, { id: "cheat", icon: "?", label: "Cheat sheet" }, { id: "exitvr", icon: "⏏", label: "Exit VR" }];
+  return [
+    resetEntry(armed),
+    stanford,
+    moon,
+    wide,
+    { id: "invite", icon: "👥", label: "Invite friends" },
+    { id: "cheat", icon: "?", label: "Cheat sheet" },
+    { id: "exitvr", icon: "⏏", label: "Exit VR" },
+  ];
 }
 
 function resetEntry(armed) {
