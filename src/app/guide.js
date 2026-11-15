@@ -75,7 +75,9 @@ export function guide(step) {
 // Cheat sheet entry, and closes when the menu closes or when you pinch it.
 export const cheatSheet = new GestureCard(BUDDY.name, { rows: [...gestureRows(BUDDY.name), ...buttonRows()], title: "Cheat sheet", row: 66 });
 scene.add(cheatSheet.mesh);
+// Returns true so the menu stays open: the cheat sheet lives only while the menu does.
 export function showCheatSheet() {
   cheatSheet.show(camera);
+  return true;
 }
 renderer.xr.addEventListener("sessionend", () => cheatSheet.hide());
