@@ -654,6 +654,8 @@ function updateRipples() {
 // "What happens next?" cards: the audience's top-voted ideas first (with who suggested them and
 // how many votes they have), then the director's options, three cards at most. Friends playing
 // along on their phones become visible to the storyteller, who picks with a pinch.
+// In the headset the story is steered by voice only: the director's own options are not shown there
+// (a friend's idea still is, since a friend chose to send it). The desktop screen keeps them.
 const MAX_CROWD_CARDS = 3;
 let directorChoices = [];
 let cards = []; // [{ kind: "crowd", id, text, by, votes } | { kind: "choice", index, text }]
@@ -668,7 +670,7 @@ function refreshCards() {
     .slice(0, MAX_CROWD_CARDS)
     // With more than one window open, each idea card says which window it will steer: the focused one.
     .map((x) => ({ kind: "crowd", id: x.id, text: x.text, by: x.by || "", votes: x.voters.length, to: portals.size > 1 ? focusId : null }));
-  const director = directorChoices.map((text, index) => ({ kind: "choice", index, text }));
+  const director = renderer.xr.isPresenting ? [] : directorChoices.map((text, index) => ({ kind: "choice", index, text }));
   const next = [...crowd, ...director].slice(0, 3);
   const key = JSON.stringify(next);
   if (key === cardsKey) return; // state arrives often; only redraw when something changed
@@ -700,6 +702,8 @@ function pickChoice(i) {
     flash(`“${c.text}”`, 4000);
   }
 }
+// Entering or leaving the headset changes which cards may show.
+for (const ev of ["sessionstart", "sessionend"]) renderer.xr.addEventListener(ev, () => ((cardsKey = ""), refreshCards()));
 $("#choices").addEventListener("click", (e) => {
   const b = e.target.closest("[data-choice]");
   if (b) pickChoice(Number(b.dataset.choice));
@@ -1078,12 +1082,13 @@ const toolbar = new Toolbar(camera, [
   { id: "talk", icon: "🎙", label: "Hold to talk", press: () => startTalking(), release: () => stopTalking() },
   { id: "new", icon: "＋", label: "New window", press: openInFront },
   { id: "step", icon: "🚪", label: "Step inside", press: toggleStep },
-  { id: "close", icon: "✕", label: "Close window", press: closeFocused },
+  { id: "hide", icon: "▾", label: "Hide buttons", press: () => setButtonsHidden(true) },
   { id: "buddy", icon: BUDDY.icon, label: BUDDY.name, press: toggleBuddy },
   { id: "world", icon: "🏛", label: "Stanford", press: toggleBackdrop },
   { id: "newstory", icon: "✨", label: "New story", press: newStoryPressed },
   { id: "reset", icon: "↺", label: "Reset story", press: resetPressed },
-  { id: "hide", icon: "▾", label: "Hide buttons", press: () => setButtonsHidden(true) },
+  // Close window sits in the far corner, away from the buttons you press all the time.
+  { id: "close", icon: "✕", label: "Close window", press: closeFocused },
 ]);
 // Hide / show the buttons (the orb and ring hide with them; A/X and B/Y still work).
 // They start hidden (less to take in on a first visit: H, the ☰ handle, a thumbstick click or
