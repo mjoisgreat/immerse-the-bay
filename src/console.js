@@ -3,6 +3,7 @@ import { createLink } from "./link.js";
 import { peopleSummary, startPresence } from "./people.js";
 import { PRESETS } from "./presets.js";
 import { urlRoom, cleanRoom, credFor, owned, consolePins, savePin, voterId, esc } from "./identity.js";
+import { hueOf, clock, topIdeaOf, stickyLog } from "./chat.js";
 
 const $ = (s) => document.querySelector(s);
 
@@ -77,7 +78,8 @@ function render(s) {
   $("#sayTitle").textContent = !s.window
     ? "Tell the story (no window open: your line becomes its world)"
     : s.story.seed ? "Tell the story" : "What world is behind the window? (your line defines it)";
-  $("#suggTitle").textContent = "Audience suggestions";
+  $("#suggTitle").textContent =
+    "▶ Use sends an idea into the story, ✕ removes it. " + (s.meta?.crowd ? "Crowd Mode is on: the top idea plays every 20 s." : "");
   if (document.activeElement !== $("#title")) $("#title").value = s.meta?.title || "";
   $("#shared").checked = Boolean(s.meta?.shared);
   $("#crowd").checked = Boolean(s.meta?.crowd);
@@ -92,16 +94,7 @@ function render(s) {
         .join("")
     : `<li class="muted">Nothing yet. Open a window in the headset and start telling the story.</li>`;
 
-  const sug = [...(s.suggestions || [])].sort((a, b) => b.voters.length - a.voters.length || a.at - b.at);
-  $("#suggs").className = sug.length ? "" : "empty";
-  $("#suggs").innerHTML = sug.length
-    ? sug
-        .map(
-          (x) => `<div class="sugg"><span class="vote">▲ ${x.voters.length}</span><span class="text">${esc(x.text)}${x.by ? ` <span class="muted">· ${esc(x.by)}</span>` : ""}</span>
-          <button data-use="${esc(x.id)}">Use</button><button class="ghost" data-dismiss="${esc(x.id)}" aria-label="Dismiss">✕</button></div>`,
-        )
-        .join("")
-    : "No suggestions yet. Share the watch link so people can suggest and vote.";
+  renderChat(s);
 
   const box = $("#portals");
   if (box.querySelector("textarea:focus")) return; // don't clobber a prompt being typed
@@ -121,6 +114,43 @@ function render(s) {
     : "No window yet. Open it in the headset.";
   const ta = box.querySelector("textarea");
   if (ta) ta.value = draft;
+}
+
+// ---------- Audience ideas as a stream chat, with moderator buttons (Use / ✕) on each line ----------
+const seenIdeas = new Set();
+let pinnedHtml = "", firstIdeas = true;
+const updateLog = stickyLog($("#suggs"), $("#jump"));
+const modButtons = (x) =>
+  `<span class="mod"><button data-use="${esc(x.id)}" title="Use this idea in the story" aria-label="Use: ${esc(x.text)}">▶</button><button data-dismiss="${esc(x.id)}" title="Remove" aria-label="Remove: ${esc(x.text)}">✕</button></span>`;
+function renderChat(s) {
+  const sug = s.suggestions || [];
+  const topIdea = topIdeaOf(sug);
+  const label = s.meta?.crowd ? "⏭ Up next" : "📌 Top idea";
+  $("#suggCount").textContent = sug.length ? `· ${sug.length}` : "";
+  const who = (x) => `<b class="who">${esc(x.by || "Someone")}</b><span class="colon">:</span> <span class="text">${esc(x.text)}</span>`;
+  const votes = (x) => `<span class="vote" title="${x.voters.length} vote${x.voters.length === 1 ? "" : "s"}">▲ ${x.voters.length}</span>`;
+  const html = sug.length
+    ? [...sug]
+        .sort((a, b) => a.at - b.at)
+        .map((x) => {
+          const fresh = !firstIdeas && !seenIdeas.has(x.id) ? " fresh" : "";
+          const chip = x === topIdea ? `<span class="chip top" title="${label}">${s.meta?.crowd ? "⏭" : "🔥"}</span>` : "";
+          return `<div class="msg${x === topIdea ? " is-top" : ""}${fresh}" style="--hue:${hueOf(x.by || "Someone")}"><span class="ts">${clock(x.at)}</span>${modButtons(x)}${chip}${who(x)}${votes(x)}</div>`;
+        })
+        .join("")
+    : `<div class="chatWelcome">No ideas yet. Share the watch link so people can suggest what happens next and vote.</div>`;
+  const pin = topIdea
+    ? `<div class="pinLabel">${label} · ${topIdea.voters.length} votes</div>
+       <div class="pinBody" style="--hue:${hueOf(topIdea.by || "Someone")}">${modButtons(topIdea)}${who(topIdea)}</div>`
+    : "";
+  if (pin !== pinnedHtml) {
+    $("#pinned").innerHTML = pinnedHtml = pin;
+    $("#pinned").hidden = !pin;
+  }
+  const hasNew = sug.some((x) => !seenIdeas.has(x.id));
+  for (const x of sug) seenIdeas.add(x.id);
+  updateLog(html, { hasNew });
+  firstIdeas = false;
 }
 
 document.addEventListener("click", (e) => {

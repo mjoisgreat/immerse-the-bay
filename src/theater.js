@@ -2,6 +2,7 @@ import QRCode from "qrcode";
 import { createLink } from "./link.js";
 import { urlRoom, cleanRoom, esc } from "./identity.js";
 import { peopleSummary, startPresence } from "./people.js";
+import { hueOf, topIdeaOf } from "./chat.js";
 
 // Full-screen spectator view for a TV or projector next to the headset (no controls, just the show).
 const $ = (s) => document.querySelector(s);
@@ -102,12 +103,33 @@ function start() {
     $("#people").textContent = `here: ${here}`;
     $("#inside").hidden = !s.immersed;
     renderChoices(s.choices || []);
-    const ideas = [...(s.suggestions || [])].sort((a, b) => b.voters.length - a.voters.length || a.at - b.at).slice(0, 3);
-    $("#ideasCard").hidden = !ideas.length;
-    setHtml("#ideas", ideas
-      .map((x) => `<div><em>▲ ${x.voters.length}</em><span>${esc(x.text)}${x.by ? ` <small>· ${esc(x.by)}</small>` : ""}</span></div>`)
-      .join(""));
+    renderChat(s);
     renderSnaps();
+  }
+
+  // ---------- Audience ideas as a Twitch-style chat overlay (read-only: the TV just shows the stream) ----------
+  const seenIdeas = new Set();
+  let firstIdeas = true;
+  function renderChat(s) {
+    const sug = s.suggestions || [];
+    const top = topIdeaOf(sug);
+    const label = s.meta?.crowd ? "⏭ Up next" : "📌 Top idea";
+    $("#suggCount").textContent = sug.length ? `· ${sug.length}` : "";
+    const line = (x) => `<b class="who">${esc(x.by || "Someone")}</b>: ${esc(x.text)}<span class="vote">▲ ${x.voters.length}</span>`;
+    setHtml("#ideas", sug.length
+      ? [...sug]
+          .sort((a, b) => a.at - b.at)
+          .slice(-30)
+          .map((x) => {
+            const fresh = !firstIdeas && !seenIdeas.has(x.id) ? " fresh" : "";
+            return `<div class="msg${x === top ? " is-top" : ""}${fresh}" style="--hue:${hueOf(x.by || "Someone")}">${x === top ? `<span class="chip">${s.meta?.crowd ? "⏭" : "🔥"}</span>` : ""}${line(x)}</div>`;
+          })
+          .join("")
+      : `<div class="chatWelcome">Scan the code below to suggest what happens next. Ideas show up here.</div>`);
+    for (const x of sug) seenIdeas.add(x.id);
+    firstIdeas = false;
+    setHtml("#pinned", top ? `<div class="pinLabel">${label}</div><div style="--hue:${hueOf(top.by || "Someone")}">${line(top)}</div>` : "");
+    $("#pinned").hidden = !top;
   }
 
   // Main screen: the window's live world, cross-fading as new frames arrive.

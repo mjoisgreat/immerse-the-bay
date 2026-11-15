@@ -70,9 +70,18 @@
       #choices button { font: italic .98rem Georgia, serif; padding: .5rem 1rem; background: rgba(40, 30, 60, .92); color: #fff3e0;
         border: 1px solid #ffd08a; }
       #choices button:hover { background: #ff9a5a; color: #1b1206; }
-      #choices button.crowd { background: rgba(20, 34, 52, .94); }
-      #choices button small { display: block; font: 700 .68rem system-ui, sans-serif; letter-spacing: .05em; text-transform: uppercase; color: #ffb36b; margin-bottom: .15rem; }
-      #choices button:hover small { color: #1b1206; }
+      /* Audience ideas: Twitch-style chat lines (coloured name, text, votes); the director's options stay as pills. */
+      #choices:has(.crowd) { flex-direction: column; align-items: stretch; width: min(32rem, 92vw); margin: 0 auto; gap: 2px;
+        background: rgba(24, 24, 27, .9); border-radius: 10px; padding: .35rem; }
+      #choices button.crowd { font: 500 .92rem/1.4 system-ui, sans-serif; text-align: left; background: transparent; color: #efeff1;
+        border: 0; border-radius: 6px; padding: .35rem .6rem; display: flex; gap: .3rem; align-items: baseline; }
+      #choices button.crowd b { color: hsl(var(--hue) 85% 66%); white-space: nowrap; }
+      #choices button.crowd .v { margin-left: auto; padding: 0 .4rem; border-radius: 4px; background: #2f2f35; color: #adadb8; font-size: .78rem;
+        font-weight: 700; white-space: nowrap; }
+      #choices button.crowd.top { background: rgba(255, 179, 107, .1); box-shadow: inset 3px 0 0 #ffb36b; }
+      #choices button.crowd.top .v { background: #ffb36b; color: #1b1206; }
+      #choices button.crowd:hover { background: #ff9a5a; color: #1b1206; }
+      #choices button.crowd:hover b, #choices button.crowd:hover .v { color: #1b1206; background: transparent; }
       @media (max-width: 640px) {
         .card { padding: 1.25rem; }
         h1 { font-size: 1.6rem; }

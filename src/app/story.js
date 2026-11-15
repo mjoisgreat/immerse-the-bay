@@ -3,6 +3,7 @@ import * as THREE from "three";
 import { stopSides } from "./wide.js";
 import { CameraView } from "../cameraview.js";
 import { credFor } from "../identity.js";
+import { hueOf, topIdeaOf } from "../chat.js";
 import { LAYER } from "../layers.js";
 import { $, camera, renderer, scene } from "./stage.js";
 import { state } from "./state.js";
@@ -190,19 +191,23 @@ export function refreshCards() {
   const crowd = [...(state.roomState?.suggestions || [])]
     .sort((a, b) => b.voters.length - a.voters.length || a.at - b.at)
     .slice(0, MAX_CROWD_CARDS)
-    .map((x) => ({ kind: "crowd", id: x.id, text: x.text, by: x.by || "", votes: x.voters.length }));
+    .map((x) => ({ kind: "crowd", id: x.id, text: x.text, by: x.by || "", votes: x.voters.length, at: x.at }));
+  // Shown like a stream chat: the most-voted ideas, oldest on top and newest at the bottom; the clear leader is marked.
+  const lead = topIdeaOf(state.roomState?.suggestions || []);
+  for (const c of crowd) c.top = c.id === lead?.id;
+  crowd.sort((a, b) => a.at - b.at);
   const director = renderer.xr.isPresenting ? [] : directorChoices.map((text, index) => ({ kind: "choice", index, text }));
   const next = [...crowd, ...director].slice(0, 3);
   const key = JSON.stringify(next);
   if (key === cardsKey) return; // state arrives often; only redraw when something changed
   cardsKey = key;
   cards = next;
-  toolbar.setChoices(cards.map((c) => (c.kind === "crowd" ? { text: c.text, by: c.by, votes: c.votes } : c.text)));
+  toolbar.setChoices(cards.map((c) => (c.kind === "crowd" ? { text: c.text, by: c.by, votes: c.votes, top: c.top } : c.text)));
   const clean = (s) => String(s).replace(/[&<>"]/g, "");
   $("#choices").innerHTML = cards
     .map((c, i) =>
       c.kind === "crowd"
-        ? `<button data-choice="${i}" class="crowd"><small>${clean(c.by || "A friend")} · ▲ ${c.votes}</small>${clean(c.text)}</button>`
+        ? `<button data-choice="${i}" class="crowd${c.top ? " top" : ""}" style="--hue:${hueOf(c.by || "Someone")}"><b>${c.top ? "🔥 " : ""}${clean(c.by || "Someone")}</b>: ${clean(c.text)}<span class="v">▲ ${c.votes}</span></button>`
         : `<button data-choice="${i}">${clean(c.text)}</button>`,
     )
     .join("");

@@ -3,6 +3,7 @@ import { createLink, speechHeaders } from "./link.js";
 import { urlRoom, voterId, esc } from "./identity.js";
 import { PushToTalk, micMessage } from "./voice.js";
 import { myName, peopleSummary, startPresence, thisDeviceKind } from "./people.js";
+import { hueOf, clock, topIdeaOf, stickyLog } from "./chat.js";
 
 const $ = (s) => document.querySelector(s);
 const room = urlRoom;
@@ -82,28 +83,14 @@ function render(s) {
 // Redrawn only when something changed (no flicker, no lost hover). The log sticks to the bottom unless
 // you've scrolled up to read, like a Twitch chat; then a "new ideas below" button appears.
 const seenIdeas = new Set();
-let ideasHtml = "", pinnedHtml = "", firstIdeas = true;
-const clock = (t) => new Date(t).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-/** A steady colour per name, so the same person always looks the same. */
-function hueOf(name) {
-  let h = 0;
-  for (const c of String(name)) h = (h * 31 + c.codePointAt(0)) % 360;
-  return h;
-}
+let pinnedHtml = "", firstIdeas = true;
 function voteButton(x, votes, voted, yours) {
   return `<button class="vote${voted ? " on" : ""}" ${yours ? `disabled title="Your idea always keeps your vote"` : `data-vote="${esc(x.id)}"`} aria-pressed="${voted}" aria-label="${yours ? "Your idea keeps your vote" : voted ? "Remove your vote" : "Vote for this idea"} (${votes})">▲ ${votes}</button>`;
 }
-const chatLog = $("#suggs");
-const atBottom = () => chatLog.scrollHeight - chatLog.scrollTop - chatLog.clientHeight < 40;
-chatLog.addEventListener("scroll", () => atBottom() && ($("#jump").hidden = true));
-$("#jump").addEventListener("click", () => {
-  chatLog.scrollTo({ top: chatLog.scrollHeight, behavior: "smooth" });
-  $("#jump").hidden = true;
-});
+const updateLog = stickyLog($("#suggs"), $("#jump"));
 function renderIdeas(s) {
   const sug = s.suggestions || [];
-  const byVotes = [...sug].sort((a, b) => b.voters.length - a.voters.length || a.at - b.at);
-  const topIdea = byVotes[0]?.voters.length > 1 && byVotes[0].voters.length > (byVotes[1]?.voters.length || 0) ? byVotes[0] : null;
+  const topIdea = topIdeaOf(sug);
   const label = s.meta?.crowd ? "⏭ Up next" : "📌 Top idea";
   $("#suggCount").textContent = sug.length ? `· ${sug.length}` : "";
 
@@ -130,16 +117,7 @@ function renderIdeas(s) {
   const hasNew = sug.some((x) => !seenIdeas.has(x.id));
   const mineNew = sug.some((x) => !seenIdeas.has(x.id) && x.voters[0] === voterId);
   for (const x of sug) seenIdeas.add(x.id);
-  if (html !== ideasHtml) {
-    const stick = firstIdeas || atBottom() || mineNew;
-    const keep = chatLog.scrollTop;
-    chatLog.innerHTML = ideasHtml = html;
-    if (stick) chatLog.scrollTop = chatLog.scrollHeight;
-    else {
-      chatLog.scrollTop = keep;
-      if (hasNew) $("#jump").hidden = false;
-    }
-  }
+  updateLog(html, { hasNew, toBottom: mineNew });
   firstIdeas = false;
 }
 

@@ -45,11 +45,32 @@
       .thumb span { position: absolute; left: .4rem; bottom: .3rem; font-size: .75rem; background: #000a; padding: .05rem .45rem; border-radius: 999px; }
       .card { background: #0b0d18cc; border: 1px solid #ffffff1f; border-radius: 16px; padding: 1rem; backdrop-filter: blur(8px); }
       .card h2 { margin: 0 0 .6rem; font-size: clamp(.7rem, .85vw, .9rem); letter-spacing: .1em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
-      .qr { margin-top: auto; text-align: center; }
+      .qr { flex: none; text-align: center; }
+      .qr img { max-width: min(220px, 22vh) !important; }
       .qr img { width: 100%; max-width: 220px; border-radius: 10px; background: #fff; padding: 8px; }
       .qr p { margin: .5rem 0 0; font-size: clamp(.8rem, 1vw, 1rem); }
-      .ideas div { display: flex; gap: .6rem; align-items: baseline; padding: .3rem 0; font-size: clamp(.8rem, 1vw, 1.05rem); }
-      .ideas em { color: var(--warm); font-style: normal; font-weight: 700; min-width: 2.2rem; }
+      /* Audience ideas as a Twitch-style chat overlay: newest at the bottom, older lines fade out at the top. */
+      .chat { flex: 1; min-height: 8rem; display: flex; flex-direction: column; background: #18181bdd; border: 1px solid #2f2f35; border-radius: 16px;
+        overflow: hidden; backdrop-filter: blur(8px); color: #efeff1; font: clamp(.82rem, 1.02vw, 1.15rem)/1.45 Inter, system-ui, -apple-system, sans-serif; }
+      .chat h2 { margin: 0; padding: .6rem .9rem; border-bottom: 1px solid #2f2f35; text-align: center; color: #efeff1;
+        font-size: clamp(.7rem, .85vw, .9rem); letter-spacing: .1em; text-transform: uppercase; font-weight: 700; }
+      .chat h2 .count { color: #adadb8; letter-spacing: 0; }
+      .pinned { margin: .5rem .5rem 0; padding: .45rem .65rem; border-radius: 8px; background: #1f1f23; border: 1px solid #ffb36b66; box-shadow: 0 4px 14px -6px #000; }
+      .pinLabel { font-size: .72em; font-weight: 700; color: var(--warm); text-transform: uppercase; letter-spacing: .05em; }
+      .chatLog { flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: flex-end; overflow: hidden; padding: .4rem 0;
+        -webkit-mask-image: linear-gradient(transparent, #000 3.5rem); mask-image: linear-gradient(transparent, #000 3.5rem); }
+      .msg { padding: .22rem .9rem; overflow-wrap: anywhere; flex: none; }
+      .msg.is-top { background: #ffb36b14; }
+      .msg.fresh { animation: msgIn .35s ease-out both; }
+      @keyframes msgIn { from { opacity: 0; transform: translateY(8px); } }
+      .chat .who { color: hsl(var(--hue) 85% 66%); font-weight: 700; }
+      .chat .vote { display: inline-block; margin-left: .4rem; padding: 0 .4rem; border-radius: 4px; background: #2f2f35; color: #adadb8;
+        font-size: .78em; font-weight: 700; white-space: nowrap; }
+      .msg.is-top .vote, .pinned .vote { background: var(--warm); color: #1b1206; }
+      .chip { display: inline-block; margin-right: .3rem; font-size: .85em; }
+      .chatWelcome { color: #adadb8; font-style: italic; padding: .2rem .9rem; }
+      .chatNote { margin: 0; padding: .35rem .9rem .55rem; font-size: .72em; color: #adadb8; border-top: 1px solid #2f2f35; }
+      .chatNote:empty { display: none; }
       footer { display: grid; gap: .9vh; justify-items: center; text-align: center; }
       .narration { font: italic clamp(1.2rem, 2.5vw, 2.7rem)/1.25 Georgia, serif; color: #ffe9c7; text-shadow: 0 2px 20px #000; min-height: 1.3em;
         transition: opacity .8s ease; max-width: 1400px; }
@@ -89,7 +110,9 @@
           <div class="speech" id="speech"><b id="speaker"></b><q id="line"></q></div>
         </div>
         <aside>
-          <div class="card ideas" id="ideasCard" hidden><h2 id="ideasTitle">Audience ideas</h2><div id="ideas"></div></div>
+          <div class="chat"><h2>Audience chat <span class="count" id="suggCount"></span></h2>
+            <div class="pinned" id="pinned" hidden></div>
+            <div class="chatLog" id="ideas"></div></div>
           <div class="card qr"><h2>Join the story</h2><img id="qr" alt="QR code to the watch page" /><p>Scan to suggest and vote on what happens next</p></div>
         </aside>
       </div>
