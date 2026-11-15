@@ -37,7 +37,6 @@ app.post(
 app.get("/api/snapshot", wrap((req) => api.snapshotGet(store, req.query)));
 app.post("/api/snapshot", json, wrap((req) => api.snapshotPost(store, req.body || {})));
 app.post("/api/voice", json, wrap((req) => api.voice(store, req.body || {})));
-app.post("/api/ideas", json, wrap((req) => api.ideas(store, req.body || {})));
 app.get("/api/community", wrap(() => api.community(store)));
 app.use(express.static("dist"));
 

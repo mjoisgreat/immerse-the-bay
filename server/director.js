@@ -182,13 +182,6 @@ function cleanOut(out, window) {
   return { ...out, prompt: window && out.prompt?.trim() ? out.prompt : null };
 }
 
-const Ideas = z.object({ ideas: z.array(z.object({ label: z.string(), seed: z.string() })) });
-const IDEAS_SYSTEM = `You suggest story worlds for "Living Window", where a person opens a window on a wall of their
-room that shows a live, generated video world. Suggest exactly 3 very different worlds a person could step into.
-Each has a "label" (2-4 words, shown on a button) and a "seed" (one vivid sentence, under 40 words: place, time of
-day, light, atmosphere, a few concrete details; no real people, brands or text). Make them surprising and
-visual, not clichés. Do not repeat any world in "already_offered".`;
-
 export function createDirector() {
   // DIRECTOR_PROVIDER=anthropic|openai forces one; otherwise Claude if its key is set, else OpenAI.
   const hasAnthropic = Boolean(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN);
@@ -301,48 +294,7 @@ export function createDirector() {
     }
   }
 
-  /** Three fresh world ideas for a new window: [{ label, seed }]. Empty when there is no model or it fails. */
-  async function ideas(already = []) {
-    if (!provider) return [];
-    const payload = { already_offered: already.slice(0, 12).map((x) => String(x).slice(0, 200)) };
-    try {
-      let out;
-      if (provider === "openai") {
-        const r = await fetch("https://api.openai.com/v1/chat/completions", {
-          method: "POST",
-          signal: AbortSignal.timeout(25_000),
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
-          body: JSON.stringify({
-            model: OPENAI_MODEL,
-            reasoning_effort: "low",
-            max_completion_tokens: 2000,
-            messages: [{ role: "system", content: IDEAS_SYSTEM }, { role: "user", content: JSON.stringify(payload) }],
-            response_format: { type: "json_schema", json_schema: { name: "ideas", strict: true, schema: z.toJSONSchema(Ideas) } },
-          }),
-        });
-        if (!r.ok) throw new Error(`OpenAI API ${r.status}`);
-        out = Ideas.parse(JSON.parse((await r.json()).choices?.[0]?.message?.content || "{}"));
-      } else {
-        const response = await client.beta.messages.parse({
-          model: MODEL,
-          max_tokens: 1500,
-          output_config: { effort: "low", format: zodOutputFormat(Ideas) },
-          system: IDEAS_SYSTEM,
-          messages: [{ role: "user", content: JSON.stringify(payload) }],
-        });
-        out = response.parsed_output;
-      }
-      return (out?.ideas || [])
-        .map((x) => ({ label: String(x.label).trim().slice(0, 40), seed: String(x.seed).replace(/\s+/g, " ").trim().slice(0, 400) }))
-        .filter((x) => x.label && x.seed)
-        .slice(0, 3);
-    } catch (e) {
-      console.warn("[director] ideas:", e.message);
-      return [];
-    }
-  }
-
-  return { direct, ideas, provider };
+  return { direct, provider };
 }
 
 const IMMERSIVE =
