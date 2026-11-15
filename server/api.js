@@ -2,7 +2,7 @@
 // Each handler takes (store, input) and returns { status, body }.
 import crypto from "node:crypto";
 import { createDirector } from "./director.js";
-import { reduce, allowed, askDirector, applyDirection, summary, MAX_PORTALS } from "./core.js";
+import { reduce, allowed, askDirector, applyDirection, summary } from "./core.js";
 import { mintOrbisToken, endOrbisSession, transcribe, speak } from "./services.js";
 
 const director = createDirector();
@@ -29,7 +29,7 @@ async function roleOf(store, room, cred = {}) {
 }
 
 export function config() {
-  return ok({ maxPortals: MAX_PORTALS, director: director.provider || "template" });
+  return ok({ director: director.provider || "template" });
 }
 
 export async function relayGet(store, query) {
@@ -123,27 +123,28 @@ export async function speech(store, headers, pcm) {
   return ok({ text: await transcribe(pcm) });
 }
 
+// A small picture of the window's live world, for watchers and the gallery.
+const SNAP = "window";
 export async function snapshotPost(store, body) {
   const room = roomOf(body.room);
   const { role } = await roleOf(store, room, body.cred);
   if (role !== "owner") return err(403, "owner only");
-  const id = String(body.id || "").slice(0, 4);
   const data = String(body.data || "");
-  if (!/^[A-F]$/.test(id) || !data.startsWith("data:image/jpeg;base64,") || data.length > 140_000) return err(400, "bad snapshot");
-  await store.setSnapshot(room, id, data);
+  if (!data.startsWith("data:image/jpeg;base64,") || data.length > 140_000) return err(400, "bad snapshot");
+  await store.setSnapshot(room, SNAP, data);
   return ok({ ok: true });
 }
 
 export async function snapshotGet(store, query) {
   const room = roomOf(query.room);
   if (!room) return err(400, "room required");
-  return ok(await store.getSnapshots(room));
+  return ok({ image: (await store.getSnapshots(room))[SNAP] || null });
 }
 
 export async function community(store) {
   const rooms = await store.listPublic(30);
   const cards = rooms
-    .map(({ room, state, snaps }) => summary(room, state, snaps[state.focusId] || Object.values(snaps)[0]))
+    .map(({ room, state, snaps }) => summary(room, state, snaps[SNAP]))
     .sort((a, b) => b.live - a.live || b.lastActive - a.lastActive);
   return ok({ rooms: cards });
 }

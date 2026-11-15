@@ -37,8 +37,6 @@ function render(s) {
   $("#crowdNote").textContent = s.meta?.crowd
     ? "Crowd Mode is on: the top-voted idea becomes the next scene every 20 seconds."
     : "The storyteller picks from the most-voted ideas.";
-  // Each window is its own story; an idea steers the one the storyteller is looking at.
-  if ((s.portals || []).length > 1 && s.focusId) $("#crowdNote").textContent += ` Ideas steer window ${s.focusId}, the one the storyteller is looking at now.`;
 
   const choices = s.choices || [];
   $("#nextBox").hidden = !choices.length;
@@ -82,26 +80,24 @@ function render(s) {
   renderSnaps();
 }
 
-// Portal snapshots (posted by the storyteller's headset every few seconds).
-let snaps = {};
+// A snapshot of the window (posted by the storyteller's headset every few seconds).
+let snap = null;
 let snapsHtml = "";
 async function pollSnaps() {
-  snaps = await fetch(`/api/snapshot?room=${room}`, { cache: "no-store" })
+  snap = await fetch(`/api/snapshot?room=${room}`, { cache: "no-store" })
     .then((r) => r.json())
-    .catch(() => snaps);
+    .then((j) => j.image)
+    .catch(() => snap);
   renderSnaps();
   setTimeout(pollSnaps, document.hidden ? 15000 : 5000);
 }
 function renderSnaps() {
-  const ids = (state?.portals || []).map((p) => p.id).filter((id) => snaps[id]);
-  if (!ids.length) {
+  if (!state?.window || !snap) {
     $("#snaps").innerHTML = `<div class="empty">Waiting for the storyteller to open a window…</div>`;
     snapsHtml = "";
     return;
   }
-  const html = ids
-    .map((id) => `<div class="snap ${id === state.focusId ? "focus" : ""}"><img alt="Portal ${esc(id)}" src="${esc(snaps[id])}"><span>Window ${esc(id)}${id === state.immersedId ? " · storyteller inside" : ""}</span></div>`)
-    .join("");
+  const html = `<div class="snap focus"><img alt="The window" src="${esc(snap)}"><span>The window${state.immersed ? " · storyteller inside" : ""}</span></div>`;
   if (html !== snapsHtml) $("#snaps").innerHTML = snapsHtml = html; // same frames: don't reload the images
 }
 pollSnaps();

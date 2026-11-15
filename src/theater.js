@@ -25,7 +25,7 @@ function start() {
   QRCode.toDataURL(watchUrl, { margin: 1, width: 440, color: { dark: "#07080d", light: "#ffffff" } }).then((d) => ($("#qr").src = d));
 
   let state = null;
-  let snaps = {};
+  let snap = null;
   let speechTimer;
 
   createLink(room, {
@@ -94,27 +94,24 @@ function start() {
     const live = Date.now() - (s.lastActive || 0) < 60_000;
     $("#live").textContent = live ? "● LIVE" : "offline";
     $("#live").className = live ? "pill live" : "pill";
-    $("#inside").hidden = !s.immersedId;
+    $("#inside").hidden = !s.immersed;
     renderChoices(s.choices || []);
     const ideas = [...(s.suggestions || [])].sort((a, b) => b.voters.length - a.voters.length || a.at - b.at).slice(0, 3);
     $("#ideasCard").hidden = !ideas.length;
-    // Ideas steer the window the storyteller is looking at; say which when there are several.
-    $("#ideasTitle").textContent = (s.portals || []).length > 1 && s.focusId ? `Audience ideas → window ${s.focusId}` : "Audience ideas";
     setHtml("#ideas", ideas
       .map((x) => `<div><em>▲ ${x.voters.length}</em><span>${esc(x.text)}${x.by ? ` <small>· ${esc(x.by)}</small>` : ""}</span></div>`)
       .join(""));
     renderSnaps();
   }
 
-  // Main screen: the window the storyteller is in (or focused on), cross-fading as new frames arrive.
+  // Main screen: the window's live world, cross-fading as new frames arrive.
   let shown = "", front = "imgA";
   function renderSnaps() {
     if (!state) return;
-    const ids = (state.portals || []).map((p) => p.id).filter((id) => snaps[id]);
-    const mainId = [state.immersedId, state.focusId, ...ids].find((id) => id && snaps[id]);
-    $("#empty").hidden = Boolean(mainId);
-    if (mainId && snaps[mainId] !== shown) {
-      shown = snaps[mainId];
+    const has = Boolean(state.window && snap);
+    $("#empty").hidden = has;
+    if (has && snap !== shown) {
+      shown = snap;
       const back = front === "imgA" ? "imgB" : "imgA";
       const img = $(`#${back}`);
       const frame = shown;
@@ -126,16 +123,13 @@ function start() {
       };
       img.src = frame;
     }
-    setHtml("#thumbs", ids
-      .filter((id) => id !== mainId)
-      .map((id) => `<div class="thumb"><img alt="Window ${esc(id)}" src="${esc(snaps[id])}"><span>Window ${esc(id)}</span></div>`)
-      .join(""));
   }
 
   async function pollSnaps() {
-    snaps = await fetch(`/api/snapshot?room=${room}`, { cache: "no-store" })
+    snap = await fetch(`/api/snapshot?room=${room}`, { cache: "no-store" })
       .then((r) => r.json())
-      .catch(() => snaps);
+      .then((j) => j.image)
+      .catch(() => snap);
     renderSnaps();
     setTimeout(pollSnaps, document.hidden ? 15000 : 2500);
   }

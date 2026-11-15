@@ -67,15 +67,12 @@ const send = (m) => link?.send(m);
 function render(s) {
   $("#brain").textContent = `director: ${s.director}`;
   $("#bible").textContent = s.story.bible;
-  // Everything story-shaped on this page is the FOCUSED window's: each window is its own story.
-  const many = s.portals.length > 1;
-  const win = s.focusId ? `window ${s.focusId}` : "";
   if (document.activeElement !== $("#seedText")) $("#seedText").value = s.story.seed;
-  $("#seedTitle").textContent = win ? `World of ${win} (focused)` : "World of the next window";
-  $("#sayTitle").textContent = !win
-    ? "Tell the story (no window open: your line becomes the next window's world)"
-    : s.story.seed ? `Tell the story (goes to ${win})` : `What world is behind ${win}? (your line defines it)`;
-  $("#suggTitle").textContent = many ? `Audience suggestions (“Use” steers ${win}, the focused one)` : "Audience suggestions";
+  $("#seedTitle").textContent = s.window ? "World of the window" : "World of the window to come";
+  $("#sayTitle").textContent = !s.window
+    ? "Tell the story (no window open: your line becomes its world)"
+    : s.story.seed ? "Tell the story" : "What world is behind the window? (your line defines it)";
+  $("#suggTitle").textContent = "Audience suggestions";
   if (document.activeElement !== $("#title")) $("#title").value = s.meta?.title || "";
   $("#shared").checked = Boolean(s.meta?.shared);
   $("#crowd").checked = Boolean(s.meta?.crowd);
@@ -86,7 +83,7 @@ function render(s) {
     ? s.log
         .slice()
         .reverse()
-        .map((l) => `<li><b>${esc(l.kind)}${many && l.portal ? ` · ${esc(l.portal)}` : ""}</b>${esc(l.text)}</li>`)
+        .map((l) => `<li><b>${esc(l.kind)}</b>${esc(l.text)}</li>`)
         .join("")
     : `<li class="muted">Nothing yet. Open a window in the headset and start telling the story.</li>`;
 
@@ -103,39 +100,34 @@ function render(s) {
 
   const box = $("#portals");
   if (box.querySelector("textarea:focus")) return; // don't clobber a prompt being typed
-  const drafts = {}; // unsent override prompts survive the re-render
-  for (const t of box.querySelectorAll("textarea")) if (t.value) drafts[t.dataset.id] = t.value;
-  box.className = s.portals.length ? "" : "empty";
-  box.innerHTML = s.portals.length
-    ? s.portals
-        .map(
-          (p) => `<div class="sugg" style="display:block">
-        <div class="row" style="justify-content:space-between"><strong>Portal ${esc(p.id)}${p.id === s.focusId ? " · focused" : ""}</strong>
-          <span class="pill">${esc(p.status)}</span></div>
-        <p style="margin:.4rem 0;font-style:italic">${esc(s.threads?.[p.id]?.seed) || "<span class='muted'>No world yet: asking “what world is behind this window?”</span>"}</p>
-        <p class="muted" style="margin:.4rem 0">${esc(p.prompt) || (s.threads?.[p.id]?.seed ? "<em>waiting for the director…</em>" : "")}</p>
-        <textarea data-id="${esc(p.id)}" placeholder="Override this portal's prompt (exact Orbis prompt)"></textarea>
+  const draft = box.querySelector("textarea")?.value || ""; // an unsent override prompt survives the re-render
+  const w = s.window;
+  box.className = w ? "" : "empty";
+  box.innerHTML = w
+    ? `<div class="sugg" style="display:block">
+        <div class="row" style="justify-content:space-between"><strong>The window</strong>
+          <span class="pill">${esc(w.status)}</span></div>
+        <p style="margin:.4rem 0;font-style:italic">${esc(s.story.seed) || "<span class='muted'>No world yet: asking “what world is behind this window?”</span>"}</p>
+        <p class="muted" style="margin:.4rem 0">${esc(w.prompt) || (s.story.seed ? "<em>waiting for the director…</em>" : "")}</p>
+        <textarea data-prompt placeholder="Override the window's prompt (exact Orbis prompt)"></textarea>
         <div class="row" style="justify-content:space-between;margin-top:.4rem">
-          <span class="row"><button class="ghost" data-focus="${esc(p.id)}">Focus</button>
-          <button class="ghost" data-close="${esc(p.id)}">Close</button></span>
-          <button data-apply="${esc(p.id)}">Send prompt</button></div></div>`,
-        )
-        .join("")
-    : "No portals yet. Open one in the headset.";
-  for (const t of box.querySelectorAll("textarea")) t.value = drafts[t.dataset.id] || "";
+          <button class="ghost" data-close>Close</button>
+          <button data-apply>Send prompt</button></div></div>`
+    : "No window yet. Open it in the headset.";
+  const ta = box.querySelector("textarea");
+  if (ta) ta.value = draft;
 }
 
 document.addEventListener("click", (e) => {
   const b = e.target.closest("button");
   if (!b) return;
-  if (b.dataset.focus) send({ t: "focus", id: b.dataset.focus });
-  if (b.dataset.close) send({ t: "close_portal", id: b.dataset.close });
+  if (b.dataset.close !== undefined) send({ t: "close_window" });
   if (b.dataset.use) send({ t: "use_suggestion", id: b.dataset.use });
   if (b.dataset.choose) send({ t: "choose", index: Number(b.dataset.choose) });
   if (b.dataset.dismiss) send({ t: "dismiss_suggestion", id: b.dataset.dismiss });
-  if (b.dataset.apply) {
-    const ta = document.querySelector(`textarea[data-id="${b.dataset.apply}"]`);
-    if (ta?.value.trim()) send({ t: "manual_prompt", id: b.dataset.apply, prompt: ta.value.trim() }), (ta.value = "");
+  if (b.dataset.apply !== undefined) {
+    const ta = document.querySelector("textarea[data-prompt]");
+    if (ta?.value.trim()) send({ t: "manual_prompt", prompt: ta.value.trim() }), (ta.value = "");
   }
   if (b.dataset.copy) {
     navigator.clipboard?.writeText($(`#${b.dataset.copy}`).textContent).then(() => {

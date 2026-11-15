@@ -19,8 +19,7 @@ async function load() {
         <div class="thumb">${r.thumb ? `<img alt="" src="${esc(r.thumb)}">` : ""}
           <span class="pill ${r.live ? "live" : ""}">${r.live ? "● live" : ago(r.lastActive)}</span></div>
         <div class="body"><h3>${esc(r.title)}</h3><p>${esc(r.line) || "A story is about to begin…"}</p>
-          <div class="meta"><span class="pill">${r.portals} window${r.portals === 1 ? "" : "s"}</span>
-          ${r.crowd ? `<span class="pill">Crowd Mode</span>` : ""}</div></div></a>`,
+          <div class="meta">${r.crowd ? `<span class="pill">Crowd Mode</span>` : ""}</div></div></a>`,
         )
         .join("")
     : `<div class="empty">No shared stories yet. <a href="/">Start one</a> and turn on “Share to community” in your console.</div>`;
