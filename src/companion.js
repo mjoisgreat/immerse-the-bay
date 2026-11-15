@@ -18,8 +18,8 @@ const LOST_DIST = 12; // m: farther than this (or NaN) and it is simply put back
 const GESTURES = { wave: "Wave", yes: "Yes", no: "No", thumbs_up: "ThumbsUp", jump: "Jump", dance: "Dance" };
 const ONE_SHOT = new Set(Object.values(GESTURES));
 // Grab and throw: how the throw feels.
-const THROW_BOOST = 1.25; // tracked hands under-read a flick, so throws get a little extra
-const MAX_THROW = 9; // m/s
+const THROW_BOOST = 1.6; // tracked hands under-read a flick, so throws get extra oomph
+const MAX_THROW = 11; // m/s
 const REEL_TO = new THREE.Vector3(0, 0, -0.12); // a far grab is pulled in to just past your fingers
 const UP = new THREE.Vector3(0, 1, 0);
 
@@ -377,6 +377,25 @@ export class Companion {
     this.bubble.visible = false;
     this.root.add(this.bubble);
 
+    // A warm glow around it while a hand or controller is aimed at it: "pinch now and you'll catch it".
+    const glowCanvas = Object.assign(document.createElement("canvas"), { width: 128, height: 128 });
+    {
+      const g = glowCanvas.getContext("2d");
+      const grad = g.createRadialGradient(64, 64, 10, 64, 64, 64);
+      grad.addColorStop(0, "rgba(255,208,138,0.55)");
+      grad.addColorStop(0.6, "rgba(255,154,90,0.25)");
+      grad.addColorStop(1, "rgba(255,154,90,0)");
+      g.fillStyle = grad;
+      g.fillRect(0, 0, 128, 128);
+    }
+    this.aimGlow = new THREE.Sprite(
+      new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(glowCanvas), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }),
+    );
+    this.aimGlow.scale.setScalar(this.height * 1.25);
+    this.aimGlow.renderOrder = 3;
+    this.aimGlow.visible = false;
+    this.scene.add(this.aimGlow);
+
     this.ready = false;
     this.mode = "idle"; // idle | walk | talk
     this.target = null;
@@ -639,6 +658,15 @@ export class Companion {
   }
 
   // ---------- Grab and throw ----------
+  /** Show the "you can grab it" glow (or hide it). Call every frame. */
+  highlight(on) {
+    this.aimGlow.visible = Boolean(on) && this.visible;
+    if (this.aimGlow.visible) {
+      this.centerWorld(this.aimGlow.position);
+      this.aimGlow.material.opacity = 0.75 + Math.sin(performance.now() / 120) * 0.25;
+    }
+  }
+
   get held() {
     return this.phys?.state === "held";
   }

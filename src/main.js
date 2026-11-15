@@ -3,6 +3,7 @@ import { XRControllerModelFactory } from "three/addons/webxr/XRControllerModelFa
 import { XRHandModelFactory } from "three/addons/webxr/XRHandModelFactory.js";
 import { Portal, PORTAL_SIZE } from "./portal.js";
 import { resizedScale } from "./portalresize.js";
+import { analyzeStroke, strokeHint } from "./drawportal.js";
 import { Immersion } from "./immersion.js";
 import { Toolbar } from "./toolbar.js";
 import { HandGestures } from "./gestures.js";
@@ -139,14 +140,20 @@ function placeInFront(obj, origin, dir, dist = 1.8) {
  * Opens a window. Every window is its own story, so unless a world was chosen ahead of time
  * (New story, Prepare demo, the console) it asks "what world is behind this window?".
  */
-function openPortal(origin, dir) {
+/** Opens a window: in front along a pointing ray, or (`opts.at`, `opts.scale`) where you drew one. */
+function openPortal(origin, dir, opts = {}) {
   if (portals.size >= maxPortals) return flash(`At most ${maxPortals} portals. Close one first.`);
   const hasWorld = Boolean(pendingSeed || roomState?.nextSeed);
   pendingSeed = "";
   if (roomState) roomState.nextSeed = "";
   const id = nextId();
   const portal = new Portal(id, listener);
-  placeInFront(portal.group, origin, dir);
+  if (opts.at) {
+    portal.group.position.fromArray(opts.at);
+    const eye = camera.getWorldPosition(new THREE.Vector3());
+    portal.group.lookAt(eye.x, portal.group.position.y, eye.z); // upright, facing you
+    portal.group.scale.setScalar(opts.scale || 1);
+  } else placeInFront(portal.group, origin, dir);
   scene.add(portal.group);
   const stream = new OrbisStream(id, ROOM);
   stream.addEventListener("video", () => portal.attachVideo(stream.video));
@@ -523,22 +530,134 @@ function onSelectStart(ctrl) {
     origin: ray.origin.clone(),
     dir: ray.direction.clone(),
   };
+  // ...and record the pinch's path, in case you're drawing a window frame in the air.
+  ctrl.userData.stroke = [pinchPoint(ctrl).toArray()];
+  trail.start(ctrl.userData.stroke[0]);
 }
+
+// Where you're pinching: between thumb and index fingertip (hands), or just ahead of the controller.
+const _pp = new THREE.Vector3(), _pq = new THREE.Vector3();
+function pinchPoint(ctrl) {
+  const j = ctrl.userData.hand?.joints;
+  const a = j?.["thumb-tip"], b = j?.["index-finger-tip"];
+  if (a?.visible && b?.visible) return a.getWorldPosition(_pp).add(b.getWorldPosition(_pq)).multiplyScalar(0.5).clone();
+  tmpMat.identity().extractRotation(ctrl.matrixWorld);
+  return ctrl.getWorldPosition(_pp).add(_pq.set(0, 0, -0.06).applyMatrix4(tmpMat)).clone();
+}
+function updateStrokes() {
+  for (let i = 0; i < 2; i++) {
+    const c = renderer.xr.getController(i);
+    const s = c.userData.stroke;
+    if (!s || !c.userData.pendingTap) continue;
+    const p = pinchPoint(c).toArray();
+    const last = s.at(-1);
+    if (Math.hypot(p[0] - last[0], p[1] - last[1], p[2] - last[2]) > 0.01 && s.length < 600) s.push(p), trail.add(p);
+  }
+}
+
+// The glowing trail you leave while drawing: gold dots that flash and fade when you let go.
+const trail = (() => {
+  const MAX = 600;
+  const pos = new Float32Array(MAX * 3);
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+  geo.setDrawRange(0, 0);
+  const dot = document.createElement("canvas");
+  dot.width = dot.height = 64;
+  const g = dot.getContext("2d"), grad = g.createRadialGradient(32, 32, 2, 32, 32, 30);
+  grad.addColorStop(0, "rgba(255,240,210,1)");
+  grad.addColorStop(1, "rgba(255,180,100,0)");
+  g.fillStyle = grad;
+  g.fillRect(0, 0, 64, 64);
+  const mat = new THREE.PointsMaterial({
+    size: 0.03, map: new THREE.CanvasTexture(dot), color: 0xffd08a, transparent: true, depthWrite: false,
+    blending: THREE.AdditiveBlending, sizeAttenuation: true,
+  });
+  const pts = new THREE.Points(geo, mat);
+  pts.frustumCulled = false;
+  pts.renderOrder = 40;
+  pts.visible = false;
+  scene.add(pts);
+  let n = 0, fadeFrom = 0;
+  return {
+    start(p) {
+      n = 0;
+      fadeFrom = 0;
+      mat.color.set(0xffd08a);
+      mat.opacity = 1;
+      pts.visible = true;
+      this.add(p);
+    },
+    add(p) {
+      if (n >= MAX) return;
+      pos.set(p, n * 3);
+      n++;
+      geo.setDrawRange(0, n);
+      geo.attributes.position.needsUpdate = true;
+    },
+    end(ok) {
+      mat.color.set(ok ? 0xfff0c0 : 0xff8a7a);
+      fadeFrom = performance.now();
+    },
+    cancel() {
+      pts.visible = false;
+      n = 0;
+    },
+    update() {
+      if (!fadeFrom) return;
+      const k = (performance.now() - fadeFrom) / 700;
+      mat.opacity = Math.max(0, 1 - k);
+      mat.size = 0.03 * (1 + k * 0.6);
+      if (k >= 1) (pts.visible = false), (fadeFrom = 0), (mat.size = 0.03);
+    },
+  };
+})();
 
 // Bonnie was just grabbed or thrown, or is flying / getting up: empty-space pinches are ignored.
 let buddyQuietUntil = 0;
 const buddyBusy = () => performance.now() < buddyQuietUntil || (buddy.phys && buddy.phys.state !== "held");
 const TAP_MS = 450, TAP_MOVE = 0.08; // metres the hand may drift during a tap
 function finishTap(ctrl) {
-  const t = ctrl.userData.pendingTap;
+  const t = ctrl.userData.pendingTap, stroke = ctrl.userData.stroke || [];
   ctrl.userData.pendingTap = null;
+  ctrl.userData.stroke = null;
   if (!t) return;
+  if (buddyBusy()) return trail.cancel(); // a throw's follow-through: nothing happens
   const still = performance.now() - t.at < TAP_MS && ctrl.getWorldPosition(new THREE.Vector3()).distanceTo(t.from) < TAP_MOVE;
-  if (!still || buddyBusy()) return;
-  if (immersion.inside) return touchWorld(t.origin, t.dir);
-  const floor = loco.enabled && loco.floorHit(new THREE.Ray(t.origin, t.dir));
-  if (floor) return loco.teleport(floor), buzz(0.3, 30);
-  openPortal(t.origin, t.dir);
+  if (still) {
+    trail.cancel();
+    if (immersion.inside) return touchWorld(t.origin, t.dir);
+    const floor = loco.enabled && loco.floorHit(new THREE.Ray(t.origin, t.dir));
+    if (floor) return loco.teleport(floor), buzz(0.3, 30);
+    // With hands, windows are drawn (see below); a controller's trigger tap still opens one ahead.
+    if (ctrl.userData.isHand) return flash("Pinch and draw a square in the air to open a window.", 4000);
+    return openPortal(t.origin, t.dir);
+  }
+  if (immersion.inside) return trail.cancel();
+  // Moved while pinching: was it a window frame drawn in the air?
+  const r = analyzeStroke(stroke, camera.getWorldPosition(new THREE.Vector3()).toArray());
+  if (r.ok) {
+    trail.end(true);
+    buzz(0.5, 60);
+    return openPortal(null, null, { at: r.position, scale: r.scale });
+  }
+  let path = 0;
+  for (let i = 1; i < stroke.length; i++) path += Math.hypot(...stroke[i].map((v, k) => v - stroke[i - 1][k]));
+  if (path > 0.35) (trail.end(false), flash(strokeHint(r.reason), 4000));
+  else trail.cancel();
+}
+
+// Is any hand / controller aimed at Bonnie right now (so a pinch would catch her)? Drives her glow.
+function aimedAtBuddy() {
+  if (!buddy.visible) return false;
+  for (let i = 0; i < 2; i++) {
+    const c = renderer.xr.getController(i);
+    if (!c.visible || c.userData.grabbed || c.userData.pendingTap) continue;
+    tmpMat.identity().extractRotation(c.matrixWorld);
+    const ray = new THREE.Ray(c.getWorldPosition(new THREE.Vector3()), new THREE.Vector3(0, 0, -1).applyMatrix4(tmpMat));
+    if (buddyAimed(ray) || buddyTouched(c)) return true;
+  }
+  return false;
 }
 
 // Does a pointing ray pass close to Bonnie? (A near miss still grabs her: she's small and moves.)
@@ -548,7 +667,7 @@ function buddyAimed(ray) {
   const along = c.clone().sub(ray.origin).dot(ray.direction);
   if (along < 0 || along > 6) return false;
   const miss = ray.distanceToPoint(c);
-  return miss < Math.max(0.18, along * Math.tan(THREE.MathUtils.degToRad(6))); // 18 cm, or 6° far away
+  return miss < Math.max(0.25, along * Math.tan(THREE.MathUtils.degToRad(9))); // 25 cm, or 9° far away
 }
 
 // Two-hand resize in progress: { portal, holder (hand carrying the window), ctrl (second hand), dist, scale }.
@@ -878,7 +997,7 @@ function updateTitle() {
 
 // Steps: open a window → tell the story → touch / step inside. Each is spoken once.
 const GUIDE = [
-  "Welcome, storyteller. Point at a wall and pinch, or pull the trigger, to open your first window.",
+  "Welcome, storyteller. Pinch the air and draw a square, like a window frame, to open your first window.",
   "A world is waking. Raise your hand to your mouth like a microphone, and tell me what happens next. Lower it when you're done.",
   "Now part your hands like curtains, and step inside. Shake both hands to wipe a window away.",
 ];
@@ -927,7 +1046,7 @@ function buddyTouched(ctrl) {
   if (!buddy.visible || !renderer.xr.isPresenting) return false;
   const c = buddy.centerWorld();
   const tip = ctrl.userData.hand?.joints?.["index-finger-tip"];
-  return ctrl.getWorldPosition(tmpV).distanceTo(c) < 0.4 || Boolean(tip?.visible && tip.getWorldPosition(tmpV).distanceTo(c) < 0.4);
+  return ctrl.getWorldPosition(tmpV).distanceTo(c) < 0.5 || Boolean(tip?.visible && tip.getWorldPosition(tmpV).distanceTo(c) < 0.5);
 }
 buddy.physicsEnv = () => {
   // A rough room around you (so it can't fly off forever), and the open windows.
@@ -1318,7 +1437,7 @@ const gestures = new HandGestures(renderer, camera, {
   palm: () => (gestures.pulse(0xffffff), setButtonsHidden(!toolbar.collapsed)),
   firstSeen: () =>
     flash(
-      `Hands: raise one to your mouth to talk · part both like curtains to step inside · shake both to close a window · snap to call ${BUDDY.name} · pinch a window to move it, with both hands to resize · left palm shows the buttons.`,
+      `Hands: pinch and draw a square to open a window · raise one hand to your mouth to talk · part both like curtains to step inside · shake both to close a window · snap to call ${BUDDY.name}, pinch her to throw her · left palm shows the buttons.`,
       12000,
     ),
 });
@@ -1498,6 +1617,9 @@ renderer.setAnimationLoop(() => {
   updateToolbar();
   gestures.update();
   updateResize();
+  updateStrokes();
+  trail.update();
+  buddy.highlight(renderer.xr.isPresenting && !buddy.held && aimedAtBuddy());
   buddy.update(dt);
   updateRipples();
   updateTitle();

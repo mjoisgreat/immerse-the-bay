@@ -188,7 +188,7 @@ to bring them back.
 |---|---|---|
 | Open a portal | Pinch at empty space | Trigger at empty space |
 | Focus and move a portal | Pinch on it, drag, release | Trigger on it, drag, release |
-| Pick up and throw Bonnie | Pinch and hold on Bonnie (or near it, or touching it), swing, release | Trigger and hold on Bonnie, swing, release |
+| Pick up and throw Bonnie | Pinch and hold on Bonnie (near her is enough: she glows when you can), swing, release | Trigger and hold on Bonnie, swing, release |
 | Resize a portal | Pinch it with both hands, then move the hands apart / together | n/a |
 | Call Bonnie | Snap your fingers | The **Bonnie** button |
 | Talk | Raise a hand to your mouth (or press and hold **Hold to talk** on the panel) | Hold A or X |
@@ -196,8 +196,10 @@ to bring them back.
 | Step inside a portal | Part your hands like curtains, walk through it, or pinch it and pull it toward you | Walk through it, or press B / Y |
 | Step back out | Bring your hands together or shake them, walk back ~60 cm, or pinch the blue ring | Walk back, or press B / Y |
 
-Pinching empty space opens a window (or teleports you, pointing at the ground in a 3D world) only on a quick, still
-tap, decided when you let go. Swinging to throw Bonnie, a pinch that slips off her, or pinching while she's in the
+**Drawing a window:** with your hands, pinch in empty space, draw a square or rectangle in the air, and let go: a
+window opens exactly where you drew it, projected onto the wall at the size it looked (`src/drawportal.js`). A trail
+of gold dots follows your fingers and flashes when it counts. With a controller, a quick trigger tap still opens one
+straight ahead; a quick, still tap pointing at the ground in a 3D world teleports you. These are decided when you let go. Swinging to throw Bonnie, a pinch that slips off her, or pinching while she's in the
 air (and for 1.5 s after a grab or throw) never opens a window.
 
 **Step inside:** the portal's video becomes the world around you, shown with the same perspective the camera
