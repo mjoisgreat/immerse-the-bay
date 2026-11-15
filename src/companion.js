@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { LAYER } from "./layers.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import * as SkeletonUtils from "three/addons/utils/SkeletonUtils.js";
 import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
@@ -22,6 +23,13 @@ const THROW_BOOST = 1.6; // tracked hands under-read a flick, so throws get extr
 const MAX_THROW = 11; // m/s
 const REEL_TO = new THREE.Vector3(0, 0, -0.12); // a far grab is pulled in to just past your fingers
 const UP = new THREE.Vector3(0, 1, 0);
+// Scratch objects for the per-frame paths (never kept across calls; see each use).
+const _eyeV = new THREE.Vector3(), _toUser = new THREE.Vector3(), _fwd = new THREE.Vector3(), _left = new THREE.Vector3();
+const _spot = new THREE.Vector3(), _to = new THREE.Vector3(), _facing = new THREE.Vector3(), _v1 = new THREE.Vector3(), _v2 = new THREE.Vector3();
+const _c = new THREE.Vector3();
+const _q1 = new THREE.Quaternion();
+// BunnyRig per-frame pose scratch.
+const _earWave = [0, 0], _earBack = [0, 0], _hc = { hop: 0, squash: 0 };
 
 function blobShadow(size) {
   const c = Object.assign(document.createElement("canvas"), { width: 128, height: 128 });
@@ -51,6 +59,16 @@ function afterWorld(obj) {
     o.material.depthWrite = true;
     o.renderOrder = 2;
   });
+}
+
+// One hop cycle: writes hop / squash into _hc and the ears-back amount into _earBack.
+function hopCycle(t, freq, height) {
+  const p = (t * freq) % 1;
+  const air = Math.sin(Math.PI * p);
+  _hc.hop = air * height;
+  // Squash on landing / take-off, stretch in the air.
+  _hc.squash = p < 0.12 ? (0.12 - p) / 0.12 : p > 0.88 ? (p - 0.88) / 0.12 : -air * 0.35;
+  _earBack[0] = _earBack[1] = air * 0.5; // ears flow back in the air
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -164,23 +182,17 @@ export class BunnyRig {
     this.t += dt;
     const t = this.t, T = performance.now() / 1000;
     let hop = 0, squash = 0, spin = 0, nodX = 0, shakeY = 0, tiltZ = 0;
-    const earWave = [0, 0], earBack = [0, 0];
-
-    const hopCycle = (freq, height) => {
-      const p = (t * freq) % 1;
-      const air = Math.sin(Math.PI * p);
-      hop = air * height;
-      // Squash on landing / take-off, stretch in the air.
-      squash = p < 0.12 ? (0.12 - p) / 0.12 : p > 0.88 ? (p - 0.88) / 0.12 : -air * 0.35;
-      earBack[0] = earBack[1] = air * 0.5; // ears flow back in the air
-    };
+    const earWave = _earWave, earBack = _earBack;
+    earWave[0] = earWave[1] = earBack[0] = earBack[1] = 0;
 
     switch (this.current) {
       case "Walking":
-        hopCycle(2.1, 0.055);
+        hopCycle(t, 2.1, 0.055);
+        (hop = _hc.hop), (squash = _hc.squash);
         break;
       case "Running":
-        hopCycle(3.0, 0.1);
+        hopCycle(t, 3.0, 0.1);
+        (hop = _hc.hop), (squash = _hc.squash);
         break;
       case "Wave": {
         const k = Math.min(1, t / 0.25) * Math.max(0, Math.min(1, (1.7 - t) / 0.3));
@@ -215,7 +227,8 @@ export class BunnyRig {
         break;
       }
       case "Dance": {
-        hopCycle(2.6, 0.07);
+        hopCycle(t, 2.6, 0.07);
+        (hop = _hc.hop), (squash = _hc.squash);
         spin = Math.sin(t * 2.2) * 0.7;
         tiltZ = Math.sin(t * 5.2) * 0.18;
         earWave[0] = Math.sin(t * 10) * 0.4;
@@ -245,12 +258,13 @@ export class BunnyRig {
     this.head.rotation.set(nodX, shakeY, tiltZ);
     const perk = Math.max(this.face.perk, listening ? 0.7 : 0);
     if (this.twitch > 0) this.twitch -= dt;
-    this.ears.forEach((ear, i) => {
+    for (let i = 0; i < this.ears.length; i++) {
+      const ear = this.ears[i];
       const rest = ear.userData.rest;
       const twitch = this.twitch > 0 && this.twitchEar === i ? Math.sin((0.35 - this.twitch) * 40) * 0.12 : 0;
       ear.rotation.z = THREE.MathUtils.lerp(rest.z, i === 0 ? 0.05 : -0.12, perk) + earWave[i] + twitch;
       ear.rotation.x = rest.x - earBack[i];
-    });
+    }
     this.tail.position.y = 0.11 + Math.sin(T * 6) * 0.004;
   }
 
@@ -304,10 +318,11 @@ export class RobotRig {
   play(name, fade = 0.3) {
     const next = this.actions?.[name], prev = this.actions?.[this.current];
     if (!next || name === this.current) return;
+    clearTimeout(this._danceTimer); // a stale Dance timeout must not end a later dance early
     next.reset().setEffectiveWeight(1).fadeIn(fade).play();
     prev?.fadeOut(fade);
     this.current = name;
-    if (name === "Dance") setTimeout(() => this.current === "Dance" && (this.play("Idle"), this.onFinished?.("Dance")), 4500);
+    if (name === "Dance") this._danceTimer = setTimeout(() => this.current === "Dance" && (this.play("Idle"), this.onFinished?.("Dance")), 4500);
   }
 
   setFace(name, amount) {
@@ -373,7 +388,7 @@ export class Companion {
     );
     this.bubble.scale.set(0.9, 0.3, 1);
     this.bubble.position.y = this.height + 0.26;
-    this.bubble.renderOrder = 25; // always readable, even in front of a window's caption
+    this.bubble.renderOrder = LAYER.SPEECH_BUBBLE; // always readable, even in front of a window's caption
     this.bubble.visible = false;
     this.root.add(this.bubble);
 
@@ -392,13 +407,14 @@ export class Companion {
       new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(glowCanvas), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }),
     );
     this.aimGlow.scale.setScalar(this.height * 1.25);
-    this.aimGlow.renderOrder = 3;
+    this.aimGlow.renderOrder = LAYER.COMPANION_GLOW;
     this.aimGlow.visible = false;
     this.scene.add(this.aimGlow);
 
     this.ready = false;
     this.mode = "idle"; // idle | walk | talk
     this.target = null;
+    this._goal = new THREE.Vector3(); // owned storage for the walk target (see update)
     this.idleUntil = 0;
     this.talking = false; // it is speaking
     this.listening = false; // you are speaking to it / it is thinking
@@ -483,17 +499,17 @@ export class Companion {
   }
 
   _eye() {
-    return this.camera.getWorldPosition(new THREE.Vector3());
+    return this.camera.getWorldPosition(_eyeV); // scratch: copy it if you keep it
   }
 
   /** Appear in front of you (further away on a flat screen, so it fits in view). */
   summon(distance = 1.4) {
     const eye = this._eye();
-    const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(this.camera.getWorldQuaternion(new THREE.Quaternion()));
+    const fwd = _fwd.set(0, 0, -1).applyQuaternion(this.camera.getWorldQuaternion(_q1));
     fwd.y = 0;
     fwd.normalize();
     // A little to your left, so it doesn't stand in front of the window you're looking at.
-    const left = new THREE.Vector3(fwd.z, 0, -fwd.x);
+    const left = _left.set(fwd.z, 0, -fwd.x);
     this._endPhysics();
     this.returnAt = 0;
     this.strayT = 0;
@@ -517,11 +533,11 @@ export class Companion {
   isLookedAt() {
     if (!this.visible) return false;
     const eye = this._eye();
-    const at = this.root.position.clone().setY(this.height * 0.6);
+    const at = _v1.copy(this.root.position).setY(this.height * 0.6);
     const to = at.sub(eye);
     const dist = to.length();
     if (dist > 5) return false;
-    const gaze = new THREE.Vector3(0, 0, -1).applyQuaternion(this.camera.getWorldQuaternion(new THREE.Quaternion()));
+    const gaze = _v2.set(0, 0, -1).applyQuaternion(this.camera.getWorldQuaternion(_q1));
     // A wider cone up close, since it fills more of your view.
     return gaze.dot(to.normalize()) > Math.cos(THREE.MathUtils.degToRad(dist < 1.5 ? 32 : 22));
   }
@@ -578,7 +594,7 @@ export class Companion {
   _pickWanderTarget(eye) {
     // Somewhere on the floor in front of you (within ±50° of where you're facing), so it stays
     // where you can see it instead of wandering behind you.
-    const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(this.camera.getWorldQuaternion(new THREE.Quaternion()));
+    const fwd = _fwd.set(0, 0, -1).applyQuaternion(this.camera.getWorldQuaternion(_q1));
     const facing = Math.atan2(fwd.x, fwd.z);
     for (let i = 0; i < 8; i++) {
       const a = facing + THREE.MathUtils.degToRad((Math.random() * 2 - 1) * 50);
@@ -594,7 +610,7 @@ export class Companion {
     const now = performance.now();
     this.rig.update(dt, { talking: this.talking, listening: this.listening, speakT: (now - this.speakStart) / 1000 });
     const eye = this._eye();
-    const toUser = new THREE.Vector3(eye.x - this.root.position.x, 0, eye.z - this.root.position.z);
+    const toUser = _toUser.set(eye.x - this.root.position.x, 0, eye.z - this.root.position.z);
     const distUser = toUser.length();
     const moving = () => this.rig.current === "Walking" || this.rig.current === "Running";
     if (this.phys) return this._updatePhysics(dt, now, toUser);
@@ -616,7 +632,7 @@ export class Companion {
     const attending = now < this.attendUntil;
     if (attending && !this.listening && !this.talking && distUser > this.comeDistance + 0.4) {
       // You are talking and she is far: run over to just in front of you.
-      this.target = new THREE.Vector3(eye.x, 0, eye.z).addScaledVector(toUser.clone().normalize(), -this.comeDistance);
+      this.target = this._goal.set(eye.x, 0, eye.z).addScaledVector(_v1.copy(toUser).normalize(), -this.comeDistance);
       this.mode = "walk";
       speed = RUN_SPEED;
     } else if (this.listening || this.talking || attending) {
@@ -641,17 +657,17 @@ export class Companion {
       }
     } else if (this.following) {
       // Walk beside you: a little ahead and to your left, so it stays in view as you move.
-      const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(this.camera.getWorldQuaternion(new THREE.Quaternion())).setY(0);
+      const fwd = _fwd.set(0, 0, -1).applyQuaternion(this.camera.getWorldQuaternion(_q1)).setY(0);
       if (fwd.lengthSq() > 1e-4) fwd.normalize();
-      const left = new THREE.Vector3(fwd.z, 0, -fwd.x); // 90° to the left of where you face
-      const spot = new THREE.Vector3(eye.x, 0, eye.z).addScaledVector(fwd, 0.9).addScaledVector(left, 0.55);
+      const left = _left.set(fwd.z, 0, -fwd.x); // 90° to the left of where you face
+      const spot = _spot.set(eye.x, 0, eye.z).addScaledVector(fwd, 0.9).addScaledVector(left, 0.55);
       const off = spot.distanceTo(this.root.position);
       if (distUser > 8) {
         // You walked off (another room?): pop back beside you.
         this.root.position.copy(spot);
         this.gesture("jump");
       } else if (off > (this.mode === "walk" ? 0.15 : 0.5)) {
-        this.target = spot;
+        this.target = this._goal.copy(spot);
         this.mode = "walk";
         if (off > 1.6) speed = RUN_SPEED;
       } else if (this.mode === "walk") {
@@ -663,7 +679,7 @@ export class Companion {
       }
     } else if (this.followUser && distUser > this.comeDistance + 0.2) {
       // Come to just in front of you.
-      this.target = new THREE.Vector3(eye.x, 0, eye.z).addScaledVector(toUser.clone().normalize(), -this.comeDistance);
+      this.target = this._goal.set(eye.x, 0, eye.z).addScaledVector(_v1.copy(toUser).normalize(), -this.comeDistance);
       this.mode = "walk";
       if (distUser > 3) speed = RUN_SPEED;
     } else if (this.mode === "talk" && now > this.idleUntil) {
@@ -678,7 +694,7 @@ export class Companion {
     }
 
     if (this.mode === "walk" && this.target && !this.emoting) {
-      const to = this.target.clone().sub(this.root.position).setY(0);
+      const to = _to.copy(this.target).sub(this.root.position).setY(0);
       const d = to.length();
       if (d < 0.08) {
         this.mode = "idle";
@@ -692,9 +708,9 @@ export class Companion {
       } else {
         this.rig.play(speed > WALK_SPEED ? "Running" : "Walking");
         this._turnTowards(to, dt, speed > WALK_SPEED ? 8 : 5);
-        const facing = new THREE.Vector3(0, 0, 1).applyQuaternion(this.root.quaternion);
+        const facing = _facing.set(0, 0, 1).applyQuaternion(this.root.quaternion);
         // Only move once roughly facing the way it's going.
-        if (facing.dot(to.clone().normalize()) > 0.6) this.root.position.addScaledVector(to.normalize(), Math.min(d, speed * dt));
+        if (facing.dot(to.divideScalar(d)) > 0.6) this.root.position.addScaledVector(to, Math.min(d, speed * dt));
       }
     } else if (this.mode !== "walk" && !this.emoting && moving()) this.rig.play("Idle");
   }
@@ -833,12 +849,12 @@ export class Companion {
     if (p.state === "held") {
       const h = p.holder;
       if (p.reel) p.offset.lerp(REEL_TO, 1 - Math.exp(-dt * 9));
-      const c = h.localToWorld(p.offset.clone());
+      const c = h.localToWorld(_c.copy(p.offset));
       this.root.position.set(c.x, c.y - this.centerY, c.z);
-      this.pivot.quaternion.copy(h.getWorldQuaternion(new THREE.Quaternion()).multiply(p.rel));
+      this.pivot.quaternion.copy(h.getWorldQuaternion(_q1).multiply(p.rel));
       // The throw uses the hand's own motion, not the reeling-in.
-      const hand = h.getWorldPosition(new THREE.Vector3());
-      this.tracker.push(p.reel ? h.localToWorld(REEL_TO.clone()) : c, now);
+      const hand = h.getWorldPosition(_v1);
+      this.tracker.push(p.reel ? h.localToWorld(_v2.copy(REEL_TO)) : c, now);
       p.travel = Math.max(p.travel, hand.distanceTo(p.start));
     } else if (p.state === "flying") {
       const r = stepBody(p.body, dt, p.env);
@@ -850,7 +866,7 @@ export class Companion {
       }
       if (p.body.vel.y === 0) this._rollSpin(1); // rolling along the floor
       const w = p.spin.length();
-      if (w > 1e-3) this.pivot.quaternion.premultiply(new THREE.Quaternion().setFromAxisAngle(p.spin.clone().divideScalar(w), w * dt));
+      if (w > 1e-3) this.pivot.quaternion.premultiply(_q1.setFromAxisAngle(_v1.copy(p.spin).divideScalar(w), w * dt));
       if (r.resting || now - p.since > 12000) {
         // Get back up, facing you.
         const yaw = toUser.lengthSq() > 1e-4 ? Math.atan2(toUser.x, toUser.z) : 0;
@@ -880,7 +896,7 @@ export class Companion {
   _turnTowards(dir, dt, rate) {
     if (dir.lengthSq() < 1e-4) return;
     const want = Math.atan2(dir.x, dir.z); // the body faces +Z
-    const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), want);
+    const q = _q1.setFromAxisAngle(UP, want);
     this.root.quaternion.slerp(q, Math.min(1, dt * rate));
   }
 }

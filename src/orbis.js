@@ -62,6 +62,10 @@ export class OrbisStream extends EventTarget {
         await this._connectAndStart();
         return;
       } catch (e) {
+        if (this.closed) {
+          await this._teardown();
+          return;
+        }
         const busy = e?.name === "RateLimitedError" || /429|capacity/i.test(String(e?.message));
         const wait = Math.min(30000, (busy ? 4000 : 2000) * attempt);
         this._setStatus("retrying", `${busy ? "No capacity right now" : e.message}. Retrying in ${Math.round(wait / 1000)} s`);
@@ -74,6 +78,7 @@ export class OrbisStream extends EventTarget {
   async _connectAndStart() {
     this._setStatus("connecting");
     this.jwt = await this._token(); // one JWT for the whole session
+    if (this.closed) return this._teardown();
     const reactor = new Reactor({ modelName: MODEL_NAME, modelTracks: TRACKS, jwt: this.jwt });
     this.reactor = reactor;
 
@@ -101,8 +106,10 @@ export class OrbisStream extends EventTarget {
       reactor.on("statusChanged", (s) => s === "ready" && (clearTimeout(t), resolve()));
       reactor.on("error", (e) => (clearTimeout(t), reject(e)));
     });
+    ready.catch(() => {});
     await reactor.connect(this.jwt);
     await ready;
+    if (this.closed) return this._teardown();
     await this._startGeneration();
   }
 
@@ -111,10 +118,12 @@ export class OrbisStream extends EventTarget {
       const t = setTimeout(() => reject(new Error("Timed out waiting for conditions_ready")), 20000);
       this._conditionsReady = () => (clearTimeout(t), resolve());
     });
+    conditions.catch(() => {});
     const reply = unwrap(await this.reactor.sendCommand("set_prompt", { prompt: this.prompt }));
     if (reply?.type === "command_error") throw new Error(`set_prompt: ${reply.reason || "rejected"}`);
     await conditions;
     await this.reactor.sendCommand("start", {});
+    if (this.closed) return this._teardown();
     this._setStatus("streaming");
   }
 
@@ -167,12 +176,17 @@ export class OrbisStream extends EventTarget {
       body: JSON.stringify({ sessionId: this.sessionId, jwt: this.jwt }),
       keepalive,
     }).catch(() => {});
+    this.sessionId = null;
   }
 
   async close() {
     this.closed = true;
     this._setStatus("closed");
     await this._teardown();
+    this.video.pause();
+    this.video.srcObject = null;
+    this.audioStream?.getTracks().forEach((t) => t.stop());
+    this.audioStream = null;
   }
 
   /** For page unload: fire-and-forget server-side cleanup. */

@@ -15,6 +15,8 @@ const LS = {
 };
 
 const params = new URLSearchParams(location.search);
+/** Escapes user text for innerHTML (attributes must be double-quoted). */
+export const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 export const cleanRoom = (v) => String(v || "").toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 40);
 export const urlRoom = cleanRoom(params.get("room"));
 export const urlInvite = (params.get("invite") || "").replace(/[^A-Za-z0-9]/g, "").slice(0, 32);
@@ -39,7 +41,7 @@ export function makeOwnerCreds(room) {
 }
 
 export const owned = () => LS.get("lw:owned", {});
-export function saveOwned(room, creds) {
+function saveOwned(room, creds) {
   LS.set("lw:owned", { ...owned(), [room]: creds });
   LS.set("lw:lastRoom", room);
 }
@@ -47,11 +49,6 @@ export const lastOwnedRoom = () => {
   const r = LS.get("lw:lastRoom", "");
   return owned()[r] ? r : "";
 };
-export function forgetOwned(room) {
-  const o = owned();
-  delete o[room];
-  LS.set("lw:owned", o);
-}
 
 export const consolePins = () => LS.get("lw:pins", {});
 export function savePin(room, pin) {

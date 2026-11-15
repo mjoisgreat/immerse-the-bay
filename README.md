@@ -249,9 +249,23 @@ Director console (console.html) ── /ws ─────► └─────
 * Each portal plays its Orbis audio through three.js `PositionalAudio`, so the sound comes from
   that wall.
 
+## Code layout
+
+* `src/main.js` is only the entry point: it wires the server messages, the "Enter" button and the frame loop.
+  The app itself lives in `src/app/`, one concern per file: `stage` (renderer, scene, camera), `state` (the
+  few values several files share), `room` (your room and the server link), `portals` (windows and stepping
+  inside), `wide`, `talk` (mic and voices), `story` (direction, ideas, the world question, reset), `guide`,
+  `buddy`, `world` (Moon / Stanford), `buttons`, `xrinput` (controllers and hands), `desktop` (mouse, keys,
+  touch, camera), `feedback` (toast, tones, haptics), `trail`, `config`.
+* The files directly in `src/` are self-contained pieces with no knowledge of the app (`portal.js`,
+  `immersion.js`, `companion.js`, `gestures.js`, …), most with tests in `test/`.
+* Draw order of everything see-through is in `src/layers.js`. Add a number there, not a magic one in place.
+* `npm run lint` catches names that don't exist (a forgotten import); `npm test` runs the logic tests.
+* Add `?debug` to the URL and the app's objects are on `window.lw` in the browser console.
+
 ## Team split
 
-1. **XR:** `src/main.js`, `src/portal.js`. Portal placement on real walls (hit-test or planes),
+1. **XR:** `src/app/`, `src/portal.js`. Portal placement on real walls (hit-test or planes),
    polish, and the in-headset UI.
 2. **Orbis/backend:** `src/orbis.js`, `server/index.js`. Reliability with 3 parallel sessions,
    reconnects, and watching the credit dashboard.

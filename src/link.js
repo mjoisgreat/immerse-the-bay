@@ -2,21 +2,19 @@
 // Works the same on the laptop server and on Vercel.
 import { credFor, voterId } from "./identity.js";
 
-export function createLink(room, { onMessage, onOpen, skipHistory = true }) {
+export function createLink(room, { onMessage, onOpen }) {
   let since = null; // null until the first poll; history is skipped so old events aren't replayed
   let lastState = "";
   let connected = false;
-  let stopped = false;
   let outbox = Promise.resolve();
 
   async function tick() {
-    if (stopped) return;
     try {
       const r = await fetch(`/api/relay?room=${room}&since=${since ?? 0}`, { cache: "no-store" });
       if (!r.ok) throw new Error(String(r.status));
       const { state, events, seq } = await r.json();
       if (!connected) (connected = true), onOpen?.();
-      if (since !== null || !skipHistory) for (const e of events) onMessage(e);
+      if (since !== null) for (const e of events) onMessage(e);
       since = seq;
       const key = JSON.stringify(state);
       if (key !== lastState) (lastState = key), onMessage({ t: "state", ...state });
@@ -45,7 +43,6 @@ export function createLink(room, { onMessage, onOpen, skipHistory = true }) {
   return {
     send: request,
     request,
-    stop: () => (stopped = true),
     get connected() {
       return connected;
     },

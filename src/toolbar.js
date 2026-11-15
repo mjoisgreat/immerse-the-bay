@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { LAYER } from "./layers.js";
 
 // The headset's button panel. It rests below your gaze, follows you lazily when you turn or walk away,
 // and is pressed by pointing (controller trigger or hand pinch).
@@ -110,7 +111,7 @@ export class Toolbar {
         tex.colorSpace = THREE.SRGBColorSpace;
         tex.anisotropy = 4;
         const mesh = new THREE.Mesh(new THREE.PlaneGeometry(bw, bh), new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthTest: false }));
-        mesh.renderOrder = 20; // always readable, even inside a world
+        mesh.renderOrder = LAYER.TOOLBAR; // always readable, even inside a world
         const a = mid / R; // on the curve, turned to face you
         mesh.position.set(R * Math.sin(a), spec.y + (b.big ? (BIG.h - spec.h) / 2 : 0), R * (1 - Math.cos(a)));
         mesh.rotation.y = -a;
@@ -135,7 +136,7 @@ export class Toolbar {
       const tex = new THREE.CanvasTexture(canvas);
       tex.colorSpace = THREE.SRGBColorSpace;
       const mesh = new THREE.Mesh(new THREE.PlaneGeometry(CW, CH), new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthTest: false }));
-      mesh.renderOrder = 20;
+      mesh.renderOrder = LAYER.TOOLBAR;
       const a = (-this.width / 2 + CW / 2 + i * (CW + 0.012)) / R;
       mesh.position.set(R * Math.sin(a), choiceY, R * (1 - Math.cos(a)));
       mesh.rotation.y = -a;
@@ -156,7 +157,7 @@ export class Toolbar {
       new THREE.PlaneGeometry(0.15, 0.044),
       new THREE.MeshBasicMaterial({ map: this.handleTex, transparent: true, depthTest: false, opacity: 0.9 }),
     );
-    this.handle.renderOrder = 20;
+    this.handle.renderOrder = LAYER.TOOLBAR;
     this.handle.userData.button = "__show";
     this.handle.visible = false;
     this.handleHovered = false;

@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import manifest from "../worlds/manifest.json";
+import { LAYER } from "./layers.js";
 
 // Pre-built 3D worlds (Gaussian splats) that replace the flat video when you step inside a
 // portal whose scene one of them fits. The director picks the world; this file loads and
@@ -110,7 +111,7 @@ async function skyDome(url) {
   });
   const dome = new THREE.Mesh(new THREE.SphereGeometry(90, 48, 24), m);
   dome.frustumCulled = false;
-  dome.renderOrder = -40; // before the step-inside world (-30) and the windows' wall masks (-20)
+  dome.renderOrder = LAYER.SKY;
   return dome;
 }
 
@@ -164,7 +165,7 @@ export class SplatWorlds {
     if (!this.spark) {
       // A slightly tighter splat cutoff is the recommended setting for headsets.
       this.spark = new SparkRenderer({ renderer: this.renderer, maxStdDev: Math.sqrt(5) });
-      this.spark.renderOrder = -5; // after the step-inside backdrop, before windows and buttons
+      this.spark.renderOrder = LAYER.SPLATS;
       this.scene.add(this.spark);
     }
     // The light version is small enough to draw whole: no level-of-detail tree to build.

@@ -7,4 +7,3 @@ export const PRESETS = [
 ];
 
 export const TAGLINE = "A campfire story you can step into.";
-export const SUBLINE = "One person speaks, the room becomes the story, and everyone watching shapes what happens next, live.";

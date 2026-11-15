@@ -12,7 +12,7 @@ const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-6-luna";
 const OPENAI_EFFORT = process.env.OPENAI_REASONING_EFFORT || "medium";
 
 // The companion's body in the room. Bonnie is the default (after the Stanford XR mascot); Pip is the robot.
-export const PERSONAS = {
+const PERSONAS = {
   bunny: {
     name: "Bonnie",
     who: `In the person's room you are Bonnie, a small white rabbit (about knee height) who always wears a
@@ -189,12 +189,13 @@ export function createDirector() {
     : hasAnthropic ? "anthropic"
     : hasOpenAI ? "openai"
     : null;
-  const client = provider === "anthropic" ? new Anthropic() : null;
+  const client = provider === "anthropic" ? new Anthropic({ timeout: 40_000, maxRetries: 1 }) : null;
 
   async function askOpenAI({ system, payload, image }) {
     const text = JSON.stringify(payload);
     const r = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
+      signal: AbortSignal.timeout(40_000),
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
       body: JSON.stringify({
         model: OPENAI_MODEL,
@@ -296,7 +297,7 @@ export function createDirector() {
     }
   }
 
-  return { direct, provider, usingClaude: provider === "anthropic" };
+  return { direct, provider };
 }
 
 const IMMERSIVE =
@@ -313,7 +314,7 @@ const NOW = " Now, in the same continuous shot: ";
  * dropping anything this fallback appended before (style and camera notes, touch ripples), so
  * repeated events never pile up.
  */
-export function parseScene(prompt, seed) {
+function parseScene(prompt, seed) {
   let p = ` ${String(prompt || "").trim()} `;
   for (const tail of [STYLE, IMMERSIVE, RIPPLE]) p = p.split(tail).join(" ");
   const [before, now = ""] = p.split(NOW);

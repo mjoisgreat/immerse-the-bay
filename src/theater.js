@@ -1,10 +1,9 @@
 import QRCode from "qrcode";
 import { createLink } from "./link.js";
-import { urlRoom, cleanRoom } from "./identity.js";
+import { urlRoom, cleanRoom, esc } from "./identity.js";
 
 // Full-screen spectator view for a TV or projector next to the headset (no controls, just the show).
 const $ = (s) => document.querySelector(s);
-const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 
 const room = urlRoom;
 if (!room) {
@@ -56,10 +55,18 @@ function start() {
     },
   });
 
+  let narrTimer;
+  // Only touch the DOM when the markup changed (re-setting identical <img> markup reloads the pictures).
+  function setHtml(sel, html) {
+    const el = $(sel);
+    if (el.dataset.html !== html) el.innerHTML = el.dataset.html = html;
+  }
+
   function setNarration(text) {
     const el = $("#narration");
     el.style.opacity = 0;
-    setTimeout(() => ((el.textContent = text), (el.style.opacity = 1)), 400);
+    clearTimeout(narrTimer); // a newer line replaces one still fading out
+    narrTimer = setTimeout(() => ((el.textContent = text), (el.style.opacity = 1)), 400);
   }
 
   function showSpeech({ speaker, line }) {
@@ -70,13 +77,16 @@ function start() {
     speechTimer = setTimeout(() => $("#speech").classList.remove("on"), 14000);
   }
 
+  let choicesKey = "";
   function renderChoices(list) {
+    const key = JSON.stringify(list);
+    if (key === choicesKey) return; // same options: re-rendering would replay the pop-in animation
+    choicesKey = key;
     $("#choices").innerHTML = list.length
       ? `<span class="label">What happens next?</span>` + list.map((c) => `<span class="choice">${esc(c)}</span>`).join("")
       : "";
   }
 
-  let choicesKey = "";
   function render() {
     const s = state;
     $("#title").textContent = s.meta?.title || "";
@@ -85,15 +95,14 @@ function start() {
     $("#live").textContent = live ? "● LIVE" : "offline";
     $("#live").className = live ? "pill live" : "pill";
     $("#inside").hidden = !s.immersedId;
-    const key = JSON.stringify(s.choices || []);
-    if (key !== choicesKey) (choicesKey = key), renderChoices(s.choices || []);
+    renderChoices(s.choices || []);
     const ideas = [...(s.suggestions || [])].sort((a, b) => b.voters.length - a.voters.length || a.at - b.at).slice(0, 3);
     $("#ideasCard").hidden = !ideas.length;
     // Ideas steer the window the storyteller is looking at; say which when there are several.
     $("#ideasTitle").textContent = (s.portals || []).length > 1 && s.focusId ? `Audience ideas → window ${s.focusId}` : "Audience ideas";
-    $("#ideas").innerHTML = ideas
+    setHtml("#ideas", ideas
       .map((x) => `<div><em>▲ ${x.voters.length}</em><span>${esc(x.text)}${x.by ? ` <small>· ${esc(x.by)}</small>` : ""}</span></div>`)
-      .join("");
+      .join(""));
     renderSnaps();
   }
 
@@ -108,18 +117,19 @@ function start() {
       shown = snaps[mainId];
       const back = front === "imgA" ? "imgB" : "imgA";
       const img = $(`#${back}`);
+      const frame = shown;
       img.onload = () => {
         img.classList.add("on");
         $(`#${front}`).classList.remove("on");
         front = back;
+        $("#ambient").style.backgroundImage = `url(${frame})`;
       };
-      img.src = shown;
-      $("#ambient").style.backgroundImage = `url(${shown})`;
+      img.src = frame;
     }
-    $("#thumbs").innerHTML = ids
+    setHtml("#thumbs", ids
       .filter((id) => id !== mainId)
-      .map((id) => `<div class="thumb"><img alt="Window ${esc(id)}" src="${snaps[id]}"><span>Window ${esc(id)}</span></div>`)
-      .join("");
+      .map((id) => `<div class="thumb"><img alt="Window ${esc(id)}" src="${esc(snaps[id])}"><span>Window ${esc(id)}</span></div>`)
+      .join(""));
   }
 
   async function pollSnaps() {
