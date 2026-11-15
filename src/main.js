@@ -4,10 +4,10 @@ import { XRHandModelFactory } from "three/addons/webxr/XRHandModelFactory.js";
 import { Portal, PORTAL_SIZE } from "./portal.js";
 import { resizedScale, carriedPosition } from "./portalresize.js";
 import { analyzeStroke, strokeHint } from "./drawportal.js";
-import { GestureCard } from "./gesturecard.js";
+import { GestureCard, gestureRows, buttonRows } from "./gesturecard.js";
 import { spotFor, windowSpot } from "./errand.js";
 import { Immersion } from "./immersion.js";
-import { Toolbar } from "./toolbar.js";
+import { Toolbar, menuFor } from "./toolbar.js";
 import { HandGestures } from "./gestures.js";
 import { Companion, BunnyRig, RobotRig } from "./companion.js";
 import { Backdrop } from "./backdrop.js";
@@ -16,7 +16,7 @@ import { Locomotion } from "./locomotion.js";
 import { OrbisStream } from "./orbis.js";
 import { PushToTalk } from "./voice.js";
 import { createLink, speechHeaders } from "./link.js";
-import { PRESETS, TAGLINE } from "./presets.js";
+import { TAGLINE } from "./presets.js";
 import { urlRoom, urlInvite, owned, lastOwnedRoom, newRoomCode, makeOwnerCreds, credFor, voterId } from "./identity.js";
 
 const $ = (s) => document.querySelector(s);
@@ -58,34 +58,12 @@ addEventListener("resize", () => {
   renderer.setSize(innerWidth, innerHeight);
 });
 
-// ---------- Mic orb: retired (hidden), kept only so older code paths that reference it still work ----------
-const micOrb = new THREE.Mesh(
-  new THREE.SphereGeometry(0.035, 32, 16),
-  new THREE.MeshStandardMaterial({ color: 0xffb36b, emissive: 0x442200, roughness: 0.3 }),
-);
-micOrb.position.set(-0.22, -0.2, -0.55);
-micOrb.userData.mic = true;
-camera.add(micOrb);
-
-// Exit orb (blue, right side): only shown while you're inside a world. Pinch it to step back out.
-const exitOrb = new THREE.Mesh(
-  new THREE.TorusGeometry(0.028, 0.009, 16, 40),
-  new THREE.MeshStandardMaterial({ color: 0x6aa8ff, emissive: 0x10264a, roughness: 0.3 }),
-);
-exitOrb.position.set(0.22, -0.2, -0.55);
-exitOrb.userData.exit = true;
-exitOrb.visible = false;
-camera.add(exitOrb);
-
 // ---------- Step inside ----------
 const immersion = new Immersion(scene, camera, {
   audioContext: listener.context,
   onChange(id) {
     send({ t: "immerse", id }); // the director reframes that world as a first-person view
     buzz();
-    // Tuck the buttons away inside a world for an unobstructed view; bring them back on leaving.
-    if (id && !toolbar.collapsed) (toolbar.setCollapsed(true), (autoHidden = true));
-    else if (!id && autoHidden) (toolbar.setCollapsed(false), (autoHidden = false));
   },
 });
 function buzz(strength = 0.6, ms = 90) {
@@ -110,7 +88,6 @@ function chime(kind) {
 }
 function stepInside(portal) {
   if (!portal || (immersion.inside && immersion.portal === portal)) return;
-  hideGestureCard(); // you've clearly found your way around
   setFocus(portal.id);
   immersion.enter(portal, [...portals.values()].find((p) => p.portal === portal)?.stream.video);
   flash(`You stepped into window ${portal.id}. Bring your hands together, or shake them, to step back out (or press B/Y).`, 5000);
@@ -269,7 +246,7 @@ function retire(text = `Your room “${ROOM}” is now playing in another tab or
   portals.clear();
   focusId = null;
   retired = true;
-  $("#overlay").hidden = false;
+  setStartScreen(true);
   $("#overlay .card").innerHTML = `<h1>Living Window</h1><p>${text}</p><button onclick="location.reload()">Take it back</button>`;
   renderer.xr.getSession()?.end();
   say(text);
@@ -382,8 +359,6 @@ async function startTalking(gesture = false) {
       return;
     }
     talking = true;
-    micOrb.material.emissive.set(0xff3300);
-    micOrb.scale.setScalar(1.4);
     chime("talk");
     buzz(0.5, 60);
     flash(byGesture ? "Listening… lower your hand when you're done" : "Listening… let go when you're done", 60000);
@@ -397,8 +372,6 @@ async function stopTalking() {
   wantTalk = false;
   if (!talking) return;
   talking = false;
-  micOrb.material.emissive.set(0x442200);
-  micOrb.scale.setScalar(1);
   chime("send");
   buzz(0.3, 40);
   flash("Thinking…", 20000);
@@ -451,10 +424,10 @@ const controllerFactory = new XRControllerModelFactory();
 const handFactory = new XRHandModelFactory();
 
 function targets() {
-  const ui = immersion.inside ? [micOrb, exitOrb] : [micOrb];
+  const ui = [];
   if (renderer.xr.isPresenting) ui.push(...toolbar.targets);
   if (buddy.visible) ui.push(buddy.hitbox);
-  if (gestureCard.visible) ui.push(gestureCard.mesh);
+  if (cheatSheet.visible) ui.push(cheatSheet.mesh);
   return [...ui.filter((o) => o.visible || o === buddy.hitbox), ...[...portals.values()].filter((p) => p.portal.group.visible).map((p) => p.portal.screen)];
 }
 
@@ -471,10 +444,13 @@ for (let i = 0; i < 2; i++) {
     new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3(0, 0, -1)]),
     new THREE.LineBasicMaterial({ color: 0xffd08a, transparent: true, opacity: 0.6 }),
   );
-  line.scale.z = 3;
+  // A short ray, not an endless line. The only dot is the pointer on the menu (see Toolbar.pointAt).
+  line.scale.z = 0.4;
   ctrl.add(line);
   ctrl.addEventListener("connected", (e) => {
-    line.visible = !e.data.hand; // hands have their own visuals
+    // A hand's laser only shows while it points at the menu (controllers always show theirs).
+    ctrl.userData.laser = line;
+    line.visible = !e.data.hand;
     ctrl.userData.isHand = Boolean(e.data.hand);
   });
   ctrl.addEventListener("selectstart", () => onSelectStart(ctrl));
@@ -494,19 +470,12 @@ for (let i = 0; i < 2; i++) {
 
 function onSelectStart(ctrl) {
   const ray = rayFrom(ctrl);
+  const snap = menuSnap(ray); // pointing near a menu item zones in on it
+  if (snap) return pressMenuPart(snap.part);
   const hit = raycaster.intersectObjects(targets(), false)[0];
-  if (hit?.object.userData.mic) {
-    ctrl.userData.talking = true;
-    return startTalking();
-  }
-  if (hit?.object.userData.exit) return stepOut();
-  if (hit?.object.userData.gestureCard) return hideGestureCard();
-  if (hit?.object.userData.button) {
-    ctrl.userData.button = hit.object.userData.button;
-    if (ctrl.userData.button !== armed) disarm(); // any other button cancels a pending confirm
-    return toolbar.press(ctrl.userData.button, ctrl);
-  }
-  if (hit?.object.userData.choice !== undefined) return pickChoice(hit.object.userData.choice);
+  if (!(hit?.object.userData.button || hit?.object.userData.choice !== undefined)) closeMenu(); // any other action shuts the menu
+  if (hit?.object.userData.gestureCard) return cheatSheet.hide();
+  if (hit?.object.userData.button || hit?.object.userData.choice !== undefined) return pressMenuPart(hit.object);
   // Pick the companion up (pointing at it, or reaching out and touching it). A quick tap toggles
   // following (see onSelectEnd); holding carries it, and letting go throws it.
   const otherHand = [0, 1].map((i) => renderer.xr.getController(i)).find((c) => c !== ctrl);
@@ -748,10 +717,7 @@ function onSelectEnd(ctrl) {
     return;
   }
   if (resize && resize.holder === ctrl) resize = null; // let go of the carrying hand: resizing ends too
-  if (ctrl.userData.button) {
-    toolbar.release(ctrl.userData.button, ctrl);
-    ctrl.userData.button = null;
-  }
+  ctrl.userData.button = null;
   if (ctrl.userData.talking) {
     ctrl.userData.talking = false;
     stopTalking();
@@ -796,9 +762,9 @@ function pollButtons() {
     if (src.gamepad?.buttons?.[5]?.pressed) step = i;
     if (src.gamepad?.buttons?.[3]?.pressed) stick = true;
   });
-  if (stick && !stickHeld) setButtonsHidden(!toolbar.collapsed); // thumbstick click: hide / show buttons
+  if (stick && !stickHeld) toolbar.toggleOpen(); // thumbstick click: open / close the menu
   stickHeld = stick;
-  if (pressed && !buttonHeld) startTalking();
+  if (pressed && !buttonHeld) (closeMenu(), startTalking());
   if (!pressed && buttonHeld) stopTalking();
   buttonHeld = pressed;
   if (step !== null && !stepHeld) {
@@ -1074,26 +1040,16 @@ const BUDDY = USE_PIP
   : { id: "bunny", name: "Bonnie", icon: "🐰", voice: "a bright, friendly young voice; bubbly, quick and a little cheeky, full of wonder" };
 const buddy = new Companion(scene, camera, { name: BUDDY.name, rig: USE_PIP ? new RobotRig() : new BunnyRig() });
 
-// The how-to card: at the start of a headset session, every action and its hand gesture. Pinch it to close
-// it; otherwise it fades after a minute, or as soon as you step inside a world.
-const gestureCard = new GestureCard(BUDDY.name);
-scene.add(gestureCard.mesh);
-let gestureCardTimer = 0;
-function showGestureCard() {
-  gestureCard.show(camera);
-  clearTimeout(gestureCardTimer);
-  gestureCardTimer = setTimeout(hideGestureCard, 60000);
+// The cheat sheet: every hand gesture plus the buttons, opened from the menu's "Cheat sheet" entry. It
+// does not show by itself. Pinch it to close it.
+const cheatSheet = new GestureCard(BUDDY.name, { rows: [...gestureRows(BUDDY.name), ...buttonRows()], title: "Cheat sheet", row: 66 });
+scene.add(cheatSheet.mesh);
+// Returns true so the menu stays open: the cheat sheet lives only while the menu is open.
+function showCheatSheet() {
+  cheatSheet.show(camera);
+  return true;
 }
-function hideGestureCard() {
-  clearTimeout(gestureCardTimer);
-  gestureCard.hide();
-}
-renderer.xr.addEventListener("sessionstart", () => {
-  clearTimeout(gestureCardTimer);
-  // A moment after the session starts, so the headset's pose has settled and the card lands in front of you.
-  gestureCardTimer = setTimeout(() => renderer.xr.isPresenting && !immersion.inside && showGestureCard(), 1800);
-});
-renderer.xr.addEventListener("sessionend", hideGestureCard);
+renderer.xr.addEventListener("sessionend", () => cheatSheet.hide());
 buddy.load().catch((e) => console.warn("[companion] failed to load", e));
 let buddyWait = 0;
 /** Tells the story director whether its body is in the room, so it knows when it can speak here. */
@@ -1250,23 +1206,33 @@ function showLoading(text, fraction = null) {
   $("#loadingBar").style.width = `${Math.round((fraction ?? 0) * 100)}%`;
   flash(text, 120000); // in the headset the toast is the loading state
 }
-// The background world: the golden-hour Main Quad by default; ?backdrop=stanford picks the photo-based one.
-const BACKDROP_WORLD = new URLSearchParams(location.search).get("backdrop") || "stanford-golden";
-async function toggleBackdrop() {
-  if (backdrop.on) {
+// The worlds you can stand in. Stanford is the golden-hour Main Quad (or ?backdrop=stanford for the
+// photo-based one). Moon needs its world in worlds/manifest.json (and its .spz file) before it can load.
+const WORLDS = {
+  stanford: { id: new URLSearchParams(location.search).get("backdrop") || "stanford-golden", name: "Stanford's Main Quad" },
+  moon: { id: "moon", name: "the Moon base" },
+};
+/** Which world is on, for the menu: "stanford", "moon" or null. */
+function worldKey() {
+  return Object.keys(WORLDS).find((k) => WORLDS[k].id === backdrop.worldId) || null;
+}
+/** Enters a world from wherever you are, or leaves it if it is the one you are in. */
+async function toggleWorld(key) {
+  const w = WORLDS[key];
+  if (backdrop.worldId === w.id) {
     backdrop.hide();
     return flash("Back to your room.", 3000);
   }
   if (backdrop.loading) return;
   const quality = splatQuality(renderer);
   const light = quality === "low" ? " (light version)" : "";
-  showLoading(`Loading Stanford's Main Quad${light}…`, 0);
+  showLoading(`Loading ${w.name}${light}…`, 0);
   const ok = await backdrop
-    .show(BACKDROP_WORLD, {
+    .show(w.id, {
       quality,
       onProgress: ({ stage, fraction }) =>
         stage === "download"
-          ? showLoading(`Loading Stanford's Main Quad${light}… ${Math.round(fraction * 100)}%`, fraction)
+          ? showLoading(`Loading ${w.name}${light}… ${Math.round(fraction * 100)}%`, fraction)
           : showLoading(`Building the world${light}… hold still, this can take a moment.`),
     })
     .catch(() => false);
@@ -1274,8 +1240,9 @@ async function toggleBackdrop() {
   const how = renderer.xr.isPresenting
     ? "Walk, use the left thumbstick, or point at the ground and pinch to jump there."
     : "Use W/A/S/D or the arrow keys to walk around.";
-  flash(ok ? `You're standing in Stanford's Main Quad. ${how} Press See-through to return to your room.` : "Couldn't load the 3D world.", 9000);
+  flash(ok ? `You're standing in ${w.name}. ${how}` : `Couldn't load ${w.name}.`, 9000);
 }
+const toggleBackdrop = () => toggleWorld("stanford");
 
 // ---------- Buttons (floating panel in the headset, bar at the bottom on desktop) ----------
 function openInFront() {
@@ -1362,9 +1329,9 @@ function disarm() {
   syncButtons();
   flash("Cancelled.", 1500);
 }
-/** Reset: every window closes and every story, idea and seed is forgotten. */
+/** Reset: every window closes and every story, idea and seed is forgotten. Returns true while it waits for its second tap (the menu stays open). */
 function resetPressed() {
-  if (!confirmTap("reset")) return;
+  if (!confirmTap("reset")) return true;
   clearAsk();
   send({ t: "reset_story" });
   flash("Clearing the story…", 4000);
@@ -1390,72 +1357,34 @@ function resetLocal({ ask = false, open = false, seed = "" } = {}) {
   flash(seed ? `New story: ${seed}. Open a window to begin.` : "Story cleared. Open a window to begin a new one.", 8000);
 }
 
-// ---------- Prepare demo ----------
-// One tap before the headset goes on: a fresh story in a chosen world with its first window
-// already opening, because a window needs 20-30 s to reach video.
-let demoWatch = 0;
-function prepareDemo(seed) {
-  armed = null;
-  clearAsk();
-  send({ t: "reset_story", seed, open: true });
-  const el = $("#demoStatus");
-  const began = performance.now();
-  clearInterval(demoWatch);
-  demoWatch = setInterval(() => {
-    const p = portals.values().next().value;
-    const secs = Math.round((performance.now() - began) / 1000);
-    if (p?.stream.status === "streaming") {
-      clearInterval(demoWatch);
-      el.textContent = `Demo ready: window ${p.portal.id} is live (took ${secs} s). Put the headset on and enter.`;
-    } else el.textContent = `Preparing the demo… ${p ? labelFor(p.stream.status === "idle" ? "connecting" : p.stream.status) || "starting" : "resetting the room"} (${secs} s)`;
-  }, 500);
+// The headset menu: a small face-locked button at the bottom of your view. Its list changes with
+// where you are (see menuFor in toolbar.js).
+const toolbar = new Toolbar(camera);
+function menuItems() {
+  const act = {
+    exitwin: stepOut,
+    reset: resetPressed,
+    stanford: () => void toggleWorld("stanford"),
+    "exit-stanford": () => void toggleWorld("stanford"),
+    moon: () => void toggleWorld("moon"),
+    "exit-moon": () => void toggleWorld("moon"),
+    cheat: showCheatSheet,
+    exitvr: () => void renderer.xr.getSession()?.end(), // (a true return would keep the list open)
+  };
+  const entries = menuFor({ inside: immersion.inside, world: worldKey(), loading: backdrop.loading, armed });
+  return entries.map((e) => ({ ...e, press: act[e.id] }));
 }
-$("#demoSeed").innerHTML =
-  PRESETS.map(([label, seed]) => `<option value="${seed.replace(/"/g, "&quot;")}">${label}</option>`).join("") + `<option value="">Ask me (no world chosen)</option>`;
-$("#demo").addEventListener("submit", (e) => {
-  e.preventDefault();
-  if (listener.context.state === "suspended") listener.context.resume();
-  const seed = $("#demoSeed").value;
-  if (seed) return prepareDemo(seed);
-  // No world chosen: a clean room that asks for one.
-  send({ t: "reset_story", ask: true });
-  $("#demoStatus").textContent = "Room cleared. The headset will ask what world the story is set in.";
-});
-
-const toolbar = new Toolbar(camera, [
-  { id: "talk", icon: "🎙", label: "Hold to talk", press: () => startTalking(), release: () => stopTalking() },
-  { id: "new", icon: "＋", label: "New window", press: openInFront },
-  { id: "step", icon: "🚪", label: "Step inside", press: toggleStep },
-  { id: "hide", icon: "▾", label: "Hide buttons", press: () => setButtonsHidden(true) },
-  { id: "buddy", icon: BUDDY.icon, label: BUDDY.name, press: toggleBuddy },
-  { id: "world", icon: "🏛", label: "Stanford", press: toggleBackdrop },
-  { id: "newstory", icon: "✨", label: "New story", press: newStoryPressed },
-  { id: "reset", icon: "↺", label: "Reset story", press: resetPressed },
-  // Close window sits in the far corner, away from the buttons you press all the time.
-  { id: "close", icon: "✕", label: "Close window", press: closeFocused },
-]);
-// Hide / show the buttons (the exit ring hides with them; A/X and B/Y still work).
-// They start hidden (less to take in on a first visit: H, the ☰ handle, a thumbstick click or
-// your left palm brings them out) and after that stay the way you last left them.
-let autoHidden = false;
-const BAR_KEY = "lw:bar";
-function setButtonsHidden(on, remember = true) {
-  toolbar.setCollapsed(on);
-  autoHidden = false;
-  document.body.classList.toggle("clean", on);
-  if (remember) {
-    try {
-      localStorage.setItem(BAR_KEY, on ? "hidden" : "shown");
-    } catch {}
-  }
-}
-scene.add(toolbar.group);
+scene.add(toolbar.group); // in the scene, not on the camera: it follows your gaze (see Toolbar.update)
+renderer.xr.addEventListener("sessionstart", () => toolbar.recenter());
 const hoverRay = new THREE.Raycaster();
 function updateToolbar() {
   toolbar.group.visible = renderer.xr.isPresenting;
   if (!toolbar.group.visible) return;
   toolbar.update();
+  if (!toolbar.open) cheatSheet.hide(); // the cheat sheet closes with the menu, however it was shut
+  toolbar.setItems(menuItems());
   const hits = [];
+  let point = null;
   const panel = toolbar.targets;
   for (let i = 0; i < 2; i++) {
     const c = renderer.xr.getController(i);
@@ -1464,26 +1393,41 @@ function updateToolbar() {
     hoverRay.ray.origin.setFromMatrixPosition(c.matrixWorld);
     hoverRay.ray.direction.set(0, 0, -1).applyMatrix4(tmpMat);
     const h = hoverRay.intersectObjects(panel, false)[0];
-    if (h) hits.push(h.object);
+    const snap = h ? null : menuSnap(hoverRay.ray);
+    if (c.userData.isHand && c.userData.laser) c.userData.laser.visible = Boolean(h || snap); // a hand's laser shows only over the menu
+    if (h) hits.push(h.object), (point ??= h.point);
+    else if (snap) hits.push(snap.part), (point ??= snap.point);
   }
   toolbar.hover(hits);
-  syncButtons();
+  toolbar.pointAt(point);
 }
-function syncButtons() {
-  toolbar.set("world", { label: backdrop.on ? "See-through" : "Stanford", icon: backdrop.on ? "👓" : "🏛" });
-  bar.world.textContent = backdrop.on ? "See-through" : "Stanford Quad";
-  toolbar.set("talk", { state: talking ? "active" : "idle", label: talking ? "Listening…" : "Hold to talk" });
-  toolbar.set("step", { label: immersion.inside ? "Step out" : "Step inside", icon: immersion.inside ? "↩" : "🚪" });
-  toolbar.set("reset", { state: armed === "reset" ? "warn" : "idle", label: armed === "reset" ? "Tap again to confirm" : "Reset story" });
-  toolbar.set("newstory", { state: armed === "newstory" ? "warn" : "idle", label: armed === "newstory" ? "Tap again to confirm" : "New story" });
-  toolbar.set("world", { state: backdrop.loading ? "active" : "idle" });
-  bar.talk.classList.toggle("on", talking);
-  bar.talk.textContent = talking ? "Listening…" : "Hold to talk";
-  bar.step.textContent = immersion.inside ? "Step out" : "Step inside";
-  bar.reset.textContent = armed === "reset" ? "Tap again to confirm" : "Reset story";
-  bar.reset.classList.toggle("warn", armed === "reset");
-  bar.newstory.textContent = armed === "newstory" ? "Tap again to confirm" : "New story";
-  bar.newstory.classList.toggle("warn", armed === "newstory");
+// How close (metres) a ray must pass to a menu item to zone in on it.
+const MENU_ZONE = 0.03;
+/**
+ * The menu item a ray zones in on, if it points at the menu's face within MENU_ZONE of an item.
+ * Returns { part, point } where point is the item's centre (where the pointer dot goes), or null.
+ */
+function menuSnap(ray) {
+  if (!renderer.xr.isPresenting || !toolbar.group.visible) return null;
+  toolbar.group.updateMatrixWorld();
+  const inv = toolbar.group.matrixWorld.clone().invert();
+  const o = ray.origin.clone().applyMatrix4(inv);
+  const d = ray.direction.clone().transformDirection(inv);
+  if (Math.abs(d.z) < 1e-4) return null;
+  const t = -o.z / d.z; // where the ray crosses the menu's face
+  if (t <= 0) return null;
+  const part = toolbar.nearestPart(o.addScaledVector(d, t), MENU_ZONE);
+  return part ? { part, point: toolbar.group.localToWorld(part.position.clone()) } : null;
+}
+/** Any action other than a menu press (a window, Bonnie, talking, a gesture, a button) shuts the menu. */
+function closeMenu() {
+  toolbar.setOpen(false);
+}
+/** Runs a menu part that was pointed at and pressed: a choice card, or a button or entry of the menu. */
+function pressMenuPart(part) {
+  if (part.userData.choice !== undefined) return pickChoice(part.userData.choice);
+  if (part.userData.button !== armed) disarm(); // any other button cancels a pending confirm
+  toolbar.press(part.userData.button);
 }
 
 // Hand gestures (the main way in; the controller buttons do the same three things): mic to the mouth,
@@ -1505,9 +1449,10 @@ function facingPortal() {
   return best;
 }
 const gestures = new HandGestures(renderer, camera, {
-  "talk-start": () => (gestures.pulse(0xff5533), startTalking(true)),
+  "talk-start": () => (closeMenu(), gestures.pulse(0xff5533), startTalking(true)),
   "talk-end": () => (gestures.pulse(0xffd08a), stopTalking()),
   open() {
+    closeMenu();
     if (immersion.inside) return;
     if ([0, 1].some((i) => renderer.xr.getController(i).userData.grabbed || renderer.xr.getController(i).userData.heldBuddy)) return; // dragging a window, not parting curtains
     const p = portals.get(focusId)?.portal || facingPortal();
@@ -1516,11 +1461,13 @@ const gestures = new HandGestures(renderer, camera, {
     stepInside(p);
   },
   close() {
+    closeMenu();
     if (!immersion.inside) return; // outside, hands coming together means nothing
     confirmGesture("close", 0xffd08a);
     stepOut();
   },
   shake() {
+    closeMenu();
     if (immersion.inside) return confirmGesture("close", 0xffd08a), stepOut();
     if (!portals.has(focusId)) return;
     confirmGesture("shake", 0xff6a4a);
@@ -1528,16 +1475,17 @@ const gestures = new HandGestures(renderer, camera, {
     closePortal(focusId);
   },
   snap() {
+    closeMenu();
     if (immersion.inside) return; // Bonnie lives in your room, not inside a world
     confirmGesture("snap", 0xffd08a);
     callBuddy();
   },
-  palm: () => (gestures.pulse(0xffffff), setButtonsHidden(!toolbar.collapsed)),
-  // (the how-to card at the start of the session now teaches every gesture)
+  palm: () => (gestures.pulse(0xffffff), toolbar.toggleOpen()),
 });
 scene.add(gestures.fx);
 
-// Desktop bar.
+// ---------- Desktop bar ----------
+// Its buttons show once you are past the start screen, never on it. The keyboard does the same things.
 const bar = Object.fromEntries([...document.querySelectorAll("#bar [data-act]")].map((b) => [b.dataset.act, b]));
 bar.talk.addEventListener("pointerdown", (e) => (e.preventDefault(), startTalking()));
 bar.talk.addEventListener("pointerup", () => stopTalking());
@@ -1549,13 +1497,26 @@ bar.reset.onclick = resetPressed;
 bar.newstory.onclick = newStoryPressed;
 // Any other button cancels a pending confirm (capture: runs before the button's own handler).
 $("#bar").addEventListener("click", (e) => e.target.closest("[data-act]")?.dataset.act !== armed && disarm(), true);
-bar.info.onclick = () => ($("#overlay").hidden = !$("#overlay").hidden);
+bar.info.onclick = () => setStartScreen($("#overlay").hidden);
 bar.hide.onclick = () => setButtonsHidden(true);
 bar.world.onclick = toggleBackdrop;
 bar.buddy.onclick = toggleBuddy;
 bar.buddy.textContent = BUDDY.name;
-$("#showbar").onclick = () => setButtonsHidden(false);
-$("#bar").hidden = false; // only clickable once everything is wired up
+const BAR_KEY = "lw:bar";
+function setButtonsHidden(on, remember = true) {
+  document.body.classList.toggle("clean", on);
+  if (remember) {
+    try {
+      localStorage.setItem(BAR_KEY, on ? "hidden" : "shown");
+    } catch {}
+  }
+}
+/** The start screen on or off. The bar shows only once you are past it. */
+function setStartScreen(on) {
+  $("#overlay").hidden = !on;
+  $("#bar").hidden = on;
+}
+setStartScreen(true);
 {
   let pref = null;
   try {
@@ -1563,6 +1524,17 @@ $("#bar").hidden = false; // only clickable once everything is wired up
   } catch {}
   setButtonsHidden(pref !== "shown", false);
 }
+function syncButtons() {
+  bar.world.textContent = backdrop.on ? "See-through" : "Stanford Quad";
+  bar.talk.classList.toggle("on", talking);
+  bar.talk.textContent = talking ? "Listening…" : "Hold to talk";
+  bar.step.textContent = immersion.inside ? "Step out" : "Step inside";
+  bar.reset.textContent = armed === "reset" ? "Tap again to confirm" : "Reset story";
+  bar.reset.classList.toggle("warn", armed === "reset");
+  bar.newstory.textContent = armed === "newstory" ? "Tap again to confirm" : "New story";
+  bar.newstory.classList.toggle("warn", armed === "newstory");
+}
+
 
 // ---------- Desktop controls (for building and testing without the headset) ----------
 let yaw = 0, pitch = 0, dragging = false, moved = 0;
@@ -1592,8 +1564,7 @@ addEventListener("pointerup", (e) => {
   const ndc = new THREE.Vector2((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
   raycaster.setFromCamera(ndc, camera);
   const hit = raycaster.intersectObjects(targets(), false)[0];
-  if (hit?.object.userData.exit) stepOut();
-  else if (hit?.object.userData.portal) {
+  if (hit?.object.userData.portal) {
     const p = hit.object.userData.portal;
     if (p.id === focusId) touchPortal(p, hit.uv, hit.point); // click the focused window to touch it
     else setFocus(p.id);
@@ -1618,7 +1589,7 @@ addEventListener("keydown", (e) => {
   if (e.code === "Backspace" && focusId && !/INPUT|TEXTAREA/.test(e.target.tagName)) closePortal(focusId);
   if (e.code === "KeyE" && !/INPUT|TEXTAREA/.test(e.target.tagName)) immersion.inside ? stepOut() : stepInside(portals.get(focusId)?.portal);
   if (e.code === "Escape") stepOut(), disarm(), skipWorld();
-  if (e.code === "KeyH" && !/INPUT|TEXTAREA/.test(e.target.tagName)) setButtonsHidden(!toolbar.collapsed);
+  if (e.code === "KeyH" && !/INPUT|TEXTAREA/.test(e.target.tagName)) setButtonsHidden(!document.body.classList.contains("clean"));
 });
 addEventListener("keyup", (e) => {
   if (e.code === "Space") stopTalking();
@@ -1650,13 +1621,20 @@ function desktopWalk(dt) {
 
 // ---------- Enter mixed reality ----------
 const enterBtn = $("#enter");
+// The cheat sheet on the start screen: the descriptions and tips, hidden until asked for.
+$("#cheat-toggle").onclick = (e) => {
+  const cheat = $("#cheat");
+  cheat.hidden = !cheat.hidden;
+  e.currentTarget.setAttribute("aria-expanded", String(!cheat.hidden));
+  e.currentTarget.textContent = cheat.hidden ? "More info" : "Hide info";
+};
 async function setupXR() {
   const cfg = await fetch("/api/config").then((r) => r.json()).catch(() => ({}));
   maxPortals = cfg.maxPortals || maxPortals;
   if (!navigator.xr || !(await navigator.xr.isSessionSupported("immersive-ar").catch(() => false))) {
     // No mixed reality here: offer the desktop preview, and say where the real thing runs.
     enterBtn.textContent = "Explore the preview";
-    enterBtn.onclick = () => ($("#overlay").hidden = true);
+    enterBtn.onclick = () => (setStartScreen(false));
     enterBtn.insertAdjacentHTML("afterend", `<p id="note">To step into mixed reality, open this page in the Meta Quest browser.</p>`);
     return;
   }
@@ -1672,13 +1650,13 @@ async function setupXR() {
     loco.start();
     scene.background = null;
     previewRoom.visible = false;
-    $("#overlay").hidden = true;
+    setStartScreen(false);
     session.addEventListener("end", () => {
       immersion.reset();
       loco.stop();
       scene.background = new THREE.Color(0x0b0e16);
       previewRoom.visible = true;
-      $("#overlay").hidden = false;
+      setStartScreen(true);
     });
     showTitle();
     // A world question that was waiting on the flat page is asked again, out loud.
@@ -1707,7 +1685,6 @@ renderer.setAnimationLoop(() => {
   desktopWalk(dt);
   scene.background = backdrop.background(renderer.xr.isPresenting ? null : DESKTOP_BG);
   previewRoom.visible = !renderer.xr.isPresenting && !immersion.active && !backdrop.on;
-  exitOrb.visible = immersion.inside && renderer.xr.isPresenting && !toolbar.collapsed;
   updateToolbar();
   gestures.update();
   updateResize();
@@ -1725,11 +1702,6 @@ renderer.setAnimationLoop(() => {
     if (guideStep === 0 && stream.status === "streaming") guide(1);
   }
   if (!renderer.xr.isPresenting) syncButtons();
-  micOrb.position.y = -0.2 + Math.sin(t * 2) * 0.004;
-  // The orb and in-view caption are headset UI; on desktop, Space and the status bar do the job.
-  // The old pinch-and-hold mic orb is retired (it floated as an orange ball in your view): talk with your
-  // hand to your mouth, A/X, or the Hold-to-talk button, which all show "Listening…".
-  micOrb.visible = false;
   if (!renderer.xr.isPresenting) toastMesh.visible = false;
   pollButtons();
   renderer.render(scene, camera);

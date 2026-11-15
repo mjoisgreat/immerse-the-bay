@@ -15,16 +15,35 @@ export function gestureRows(name = "Bonnie") {
     ["↩", "Step back out", "Bring both hands together"],
     ["✕", "Close a window", "Shake both hands, like wiping it away"],
     ["👆", `Call ${name}`, "Snap your fingers"],
-    ["☰", "Show / hide the buttons", "Turn your left palm toward your face and hold"],
+    ["☰", "Open / close the menu", "Turn your left palm toward your face and hold"],
   ];
 }
 
-const W = 1100, ROW = 92, HEAD = 120, FOOT = 78;
+/** [icon, action, how] for the controllers and the desktop keys (the menu's own buttons are in the cheat sheet). */
+export function buttonRows() {
+  return [
+    ["👉", "Trigger", "Point and pull: press the menu, grab a window or Bonnie (let go to drop or throw)"],
+    ["🎙", "A / X", "Hold to talk"],
+    ["🚪", "B / Y", "Step into the window you point at, or back out"],
+    ["✕", "Grip", "Squeeze while pointing at a window to close it"],
+    ["☰", "Thumbstick click", "Open / close the menu"],
+    ["⌨", "Desktop", "Click empty space to open a window · drag to look · Space talks · H hides the bar · Esc steps out"],
+  ];
+}
+
+const W = 1100, FOOT = 78;
 
 export class GestureCard {
-  constructor(name) {
-    this.rows = gestureRows(name);
-    const canvas = Object.assign(document.createElement("canvas"), { width: W, height: HEAD + this.rows.length * ROW + FOOT });
+  /**
+   * rows: [icon, action, how] per line (the hand gestures by default). The cheat sheet passes its own
+   * rows and a smaller row height so gestures and buttons fit on one card.
+   */
+  constructor(name, { rows = gestureRows(name), title = "Your hands are the controls", row = 92 } = {}) {
+    this.rows = rows;
+    this.title = title;
+    this.row = row;
+    this.head = 120;
+    const canvas = Object.assign(document.createElement("canvas"), { width: W, height: this.head + this.rows.length * row + FOOT });
     this._draw(canvas);
     const tex = new THREE.CanvasTexture(canvas);
     tex.colorSpace = THREE.SRGBColorSpace;
@@ -51,9 +70,10 @@ export class GestureCard {
     g.textAlign = "center";
     g.fillStyle = "#ffd08a";
     g.font = "700 46px Georgia, serif";
-    g.fillText("Your hands are the controls", w / 2, HEAD / 2 + 6);
+    g.fillText(this.title, w / 2, this.head / 2 + 6);
+    const ROW = this.row;
     this.rows.forEach(([icon, action, how], i) => {
-      const y = HEAD + i * ROW + ROW / 2;
+      const y = this.head + i * ROW + ROW / 2;
       if (i % 2 === 0) {
         g.fillStyle = "rgba(255,255,255,0.05)";
         g.fillRect(24, y - ROW / 2 + 4, w - 48, ROW - 8);
