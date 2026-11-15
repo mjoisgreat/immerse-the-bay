@@ -6,6 +6,7 @@ export const state = {
   maxPortals: 3,
   wideOn: false,
   retired: false,
+  joined: false, // the server has accepted this page as the room's renderer ("hello" answered)
   roomState: null,
   talking: false,
   wantTalk: false, // the button is held (the mic may still be starting)

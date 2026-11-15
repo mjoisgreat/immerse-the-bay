@@ -4,14 +4,14 @@ import { stopSides } from "./wide.js";
 import { CameraView } from "../cameraview.js";
 import { credFor } from "../identity.js";
 import { LAYER } from "../layers.js";
-import { $, camera, listener, renderer, scene } from "./stage.js";
+import { $, camera, renderer, scene } from "./stage.js";
 import { state } from "./state.js";
 import { ROOM, send } from "./room.js";
 import { buzz, flash } from "./feedback.js";
 import { buddy, buddyIdle, buddyOpensWindow, buddyReply } from "./buddy.js";
 import { openInFront, syncButtons, toolbar } from "./buttons.js";
 import { NARRATOR, guide } from "./guide.js";
-import { closePortal, entryOf, immersion, labelFor, portals } from "./portals.js";
+import { closePortal, entryOf, immersion, portals } from "./portals.js";
 import { playVoice, speak } from "./talk.js";
 import { steerSides } from "./wide.js";
 

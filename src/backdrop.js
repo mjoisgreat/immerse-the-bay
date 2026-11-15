@@ -84,6 +84,10 @@ export class Backdrop {
       this.holder.visible = this.opacity > 0;
       if (!this.on && this.opacity === 0) this.holder.removeFromParent();
     }
+    // The splat renderer only runs while a splat world is actually showing (not on the Moon, not in
+    // your room, not while it's faded out for a step inside a window): it does work every frame.
+    const spark = this.worlds.spark;
+    if (spark) spark.visible = Boolean(this.holder?.parent && this.holder.visible && this.worldId !== "moon");
   }
 
   /**

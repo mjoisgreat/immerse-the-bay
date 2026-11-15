@@ -1,12 +1,12 @@
 import * as THREE from "three";
-import { headingOf } from "./cameraview.js";
+import { CameraView, headingOf } from "./cameraview.js";
 import { $, DESKTOP_BG, camera, listener, previewRoom, renderer, scene } from "./app/stage.js";
 import { state } from "./app/state.js";
 import { RID, ROOM, handlers, link, send } from "./app/room.js";
 import { toastMesh } from "./app/feedback.js";
 import { aimedAtBuddy, buddy, buddyOpensWindow, syncBuddy, updateCradle } from "./app/buddy.js";
-import { openInFront, setStartScreen, syncButtons, updateToolbar } from "./app/buttons.js";
-import { camView, desktopWalk, seeThrough } from "./app/desktop.js";
+import { openInFront, setButtonsHidden, setStartScreen, syncButtons, updateToolbar } from "./app/buttons.js";
+import { camView, desktopWalk, seeThrough, toggleCamera } from "./app/desktop.js";
 import { guide, showTitle, updateTitle } from "./app/guide.js";
 import { closeAllStreams, closePortal, immersion, portals, retire, setFocus, stepInside, stepOut } from "./app/portals.js";
 import { applyDirection, askWorld, clearAsk, resetLocal, showChoices, updateRipples } from "./app/story.js";
@@ -37,6 +37,7 @@ Object.assign(handlers, {
   async onOpen() {
     const r = await link.request({ t: "hello", role: "renderer", rid: RID });
     if (r.status === 403) return location.replace(`/watch.html?room=${ROOM}`); // someone claimed it first
+    state.joined = true;
     for (const [id, p] of portals) {
       if (p.stream.prompt) send({ t: "portal_sync", id, prompt: p.stream.prompt, status: p.stream.status });
       else send({ t: "portal_added", id });
@@ -70,6 +71,34 @@ $("#cheat-toggle").onclick = (e) => {
   e.currentTarget.textContent = cheat.hidden ? "More info" : "Hide info";
 };
 
+// The start screen offers the camera on phones and computers (not in the headset's browser, which has the
+// real see-through). Starting from this tap lets iPhones ask for motion access too.
+function offerCamera(xrOk) {
+  const quest = /OculusBrowser|Quest/i.test(navigator.userAgent);
+  if (quest || !navigator.mediaDevices?.getUserMedia || $("#camEnter")) return;
+  const phone = CameraView.touch;
+  const btn = Object.assign(document.createElement("button"), {
+    id: "camEnter",
+    textContent: phone ? "📷 Look through your camera" : "📷 Use your webcam",
+    className: xrOk || !phone ? "ghost" : "",
+  });
+  btn.onclick = async () => {
+    setStartScreen(false);
+    await toggleCamera();
+    if (camView.on) setButtonsHidden(false, false); // Talk, Step inside and the rest within reach
+  };
+  const why = Object.assign(document.createElement("p"), {
+    id: "camNote",
+    textContent: phone
+      ? "Your camera shows your real surroundings and the story's windows appear in them. Move your phone to look around. You'll be asked to allow the camera" +
+        (typeof globalThis.DeviceOrientationEvent?.requestPermission === "function" ? " and motion." : ".")
+      : "Your webcam fills the background and the windows float over it. You'll be asked to allow the camera.",
+  });
+  // On a phone the camera is the main way in, above the preview; on a computer it comes after it.
+  if (phone && !xrOk) enterBtn.before(btn, why), (enterBtn.className = "ghost");
+  else (($("#note") ?? enterBtn).after(btn), btn.after(why));
+}
+
 async function setupXR() {
   const cfg = await fetch("/api/config").then((r) => r.json()).catch(() => ({}));
   state.maxPortals = cfg.maxPortals || state.maxPortals;
@@ -79,8 +108,9 @@ async function setupXR() {
     enterBtn.textContent = "Explore the preview";
     enterBtn.onclick = () => setStartScreen(false);
     enterBtn.insertAdjacentHTML("afterend", `<p id="note">For full mixed reality, open this page in the Meta Quest browser.</p>`);
-    return;
+    return offerCamera(false);
   }
+  offerCamera(true);
   enterBtn.onclick = async () => {
     await ptt.init().catch(() => {}); // ask for the mic before going immersive
     if (listener.context.state === "suspended") listener.context.resume();
@@ -158,4 +188,4 @@ renderer.setAnimationLoop(() => {
 });
 
 // `?debug`: the app's objects on `window.lw`, for poking at it from the browser console.
-if (new URLSearchParams(location.search).has("debug")) window.lw = { THREE, renderer, scene, camera, portals, immersion, backdrop, buddy, buddyOpensWindow, heartsFor, ptt, openInFront, stepInside, stepOut };
+if (new URLSearchParams(location.search).has("debug")) window.lw = { THREE, renderer, scene, camera, portals, immersion, backdrop, buddy, buddyOpensWindow, heartsFor, ptt, camView, openInFront, stepInside, stepOut };

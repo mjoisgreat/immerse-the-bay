@@ -79,7 +79,11 @@ export class CameraView {
     }
     const video = Object.assign(document.createElement("video"), { srcObject: stream, muted: true, playsInline: true, autoplay: true });
     video.setAttribute("playsinline", "");
-    await video.play().catch(() => {});
+    // Don't wait on play(): for a video that isn't on the page, browsers may hold playback back while
+    // the page is busy (after loading a 3D world, say) and the promise never settles, which left the
+    // camera stuck "starting" forever. The picture appears as soon as frames arrive; try again once data is in.
+    video.play().catch(() => {});
+    video.addEventListener("loadeddata", () => video.paused && video.play().catch(() => {}), { once: true });
     const facing = stream.getVideoTracks()[0]?.getSettings?.().facingMode;
     // A laptop webcam usually reports nothing: it faces you, so mirror it like a mirror.
     this.mirrored = facing !== "environment" && !(CameraView.touch && facing == null);
