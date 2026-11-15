@@ -3,7 +3,7 @@ const REACTOR_API_URL = "https://api.reactor.inc";
 const MODEL_NAME = "reactor/visko-orbis-stable";
 const SESSION_SECONDS = Number(process.env.ORBIS_SESSION_SECONDS || 1800);
 
-export class HttpError extends Error {
+class HttpError extends Error {
   constructor(status, message) {
     super(message);
     this.status = status;
@@ -18,6 +18,7 @@ export async function mintOrbisToken() {
   try {
     r = await fetch(`${REACTOR_API_URL}/tokens`, {
       method: "POST",
+      signal: AbortSignal.timeout(25_000),
       headers: { "Content-Type": "application/json", "Reactor-API-Key": apiKey },
       body: JSON.stringify({
         expires_after: SESSION_SECONDS + 600,
@@ -47,14 +48,10 @@ export async function endOrbisSession(sessionId, jwt) {
   }
   const r = await fetch(`${REACTOR_API_URL}/sessions/${encodeURIComponent(sessionId)}`, {
     method: "DELETE",
+    signal: AbortSignal.timeout(25_000),
     headers: { Authorization: `Bearer ${jwt}` },
   });
   if (!r.ok && r.status !== 404) throw new HttpError(r.status, "session cleanup failed");
-}
-
-/** 16 kHz mono Int16 PCM -> text, via OpenAI Whisper. */
-export async function transcribe(pcm) {
-  return transcribeOpenAI(pcm);
 }
 
 const VOICES = ["ash", "ballad", "coral", "echo", "fable", "nova", "onyx", "sage", "shimmer", "verse"];
@@ -66,6 +63,7 @@ export async function speak(text, speaker = "", style = "") {
   for (const c of speaker.toLowerCase()) h = (h * 31 + c.charCodeAt(0)) >>> 0;
   const r = await fetch("https://api.openai.com/v1/audio/speech", {
     method: "POST",
+    signal: AbortSignal.timeout(25_000),
     headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
     body: JSON.stringify({
       model: "gpt-4o-mini-tts",
@@ -79,7 +77,8 @@ export async function speak(text, speaker = "", style = "") {
   return Buffer.from(await r.arrayBuffer());
 }
 
-async function transcribeOpenAI(pcm) {
+/** 16 kHz mono Int16 PCM -> text, via OpenAI Whisper. */
+export async function transcribe(pcm) {
   const key = process.env.OPENAI_API_KEY;
   if (!key) throw new HttpError(500, "OPENAI_API_KEY is not set");
   const form = new FormData();
@@ -88,6 +87,7 @@ async function transcribeOpenAI(pcm) {
   form.append("language", "en");
   const r = await fetch("https://api.openai.com/v1/audio/transcriptions", {
     method: "POST",
+    signal: AbortSignal.timeout(25_000),
     headers: { Authorization: `Bearer ${key}` },
     body: form,
   });

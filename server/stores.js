@@ -16,11 +16,12 @@ export function memoryStore() {
     if (!rooms.has(r)) rooms.set(r, { state: null, events: [], seq: 0, auth: null, snaps: {}, lock: Promise.resolve() });
     return rooms.get(r);
   };
+  const peek = (r) => rooms.get(r); // reads must not create rooms: anyone can poll any room name
   const clone = (x) => (x == null ? x : structuredClone(x));
 
   return {
     async getState(r) {
-      return clone(room(r).state) || initialState();
+      return clone(peek(r)?.state) || initialState();
     },
     async setState(r, s) {
       room(r).state = clone(s);
@@ -31,11 +32,11 @@ export function memoryStore() {
       x.events = x.events.slice(-KEEP_EVENTS);
     },
     async poll(r) {
-      const x = room(r);
-      return { state: clone(x.state) || initialState(), events: x.events.slice(), seq: x.seq };
+      const x = peek(r);
+      return { state: clone(x?.state) || initialState(), events: x ? x.events.slice() : [], seq: x ? x.seq : 0 };
     },
     async getAuth(r) {
-      return clone(room(r).auth);
+      return clone(peek(r)?.auth);
     },
     async claimAuth(r, auth) {
       const x = room(r);
@@ -54,7 +55,7 @@ export function memoryStore() {
     },
     async getSnapshots(r) {
       const out = {};
-      for (const [id, v] of Object.entries(room(r).snaps)) if (Date.now() - v.at < SNAP_TTL * 1000) out[id] = v.data;
+      for (const [id, v] of Object.entries(peek(r)?.snaps || {})) if (Date.now() - v.at < SNAP_TTL * 1000) out[id] = v.data;
       return out;
     },
     async touchPublic(r, shared) {
@@ -79,7 +80,6 @@ export async function redisStore() {
   const PUBLIC = "lw:public";
 
   return {
-    redis,
     async getState(r) {
       return (await redis.get(k(r, "state"))) || initialState();
     },

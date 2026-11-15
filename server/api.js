@@ -10,7 +10,7 @@ const hash = (v) => crypto.createHash("sha256").update(String(v)).digest("hex");
 const ok = (body, status = 200) => ({ status, body });
 const err = (status, error) => ({ status, body: { error } });
 
-export const roomOf = (v) => String(v || "").toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 40);
+const roomOf = (v) => String(v || "").toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 40);
 
 /**
  * Role of the caller in a room, from the credentials they hold:
@@ -61,6 +61,7 @@ export async function relayPost(store, body) {
     const extra = role === "owner" || role === "console" ? { invite: auth.invite } : {};
     return ok({ role, ...extra });
   }
+  if (role === "none") return err(403, "room has no owner yet"); // don't create state for rooms nobody claimed
   if (!allowed(role, body.t)) return err(403, `not allowed for ${role}`);
 
   const ctx = { role, voter: typeof body.voter === "string" ? body.voter.slice(0, 40) : null };

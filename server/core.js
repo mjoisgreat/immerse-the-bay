@@ -6,7 +6,7 @@ const MAX_SUGGESTIONS = 25;
 const MAX_BEATS = 20;
 const MAX_PROMPTS = 12;
 /** Where the companion can go to open a window, relative to where the storyteller is looking. */
-export const PLACES = ["here", "ahead", "left", "right", "behind"];
+const PLACES = ["here", "ahead", "left", "right", "behind"];
 
 // Every portal is its own story: its own world (seed), story bible, beats, choice chips and prompt
 // history, kept in `threads[portal id]`. Steering only ever touches the focused portal's thread.
@@ -312,7 +312,7 @@ function remember(th, prompt) {
 }
 
 /** A display name for an idea's author: letters, digits, spaces and . ' - only, up to 20 characters. */
-export const cleanName = (v) =>
+const cleanName = (v) =>
   String(v || "")
     .replace(/[^\p{L}\p{N} .'-]/gu, "")
     .replace(/\s+/g, " ")
@@ -321,7 +321,7 @@ export const cleanName = (v) =>
     .trim();
 
 const byVotes = (a, b) => b.voters.length - a.voters.length || a.at - b.at;
-export function topSuggestion(s) {
+function topSuggestion(s) {
   return [...(s.suggestions || [])].sort(byVotes)[0] || null;
 }
 
