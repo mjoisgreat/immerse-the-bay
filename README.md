@@ -186,7 +186,7 @@ is in `src/portalresize.js`.
 ## Controls in the headset
 
 **How-to card:** a moment after you enter the headset, a card floats in front of you listing every action and
-the gesture for it (talk, open / move / resize a window, pick up a window or the companion with both hands,
+the gesture for it (talk, open a window by drawing a square or by asking Bonnie, move / resize a window, pick up a window or the companion with both hands,
 step in and out, close a window, call the companion, show the buttons). Pinch it to close it; it also fades
 after a minute or when you step inside a world. The rows live in `src/gesturecard.js`.
 
