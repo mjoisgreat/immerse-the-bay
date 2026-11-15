@@ -38,6 +38,13 @@ export function toggleShare() {
     6000,
   );
 }
+// ---------- Twitch: call the vote now (the console runs the rounds; see src/twitchpoll.js) ----------
+const twitchStage = () => state.roomState?.poll?.stage ?? null;
+export function callVote() {
+  if (twitchStage() !== "collect") return flash("Twitch chat isn't collecting ideas right now.");
+  send({ t: "poll_call" });
+  flash("Calling the vote: chat picks from 5 of its ideas…", 4000);
+}
 function openCommunity() {
   window.open("/community.html", "_blank", "noopener");
 }
@@ -52,6 +59,7 @@ const MENU_ACTS = {
   "exit-moon": () => void toggleWorld("moon"),
   wide: () => toggleWide(),
   share: () => toggleShare(),
+  vote: () => callVote(),
   cheat: () => showCheatSheet(),
   invite: () => showJoinCard(),
   exitvr: () => renderer.xr.getSession()?.end(),
@@ -59,8 +67,8 @@ const MENU_ACTS = {
 let menuKey = "", menuCache = [];
 /** The menu's entries; rebuilt only when something they show changes (no per-frame garbage in the headset). */
 function menuItems() {
-  const now = { inside: immersion.inside, world: worldKey(), loading: backdrop.loading, armed: state.armed, wideOn: state.wideOn, shared: isShared() };
-  const key = `${now.inside}|${now.world}|${now.loading}|${now.armed}|${now.wideOn}|${now.shared}`;
+  const now = { inside: immersion.inside, world: worldKey(), loading: backdrop.loading, armed: state.armed, wideOn: state.wideOn, shared: isShared(), twitch: twitchStage() };
+  const key = `${now.inside}|${now.world}|${now.loading}|${now.armed}|${now.wideOn}|${now.shared}|${now.twitch}`;
   if (key !== menuKey) {
     menuKey = key;
     menuCache = menuFor(now).map((e) => ({ ...e, press: MENU_ACTS[e.id] }));
@@ -182,6 +190,7 @@ export function syncButtons() {
   setClass(bar.camera, "on", camView.on);
   setText(bar.share, isShared() ? "🌐 Shared: on" : "🌐 Share story");
   setClass(bar.share, "on", isShared());
+  if (bar.vote.hidden !== (twitchStage() !== "collect")) bar.vote.hidden = twitchStage() !== "collect";
   setText(bar.talk, state.talking ? "Listening…" : "Hold to talk");
   setClass(bar.talk, "on", state.talking);
   setText(bar.step, inside ? "Step out" : "Step inside");
@@ -210,6 +219,7 @@ bar.world.onclick = toggleBackdrop;
 bar.wide.onclick = toggleWide;
 bar.camera.onclick = toggleCamera;
 bar.share.onclick = toggleShare;
+bar.vote.onclick = callVote;
 bar.community.onclick = openCommunity;
 bar.buddy.onclick = toggleBuddy;
 bar.buddy.textContent = BUDDY.name;

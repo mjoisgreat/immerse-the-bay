@@ -79,3 +79,11 @@ test("server: only the console runs the poll; the winner becomes a story line", 
   reduce(s, { t: "poll", poll: null }, { role: "console" });
   assert.equal(s.poll, null);
 });
+
+test("server: calling the vote reaches the console only while ideas are collected", () => {
+  const s = initialState();
+  reduce(s, { t: "hello", rid: "r1" }, { role: "owner" });
+  assert.deepEqual(reduce(s, { t: "poll_call" }, { role: "owner" }).events, []);
+  reduce(s, { t: "poll", poll: { stage: "collect", ends: 1, ideas: [] } }, { role: "console" });
+  assert.deepEqual(reduce(s, { t: "poll_call" }, { role: "owner" }).events, [{ t: "poll_call" }]);
+});

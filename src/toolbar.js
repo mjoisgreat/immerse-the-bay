@@ -24,9 +24,12 @@ const MENU = "__menu";
  *   armed:    "reset" when Reset is waiting for its second tap
  * Returns [{ id, icon, label, state? }]; main.js attaches what each one does.
  */
-export function menuFor({ inside = false, world = null, loading = false, armed = null, wideOn = false, cameraOn = false, shared = false } = {}) {
+export function menuFor({ inside = false, world = null, loading = false, armed = null, wideOn = false, cameraOn = false, shared = false, twitch = null } = {}) {
+  // Twitch chat is collecting ideas (the console runs it): end that early and let chat vote.
+  const vote = twitch === "collect" ? [{ id: "vote", icon: "🗳", label: "Call the vote" }] : [];
   if (inside) {
     return [
+      ...vote,
       { id: "exitwin", icon: "↩", label: "Exit window" },
       resetEntry(armed),
       { id: "cheat", icon: "?", label: "Cheat sheet" },
@@ -46,6 +49,7 @@ export function menuFor({ inside = false, world = null, loading = false, armed =
   // Share to the community page: anyone can watch, suggest and vote. Lit while it's on.
   const share = { id: "share", icon: "🌐", label: shared ? "Shared: on" : "Share story", state: shared ? "active" : "idle" };
   return [
+    ...vote,
     resetEntry(armed),
     stanford,
     moon,

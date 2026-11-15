@@ -61,6 +61,7 @@ function open(r, me) {
     onMessage(m) {
       if (m.t === "state") render(m);
       if (m.t === "direction" && m.narration) $("#narration").textContent = m.narration;
+      if (m.t === "poll_call" && tw?.poll.stage === "collect") tw.poll.pool.size ? tw.poll.beginVote() : twFeed("The storyteller called the vote, but chat has sent no ideas yet.");
     },
   });
   startPresence(link.request, { kind: "computer" });

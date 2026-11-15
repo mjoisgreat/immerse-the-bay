@@ -47,3 +47,10 @@ test("share to community: an entry that says whether the story is shared", () =>
   assert.equal(on.label, "Shared: on");
   assert.equal(on.state, "active");
 });
+
+test("while Twitch chat collects ideas the menu offers to call the vote, first", () => {
+  assert.equal(menuFor({ twitch: "collect" })[0].id, "vote");
+  assert.equal(menuFor({ inside: true, twitch: "collect" })[0].id, "vote");
+  assert.equal(entry(menuFor({ twitch: "vote" }), "vote"), undefined);
+  assert.equal(entry(menuFor(), "vote"), undefined);
+});

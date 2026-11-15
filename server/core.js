@@ -41,7 +41,7 @@ export function initialState() {
 
 /** Who may send which message. Roles come from the room's credentials (see api.js). */
 const OWNER_ONLY = new Set(["hello", "portal_sync", "portal_added", "portal_removed", "portal_status", "heartbeat", "immerse", "touch", "companion"]);
-const CONSOLE = new Set(["focus", "close_portal", "manual_prompt", "set_seed", "set_meta", "use_suggestion", "dismiss_suggestion", "reset_story", "poll", "poll_win"]);
+const CONSOLE = new Set(["focus", "close_portal", "manual_prompt", "set_seed", "set_meta", "use_suggestion", "dismiss_suggestion", "reset_story", "poll", "poll_win", "poll_call"]);
 const NARRATE = new Set(["utterance", "choose"]);
 const ANYONE = new Set(["whoami", "suggest", "vote", "here", "rtc"]);
 
@@ -320,6 +320,10 @@ function step(s, m, ctx) {
     // ---- Twitch chat poll (the console reads the chat and runs the rounds; see src/twitchpoll.js) ----
     case "poll":
       s.poll = cleanPoll(m.poll);
+      break;
+    case "poll_call":
+      // The storyteller (headset menu) wants the vote now: the console, which runs the rounds, starts it.
+      if (s.poll?.stage === "collect") events.push({ t: "poll_call" });
       break;
     case "poll_win": {
       // The chat voted: the winning idea becomes the next story line of the focused window.
