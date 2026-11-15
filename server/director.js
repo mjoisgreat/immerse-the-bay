@@ -121,8 +121,17 @@ You, in the room (the companion field):
 - open_window / place: you can open a window for them. When they ask you to open a window (or
   a portal, "make me a window", "go over there and open one"), set open_window to the world
   they want behind it, as a short vivid description ("a misty pine forest at dawn"), or to an
-  empty string "" if they did not say which world (you will then ask them). Otherwise
-  open_window is null. place is where you walk to do it, relative to where they are looking:
+  empty string "" if they did not say which world (you will then ask them). They do not have
+  to say "window": when they propose a new place, character or adventure to you, they mean
+  a new window for it. "Bonnie, let's go with Santa Claus" means open a window whose world is
+  Santa Claus (describe it vividly: his snowy workshop, the glow of the lanterns), "take us to
+  the moon" a window on the moon, "I want to meet a dragon" a window with a dragon. Use the
+  words they used (the Santa Claus they asked for, not another character) and do not carry
+  anything over from their other windows. But a change inside the world they are already
+  looking at ("make it snow", "add a dragon here", "now it's night") is not a new window:
+  steer that window with updates as usual, and open_window stays null. If it is unclear
+  whether they mean a new world or a change to the current one, change the current one.
+  Otherwise open_window is null. place is where you walk to do it, relative to where they are looking:
   "left", "right", "ahead" (over there, by the wall, in front), "behind", or "here" (nearby,
   or no place was named). If you open a window, say so in your reply ("On it, opening a window
   over there!") and leave the other windows alone: updates is an empty list and narration is
@@ -407,11 +416,18 @@ let chatterTurn = 0;
 /** A reply if `text` is small talk (a greeting, a question, a move), or null if it asks for a story change. */
 function smallTalk(text) {
   // "open a window onto a jungle", "go over there to the left and open a portal".
+  const place = /\bleft\b/i.test(text) ? "left" : /\bright\b/i.test(text) ? "right" : /\bbehind|\bback\b/i.test(text) ? "behind"
+    : /\b(there|over|ahead|front|wall)\b/i.test(text) ? "ahead" : "here";
   if (/\b(open|make|create)\b.*\b(window|portal)\b|\b(window|portal)\b.*\bopen\b/i.test(text)) {
     const world = /\b(?:onto|into|of|with|showing|that shows|looking (?:at|onto))\s+(.+?)[.!?]*$/i.exec(text)?.[1] || "";
-    const place = /\bleft\b/i.test(text) ? "left" : /\bright\b/i.test(text) ? "right" : /\bbehind|\bback\b/i.test(text) ? "behind"
-      : /\b(there|over|ahead|front|wall)\b/i.test(text) ? "ahead" : "here";
     return { reply: world ? "On it! Opening a window." : "Sure! Opening a window. Tell me which world.", gesture: "thumbs_up", move: "none", open_window: world, place };
+  }
+  // A new place or character proposed to her, no window mentioned: "let's go with Santa Claus", "take us to the
+  // moon", "I want to meet a dragon". That is an adventure for a new window, so she opens one for it.
+  const idea = /\b(?:let'?s|let us)\s+go\s+(?:with|to|into|on|visit|see|meet)\s+(.+?)[.!?]*$|\b(?:take|bring)\s+(?:us|me)\s+(?:to|into|on)\s+(.+?)[.!?]*$|\b(?:i|we)\s+(?:want|wanna)\s+to\s+(?:go\s+(?:to|with|into|on)|visit|meet|see|explore)\s+(.+?)[.!?]*$/i.exec(text);
+  const proposed = (idea?.[1] || idea?.[2] || idea?.[3] || "").trim();
+  if (proposed && !/^(me|you|bonnie|pip|us|home|back|inside|outside|now|there|here|first|together)$/i.test(proposed)) {
+    return { reply: `Ooh, yes! Opening a window to ${proposed.slice(0, 60)}.`, gesture: "jump", move: "none", open_window: proposed, place };
   }
   const follow = /follow|come along|with me/i.test(text);
   const stay = /\b(stay|wait|stop)\b/i.test(text);

@@ -120,7 +120,10 @@ and then. Small talk ("hi Bonnie", "follow me") leaves the story untouched. Its 
 on the theater view.
 
 **Bonnie opens windows for you.** Say "Bonnie, go over there and open a window onto a misty pine forest" (or just
-"Bonnie, open a window"). She answers, walks to the place you named (left, right, ahead / over there, behind, or
+"Bonnie, open a window"). You do not even have to say "window": proposing a new place or character to her is
+enough. "Bonnie, let's go with Santa Claus" opens a window with a Santa Claus world, "take us to the moon" one on
+the moon. A change inside the world you are already looking at ("make it snow") still steers that window instead
+(when it is unclear, the director changes the current one). She answers, walks to the place you named (left, right, ahead / over there, behind, or
 beside you if you named none: always relative to where you are looking) and opens a window just behind her, facing
 you. With a world in your words it starts that world; without one she asks "what world is behind this window?" like
 any new window. Other windows are left alone, and at the window limit she tells you to close one first. The
