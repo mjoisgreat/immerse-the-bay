@@ -43,7 +43,16 @@ export function menuFor({ inside = false, world = null, loading = false, armed =
   const wide = { id: "wide", icon: "🔭", label: wideOn ? "Wide: on" : "Wide view" };
   // Share to the community page: anyone can watch, suggest and vote. Lit while it's on.
   const share = { id: "share", icon: "🌐", label: shared ? "Shared: on" : "Share story", state: shared ? "active" : "idle" };
-  return [resetEntry(armed), stanford, moon, wide, share, { id: "cheat", icon: "?", label: "Cheat sheet" }, { id: "exitvr", icon: "⏏", label: "Exit VR" }];
+  return [
+    resetEntry(armed),
+    stanford,
+    moon,
+    wide,
+    share,
+    { id: "invite", icon: "👥", label: "Invite friends" },
+    { id: "cheat", icon: "?", label: "Cheat sheet" },
+    { id: "exitvr", icon: "⏏", label: "Exit VR" },
+  ];
 }
 
 function resetEntry(armed) {

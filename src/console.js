@@ -1,5 +1,6 @@
 import "./site.css";
 import { createLink } from "./link.js";
+import { peopleSummary, startPresence } from "./people.js";
 import { PRESETS } from "./presets.js";
 import { urlRoom, cleanRoom, credFor, owned, consolePins, savePin, voterId, esc } from "./identity.js";
 
@@ -59,6 +60,7 @@ function open(r, me) {
       if (m.t === "direction" && m.narration) $("#narration").textContent = m.narration;
     },
   });
+  startPresence(link.request, { kind: "computer" });
   setInterval(() => !link.connected && ($("#conn").textContent = "reconnecting…"), 2000);
 }
 
@@ -66,6 +68,9 @@ const send = (m) => link?.send(m);
 
 function render(s) {
   $("#brain").textContent = `director: ${s.director}`;
+  const here = peopleSummary(s.people);
+  $("#people").hidden = !here;
+  $("#people").textContent = `here: ${here}`;
   $("#bible").textContent = s.story.bible;
   // Everything story-shaped on this page is the FOCUSED window's: each window is its own story.
   const many = s.portals.length > 1;

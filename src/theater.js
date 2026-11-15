@@ -1,6 +1,7 @@
 import QRCode from "qrcode";
 import { createLink } from "./link.js";
 import { urlRoom, cleanRoom, esc } from "./identity.js";
+import { peopleSummary, startPresence } from "./people.js";
 
 // Full-screen spectator view for a TV or projector next to the headset (no controls, just the show).
 const $ = (s) => document.querySelector(s);
@@ -28,7 +29,7 @@ function start() {
   let snaps = {};
   let speechTimer;
 
-  createLink(room, {
+  const link = createLink(room, {
     onMessage(m) {
       if (m.t === "state") {
         const first = !state;
@@ -54,6 +55,8 @@ function start() {
       }
     },
   });
+
+  startPresence(link.request, { kind: "screen" }); // the big screen counts as someone watching
 
   let narrTimer;
   // Only touch the DOM when the markup changed (re-setting identical <img> markup reloads the pictures).
@@ -94,6 +97,9 @@ function start() {
     const live = Date.now() - (s.lastActive || 0) < 60_000;
     $("#live").textContent = live ? "● LIVE" : "offline";
     $("#live").className = live ? "pill live" : "pill";
+    const here = peopleSummary(s.people);
+    $("#people").hidden = !here;
+    $("#people").textContent = `here: ${here}`;
     $("#inside").hidden = !s.immersedId;
     renderChoices(s.choices || []);
     const ideas = [...(s.suggestions || [])].sort((a, b) => b.voters.length - a.voters.length || a.at - b.at).slice(0, 3);

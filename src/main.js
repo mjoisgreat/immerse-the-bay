@@ -2,8 +2,10 @@ import * as THREE from "three";
 import { CameraView, headingOf } from "./cameraview.js";
 import { $, DESKTOP_BG, camera, listener, previewRoom, renderer, scene } from "./app/stage.js";
 import { state } from "./app/state.js";
-import { RID, ROOM, handlers, link, send } from "./app/room.js";
-import { toastMesh } from "./app/feedback.js";
+import { RID, ROOM, handlers, link, send, showPeople } from "./app/room.js";
+import { updateJoinCard } from "./app/join.js";
+import { joinedLine, myName, startPresence, thisDeviceKind } from "./people.js";
+import { flash, toastMesh } from "./app/feedback.js";
 import { aimedAtBuddy, buddy, buddyOpensWindow, syncBuddy, updateCradle } from "./app/buddy.js";
 import { openInFront, setButtonsHidden, setStartScreen, syncButtons, updateToolbar } from "./app/buttons.js";
 import { camView, desktopWalk, seeThrough, toggleCamera } from "./app/desktop.js";
@@ -31,6 +33,7 @@ import { checkWalking, gestures, pollButtons, updateResize, updateStrokes } from
 // Resulting evaluation order:
 //   stage -> state -> room (awaits) -> feedback -> config -> trail -> xrinput -> world -> desktop -> wide
 //   -> buttons -> story -> talk -> guide -> portals -> buddy -> main
+// (join.js, the invite card, imports only leaves and room.js; xrinput.js and buttons.js call it from functions.)
 // (checked with a script that lists each module's top-level reads of imported bindings).
 
 // The server link's callbacks (see app/room.js): they call into nearly every feature, so they are wired up here.
@@ -39,6 +42,7 @@ Object.assign(handlers, {
     const r = await link.request({ t: "hello", role: "renderer", rid: RID });
     if (r.status === 403) return location.replace(`/watch.html?room=${ROOM}`); // someone claimed it first
     state.joined = true;
+    send({ t: "here", kind: thisDeviceKind(), name: myName() }); // say "here" as soon as the room has accepted us
     for (const [id, p] of portals) {
       if (p.stream.prompt) send({ t: "portal_sync", id, prompt: p.stream.prompt, status: p.stream.status });
       else send({ t: "portal_added", id });
@@ -55,6 +59,11 @@ Object.assign(handlers, {
       if (state.asking?.kind === "portal" && m.threads?.[state.asking.id]?.seed) clearAsk(true);
       showChoices(m.choices || []); // the focused window's options, plus the audience's ideas and votes
       if (m.focusId && m.focusId !== state.focusId && portals.has(m.focusId)) setFocus(m.focusId, false);
+      showPeople(m.people);
+      updateJoinCard();
+    } else if (m.t === "joined") {
+      const line = joinedLine(m); // a friend arrived: the storyteller sees it (never for their own devices)
+      if (line) flash(line, 4000);
     } else if (m.t === "close_portal") closePortal(m.id);
     else if (m.t === "reset") resetLocal(m);
     else if (m.t === "open_portal") openInFront();
@@ -144,6 +153,9 @@ async function setupXR() {
   };
 }
 setupXR();
+// Say "here" to the room, so friends' pages and the invite card can show who is in it.
+// Not before the room has accepted us (the server refuses it then: "room has no owner yet"); joining pings at once.
+startPresence((m) => state.joined && send(m), { kind: thisDeviceKind(), getName: myName });
 state.started = true; // every module has loaded: the background timers may run now
 document.addEventListener("click", () => listener.context.state === "suspended" && listener.context.resume());
 

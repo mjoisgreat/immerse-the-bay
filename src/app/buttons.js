@@ -10,6 +10,7 @@ import { send } from "./room.js";
 import { buddy, toggleBuddy } from "./buddy.js";
 import { camView, haptic, toggleCamera } from "./desktop.js";
 import { cheatSheet, showCheatSheet } from "./guide.js";
+import { hideJoinCard, showJoinCard } from "./join.js";
 import { closePortal, immersion, openPortal, portals, stepInside, stepOut } from "./portals.js";
 import { disarm, newStoryPressed, pickChoice, resetPressed } from "./story.js";
 import { startTalking, stopTalking } from "./talk.js";
@@ -52,6 +53,7 @@ function menuItems() {
     wide: toggleWide,
     share: toggleShare,
     cheat: showCheatSheet,
+    invite: showJoinCard,
     exitvr: () => renderer.xr.getSession()?.end(),
   };
   const entries = menuFor({ inside: immersion.inside, world: worldKey(), loading: backdrop.loading, armed: state.armed, wideOn: state.wideOn, shared: isShared() });
@@ -90,7 +92,7 @@ export function updateToolbar() {
   toolbar.group.visible = renderer.xr.isPresenting;
   if (!toolbar.group.visible) return;
   toolbar.update();
-  if (!toolbar.open) cheatSheet.hide(); // the cheat sheet closes with the menu, however it was shut
+  if (!toolbar.open) (cheatSheet.hide(), hideJoinCard()); // the cheat sheet and invite card close with the menu, however it was shut
   toolbar.setItems(menuItems());
   const hits = [];
   let point = null;
