@@ -86,7 +86,7 @@ function buzz(strength = 0.6, ms = 90) {
   for (const src of renderer.xr.getSession()?.inputSources || []) src.gamepad?.hapticActuators?.[0]?.pulse?.(strength, ms);
 }
 // A short tone so a gesture is heard as well as seen (hands have no haptics; controllers also buzz).
-const TONES = { talk: [660, 880], send: [880, 660], open: [392, 523, 784], close: [784, 523, 392], shake: [300, 220, 300, 220], whee: [523, 784, 1047], bounce: [160, 95], snap: [660, 990] };
+const TONES = { talk: [660, 880], send: [880, 660], open: [392, 523, 784], close: [784, 523, 392], shake: [300, 220, 300, 220], whee: [523, 784, 1047], bounce: [160, 95] };
 function chime(kind) {
   const ctx = listener.context;
   if (ctx.state !== "running") return;
@@ -460,6 +460,7 @@ async function startTalking(gesture = false) {
   wantTalk = true;
   byGesture = gesture === true;
   talkingToBuddy = buddy.isLookedAt(); // look at the companion while you talk and your words go to it
+  buddy.attend(true); // whatever you say, she comes over to listen
   if (talkingToBuddy) buddy.listen();
   try {
     await ptt.begin();
@@ -475,12 +476,14 @@ async function startTalking(gesture = false) {
     flash(byGesture ? "Listening… lower your hand when you're done" : "Listening… let go when you're done", 60000);
   } catch (e) {
     wantTalk = false;
+    buddy.attend(false);
     if (talkingToBuddy) buddy.react({ gesture: "none", move: "none" });
     flash(`Microphone unavailable: ${e.message}`);
   }
 }
 async function stopTalking() {
   wantTalk = false;
+  buddy.attend(false); // you've finished talking: she can go back to what she was doing
   if (!talking) return;
   talking = false;
   chime("send");
@@ -856,7 +859,7 @@ function onSelectEnd(ctrl) {
 }
 
 function onSqueeze(ctrl) {
-  if (ctrl.userData.isHand) return; // a middle-finger pinch (like a snap) must not close a window; shake does that
+  if (ctrl.userData.isHand) return; // a middle-finger pinch must not close a window by accident; shake does that
   rayFrom(ctrl);
   const portal = raycaster.intersectObjects(targets(), false)[0]?.object.userData.portal;
   if (portal) closePortal(portal.id);
@@ -1274,7 +1277,7 @@ function toggleBuddyFollow() {
     5000,
   );
 }
-/** Snap: call Bonnie. If she isn't here she appears; if she is, she hops back over to you. */
+/** Phone double-tap on empty space: call Bonnie. If she isn't here she appears; if she is, she hops back over to you. */
 function callBuddy() {
   if (!buddy.visible) return toggleBuddy();
   if (!buddy.ready) return;
@@ -1651,11 +1654,6 @@ const gestures = new HandGestures(renderer, camera, {
     flash(`Window ${focusId} wiped away.`, 2500);
     closePortal(focusId);
   },
-  snap() {
-    if (immersion.inside) return; // Bonnie lives in your room, not inside a world
-    confirmGesture("snap", 0xffd08a);
-    callBuddy();
-  },
   palm: () => (gestures.pulse(0xffffff), setButtonsHidden(!toolbar.collapsed)),
   // (the how-to card at the start of the session now teaches every gesture)
 });
@@ -1866,6 +1864,9 @@ addEventListener("keyup", (e) => {
 const haptic = (ms = 12) => navigator.vibrate?.(ms);
 const screenRay = (x, y) => (raycaster.setFromCamera(new THREE.Vector2((x / innerWidth) * 2 - 1, -(y / innerHeight) * 2 + 1), camera), raycaster.ray);
 let carry = null, drawing = null, pinchResize = null, flickArmed = null;
+// Where one finger came down: the window under it, and the view then. A flick also drags the view
+// (it can't be told apart until the finger lifts), so a flick puts the view back and acts on that window.
+let touchStart = null;
 const DRAW_AT = 0.6; // metres: you "draw in the air" at arm's length, as in the headset
 const touch = new TouchGestureRecognizer({
   claims: () => buddyDrag > 0, // a finger on Bonnie picks her up (pointerdown above): carry and throw
@@ -1875,7 +1876,7 @@ const touch = new TouchGestureRecognizer({
     haptic();
     if (p && !immersion.inside) return stepInside(p);
     if (immersion.inside) return stepOut();
-    callBuddy(); // like a snap in the headset: Bonnie appears, or hops back over to you
+    callBuddy(); // Bonnie appears, or hops back over to you
   },
   onHoldStart(x, y) {
     const hit = hitAt(x, y);
@@ -1918,9 +1919,14 @@ const touch = new TouchGestureRecognizer({
     trail.end(false);
     flash(strokeHint(r.reason), 4000);
   },
-  onFlick(_dir, x, y) {
-    const p = hitAt(x, y)?.object.userData.portal;
-    if (!p || immersion.inside) return;
+  onFlick() {
+    const start = touchStart;
+    if (start) {
+      if (camView.orienting) camView.offset = start.offset;
+      else (yaw = start.yaw), (pitch = start.pitch), camera.rotation.set(pitch, yaw, 0, "YXZ");
+    }
+    const p = start?.portal;
+    if (!p || immersion.inside || !portals.has(p.id)) return;
     if (flickArmed?.id === p.id && performance.now() - flickArmed.at < 3000) {
       flickArmed = null;
       haptic(40);
@@ -1953,7 +1959,11 @@ const touch = new TouchGestureRecognizer({
   },
   onTwoFingerTap: () => (haptic(), setButtonsHidden(!document.body.classList.contains("clean"))),
 });
-renderer.domElement.addEventListener("pointerdown", (e) => touch.down(e));
+renderer.domElement.addEventListener("pointerdown", (e) => {
+  if (e.pointerType === "touch" && touch.pts.size === 0)
+    touchStart = { portal: hitAt(e.clientX, e.clientY)?.object.userData.portal, yaw, pitch, offset: camView.offset };
+  touch.down(e);
+});
 addEventListener("pointercancel", (e) => {
   touch.up(e);
   dragging = touch.pts.size > 0;
