@@ -65,6 +65,32 @@ test("shaking your head with your hands held up is not a shake", () => {
 test("one hand pulling away from a still one (dragging a window) is not an opening motion", () => {
   assert.deepEqual(run([[10, both(0.12)], ...motion(15, (t) => ({ left: lHand(0.06), right: rHand(0.06 + 2 * t) })), [60, { left: lHand(0.06), right: rHand(0.54) }]]), []);
 });
+// Snap: thumb and middle fingertip touch, then spring apart. gap(t) = distance between the fingertips.
+const fingers = (gap) => ({ ...rest, right: { ...rest.right, thumb: [0.25, 1.0, -0.2], middle: [0.25 + gap, 1.0, -0.2] } });
+test("a snap (fingertips touch, then flick apart fast) calls once", () => {
+  assert.deepEqual(run([[10, fingers(0.08)], [4, fingers(0.01)], [1, fingers(0.06)], [20, fingers(0.09)]]), ["snap"]);
+});
+test("works with the left hand too", () => {
+  const l = (gap) => ({ ...rest, left: { ...rest.left, thumb: [-0.25, 1.0, -0.2], middle: [-0.25 - gap, 1.0, -0.2] } });
+  assert.deepEqual(run([[10, l(0.08)], [4, l(0.01)], [1, l(0.06)], [20, l(0.09)]]), ["snap"]);
+});
+test("letting go of a pinch slowly is not a snap", () => {
+  const slow = Array.from({ length: 40 }, (_, i) => [1, fingers(0.01 + i * 0.002)]); // ~0.6 s to open
+  assert.deepEqual(run([[10, fingers(0.08)], [4, fingers(0.01)], ...slow]), []);
+});
+test("fingers that never touch, or touch for a single frame, do not snap", () => {
+  assert.deepEqual(run([[10, fingers(0.08)], [10, fingers(0.04)], [10, fingers(0.09)]]), []);
+  assert.deepEqual(run([[10, fingers(0.08)], [1, fingers(0.01)], [1, fingers(0.07)], [10, fingers(0.09)]]), []);
+});
+test("snapping twice in a row is one call (cooldown); a later snap works again", () => {
+  const one = [[4, fingers(0.01)], [1, fingers(0.06)], [8, fingers(0.09)]];
+  assert.deepEqual(run([[5, fingers(0.08)], ...one, ...one]), ["snap"]);
+  assert.deepEqual(run([[5, fingers(0.08)], ...one, [120, fingers(0.09)], ...one]), ["snap", "snap"]);
+});
+test("hands without fingertip data never snap", () => {
+  assert.deepEqual(run([[40, rest]]), []);
+});
+
 test("losing the talking hand keeps listening, then sends; a half-made motion is dropped after a gap", () => {
   assert.deepEqual(run([[30, atMouth], [60, { left: rest.left }], [30, atMouth], [200, {}]]), ["talk-start", "talk-end"]);
   const d = new GestureDetector();
