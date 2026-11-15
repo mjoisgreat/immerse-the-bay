@@ -87,11 +87,28 @@ const immersion = new Immersion(scene, camera, {
 function buzz(strength = 0.6, ms = 90) {
   for (const src of renderer.xr.getSession()?.inputSources || []) src.gamepad?.hapticActuators?.[0]?.pulse?.(strength, ms);
 }
+// A short tone so a gesture is heard as well as seen (hands have no haptics; controllers also buzz).
+const TONES = { talk: [660, 880], send: [880, 660], open: [392, 523, 784], close: [784, 523, 392], shake: [300, 220, 300, 220] };
+function chime(kind) {
+  const ctx = listener.context;
+  if (ctx.state !== "running") return;
+  TONES[kind].forEach((f, i) => {
+    const o = ctx.createOscillator(), g = ctx.createGain(), t = ctx.currentTime + i * 0.07;
+    o.type = kind === "shake" ? "triangle" : "sine";
+    o.frequency.value = f;
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.12, t + 0.015);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.16);
+    o.connect(g).connect(ctx.destination);
+    o.start(t);
+    o.stop(t + 0.18);
+  });
+}
 function stepInside(portal) {
   if (!portal || (immersion.inside && immersion.portal === portal)) return;
   setFocus(portal.id);
   immersion.enter(portal, [...portals.values()].find((p) => p.portal === portal)?.stream.video);
-  flash(`You stepped into window ${portal.id}. Step back or press B/Y to leave.`, 5000);
+  flash(`You stepped into window ${portal.id}. Bring your hands together, or shake them, to step back out (or press B/Y).`, 5000);
 }
 function stepOut() {
   if (!immersion.inside) return;
@@ -326,9 +343,11 @@ const ptt = new PushToTalk();
 let talking = false;
 let wantTalk = false; // the button is held (the mic may still be starting)
 let talkingToBuddy = false;
-async function startTalking() {
+let byGesture = false; // this turn was started by raising a hand, not a button
+async function startTalking(gesture = false) {
   if (talking || wantTalk) return;
   wantTalk = true;
+  byGesture = gesture === true;
   talkingToBuddy = buddy.isLookedAt(); // look at the companion while you talk and your words go to it
   if (talkingToBuddy) buddy.listen();
   try {
@@ -342,7 +361,9 @@ async function startTalking() {
     talking = true;
     micOrb.material.emissive.set(0xff3300);
     micOrb.scale.setScalar(1.4);
-    flash("Listening… let go when you're done", 60000);
+    chime("talk");
+    buzz(0.5, 60);
+    flash(byGesture ? "Listening… lower your hand when you're done" : "Listening… let go when you're done", 60000);
   } catch (e) {
     wantTalk = false;
     if (talkingToBuddy) buddy.react({ gesture: "none", move: "none" });
@@ -355,12 +376,14 @@ async function stopTalking() {
   talking = false;
   micOrb.material.emissive.set(0x442200);
   micOrb.scale.setScalar(1);
+  chime("send");
+  buzz(0.3, 40);
   flash("Thinking…", 20000);
   try {
     const text = await ptt.end(speechHeaders(ROOM));
     if (!text) {
       if (talkingToBuddy) buddy.react({ gesture: "none", move: "none" });
-      return flash("Didn't catch that. Hold the orb and speak.");
+      return flash("Didn't catch that. Raise a hand to your mouth (or hold A) and speak.");
     }
     if (asking) {
       if (talkingToBuddy) buddy.react({ gesture: "none", move: "none" });
@@ -781,8 +804,8 @@ function updateTitle() {
 // Steps: open a window → tell the story → touch / step inside. Each is spoken once.
 const GUIDE = [
   "Welcome, storyteller. Point at a wall and pinch, or pull the trigger, to open your first window.",
-  "A world is waking. Raise your hand to your mouth, or hold the A button, and tell me what happens next.",
-  "Now reach out and tap anything in the window to touch it. Or clap your hands, and step inside.",
+  "A world is waking. Raise your hand to your mouth like a microphone, and tell me what happens next. Lower it when you're done.",
+  "Now reach out and tap anything in the window to touch it. Or part your hands like curtains, and step inside. Shake both hands to wipe a window away.",
 ];
 let guideStep = -1;
 function guide(step) {
@@ -936,7 +959,7 @@ function askWorld(kind, id = null) {
   $("#ask").hidden = false;
   const xr = renderer.xr.isPresenting;
   if (id) portals.get(id)?.portal.setCaption(ASK.portal, "status");
-  flash(`${ASK[kind]} ${xr ? "Raise a hand to your mouth, or hold A, and say it." : "Type it, or hold Space and say it."}`, 600000);
+  flash(`${ASK[kind]} ${xr ? "Raise a hand to your mouth (or hold A) and say it." : "Type it, or hold Space and say it."}`, 600000);
   if (xr) speak(ASK[kind], ...NARRATOR);
   else if ($("#overlay").hidden) $("#askText").focus();
 }
@@ -1114,7 +1137,14 @@ function syncButtons() {
   bar.newstory.classList.toggle("warn", armed === "newstory");
 }
 
-// Hand gestures: mic to the mouth, clap to step in or out, look at your left palm for the buttons.
+// Hand gestures (the main way in; the controller buttons do the same three things): mic to the mouth,
+// part your hands to step in, bring them together to step out, shake both to wipe a window away,
+// look at your left palm for the buttons. Each one answers with a glow on the hands, a tone and a buzz.
+function confirmGesture(kind, color) {
+  gestures.pulse(color);
+  chime(kind);
+  buzz(0.7, 80);
+}
 function facingPortal() {
   const eye = camera.getWorldPosition(new THREE.Vector3());
   const gaze = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.getWorldQuaternion(new THREE.Quaternion()));
@@ -1126,18 +1156,33 @@ function facingPortal() {
   return best;
 }
 const gestures = new HandGestures(renderer, camera, {
-  "talk-start": startTalking,
-  "talk-end": stopTalking,
-  clap() {
-    if (immersion.inside) return stepOut();
-    const p = facingPortal() || portals.get(focusId)?.portal;
-    if (p) stepInside(p);
-    else flash("Open a window first, then clap to step inside.");
+  "talk-start": () => (gestures.pulse(0xff5533), startTalking(true)),
+  "talk-end": () => (gestures.pulse(0xffd08a), stopTalking()),
+  open() {
+    if (immersion.inside) return;
+    if ([0, 1].some((i) => renderer.xr.getController(i).userData.grabbed)) return; // dragging a window, not parting curtains
+    const p = portals.get(focusId)?.portal || facingPortal();
+    if (!p) return flash("Open a window first, then part your hands to step inside.");
+    confirmGesture("open", 0x7fd4ff);
+    stepInside(p);
   },
-  palm: () => setButtonsHidden(!toolbar.collapsed),
+  close() {
+    if (!immersion.inside) return; // outside, hands coming together means nothing
+    confirmGesture("close", 0xffd08a);
+    stepOut();
+  },
+  shake() {
+    if (immersion.inside) return confirmGesture("close", 0xffd08a), stepOut();
+    if (!portals.has(focusId)) return;
+    confirmGesture("shake", 0xff6a4a);
+    flash(`Window ${focusId} wiped away.`, 2500);
+    closePortal(focusId);
+  },
+  palm: () => (gestures.pulse(0xffffff), setButtonsHidden(!toolbar.collapsed)),
   firstSeen: () =>
-    flash("Hands: raise a hand to your mouth to talk · clap to step inside · look at your left palm for the buttons.", 9000),
+    flash("Hands: raise one to your mouth to talk · part both like curtains to step inside · shake both to close a window · left palm shows the buttons.", 12000),
 });
+scene.add(gestures.fx);
 
 // Desktop bar.
 const bar = Object.fromEntries([...document.querySelectorAll("#bar [data-act]")].map((b) => [b.dataset.act, b]));

@@ -4,8 +4,8 @@
 One person speaks, the room becomes the story, and everyone watching shapes what happens next, live.
 
 You wear a Meta Quest 3S and still see your real room. Pinch at a wall and a portal opens onto a
-living world streamed live by Visko Orbis, with its own spatial sound. Hold the orange orb
-(or the A/X button) and narrate. An AI story director (Claude) turns your words into Orbis
+living world streamed live by Visko Orbis, with its own spatial sound. Raise a hand to your mouth
+like a microphone (or hold the A/X button) and narrate. An AI story director (Claude) turns your words into Orbis
 prompts, and the world changes within about 2 seconds without cutting away. You can open up to
 3 portals, each its own story in its own world (see "One story per window"). Grab a portal to move it.
 
@@ -142,14 +142,21 @@ room, so the windows line up with your walls again.
 
 ## Hand gestures
 
-Everything works with bare hands (Quest hand tracking). Besides pointing and pinching (open, move, tap to touch,
-press buttons, pick choices):
+Bare hands (Quest hand tracking) are the main way to play; the controller buttons do the same things as a
+fallback. Besides pointing and pinching (open, move, tap to touch, press buttons, pick choices):
 
-| Gesture | Does |
-|---|---|
-| Raise a hand to your mouth, like a microphone | Talk; lower it to send |
-| Clap | Step into the window you're facing; clap again to step out |
-| Turn your left palm toward your face and hold | Show / hide the buttons |
+| Gesture | Does | Controller fallback |
+|---|---|---|
+| Raise a hand to your mouth, like a microphone | Talk; lower it to send. A red mic badge floats by that hand while it records | Hold A / X |
+| Part both hands, like opening curtains | Step into the focused window | B / Y |
+| Bring both hands back together | Step back out | B / Y |
+| Shake both hands in front of you, like wiping something away | Close the focused window (inside a world: step back out) | Grip while pointing at it |
+| Turn your left palm toward your face and hold | Show / hide the buttons | Thumbstick click |
+
+Every gesture answers so you know it registered: your palms glow, a short tone plays, and controllers buzz.
+The two-hand gestures share a 1.5 s cooldown and are ignored while you talk; parting has to end with the hands
+held apart for a moment, so a shake never reads as an opening motion. Tuning constants sit at the top of
+`src/gestures.js`.
 
 ## Controls in the headset
 
@@ -165,10 +172,10 @@ to bring them back.
 |---|---|---|
 | Open a portal | Pinch at empty space | Trigger at empty space |
 | Focus and move a portal | Pinch on it, drag, release | Trigger on it, drag, release |
-| Talk | Pinch and hold the orange orb | Hold A or X (or trigger on the orb) |
-| Close a portal | From the director console | Grip while pointing at it |
-| Step inside a portal | Walk through it, or pinch it and pull it toward you | Walk through it, or press B / Y |
-| Step back out | Walk back ~60 cm, or pinch the blue ring | Walk back, or press B / Y |
+| Talk | Raise a hand to your mouth (or pinch and hold the orange orb) | Hold A or X (or trigger on the orb) |
+| Close a portal | Shake both hands | Grip while pointing at it |
+| Step inside a portal | Part your hands like curtains, walk through it, or pinch it and pull it toward you | Walk through it, or press B / Y |
+| Step back out | Bring your hands together or shake them, walk back ~60 cm, or pinch the blue ring | Walk back, or press B / Y |
 
 **Step inside:** the portal's video becomes the world around you, shown with the same perspective the camera
 had (as if you stand exactly where it stood), so straight lines stay straight and scale feels right: no
