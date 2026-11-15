@@ -107,6 +107,30 @@ const SYSTEM = {
 };
 const OTHER = { name: "System", chip: "⚙", color: "#adadb8", title: "System" };
 
+/** Which lines belong to the story itself (the rest are the console's system lines). */
+export const isStoryLine = (l) => l.kind === "speech" || Boolean(ROLES[l.kind]);
+
+/**
+ * How one log line looks in a chat: who said it, its badge and colour, the text, and for the narrator
+ * the director's timing ("812 ms, new prompt") split off. Used by the pages and the headset.
+ */
+export function describeLine(l) {
+  if (l.kind === "speech") {
+    // A character speaking: "Mei: Hello". Characters get a steady colour per name.
+    const i = l.text.indexOf(": ");
+    const who = i > 0 ? l.text.slice(0, i) : "Someone";
+    return { who, chip: "💬", title: "A character", color: `hsl(${hueOf(who)} 85% 66%)`, text: i > 0 ? l.text.slice(i + 2) : l.text };
+  }
+  const role = ROLES[l.kind] || SYSTEM[l.kind] || { ...OTHER, name: l.kind || OTHER.name };
+  const out = { who: role.name, chip: role.chip, color: role.color, title: role.title, text: l.text, sys: !ROLES[l.kind] };
+  if (l.kind === "director") {
+    const m = l.text.match(/\s*\((\d+ ms.*)\)$/);
+    if (m) (out.text = l.text.slice(0, m.index)), (out.note = m[1]);
+    out.narr = true;
+  }
+  return out;
+}
+
 /**
  * A story log on `log` (with its jump button). `all` also shows the system lines and the director's
  * timings (the console); without it, only the story itself (the watch page).
@@ -116,30 +140,16 @@ export function storyFeed(log, jump, { all = false, empty = "Nothing yet." } = {
   const key = (l) => `${l.at}|${l.kind}|${l.text}`;
   let first = true;
   return function render(s) {
-    const lines = (s.log || []).filter((l) => l.kind === "speech" || ROLES[l.kind] || all);
+    const lines = (s.log || []).filter((l) => all || isStoryLine(l));
     const html = lines.length
       ? [...lines]
           .reverse() // newest at the top
           .map((l) => {
-            let who, chip, color, title, text = l.text, cls = "", note = "";
-            if (l.kind === "speech") {
-              // A character speaking: "Mei: Hello". Characters get a steady colour per name.
-              const i = l.text.indexOf(": ");
-              who = i > 0 ? l.text.slice(0, i) : "Someone";
-              text = i > 0 ? l.text.slice(i + 2) : l.text;
-              (chip = "💬"), (title = "A character"), (color = `hsl(${hueOf(who)} 85% 66%)`);
-            } else {
-              ({ name: who, chip, color, title } = ROLES[l.kind] || SYSTEM[l.kind] || { ...OTHER, name: l.kind || OTHER.name });
-              if (l.kind === "director") {
-                const m = l.text.match(/\s*\((\d+ ms.*)\)$/);
-                text = m ? l.text.slice(0, m.index) : l.text;
-                if (m && all) note = `<span class="note">${esc(m[1])}</span>`; // how long the director took
-                cls = " narr";
-              }
-              if (!ROLES[l.kind]) cls = " sys";
-            }
+            const { who, chip, color, title, text, note, narr, sys } = describeLine(l);
+            const cls = narr ? " narr" : sys ? " sys" : "";
+            const timing = note && all ? `<span class="note">${esc(note)}</span>` : ""; // how long the director took
             const fresh = !first && !seen.has(key(l)) ? " fresh" : "";
-            return `<div class="msg${cls}${fresh}"><span class="ts">${l.at ? clock(l.at) : ""}</span><span class="chip role" title="${title}" style="background:color-mix(in srgb, ${color} 35%, #18181b)">${chip}</span><b class="who" style="color:${color}">${esc(who)}</b><span class="colon">:</span> <span class="text">${esc(text)}</span>${note}</div>`;
+            return `<div class="msg${cls}${fresh}"><span class="ts">${l.at ? clock(l.at) : ""}</span><span class="chip role" title="${title}" style="background:color-mix(in srgb, ${color} 35%, #18181b)">${chip}</span><b class="who" style="color:${color}">${esc(who)}</b><span class="colon">:</span> <span class="text">${esc(text)}</span>${timing}</div>`;
           })
           .join("")
       : `<div class="chatWelcome">${esc(empty)}</div>`;

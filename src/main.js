@@ -9,7 +9,7 @@ import { onRtc } from "./app/livecast.js";
 import { joinedLine, myName, startPresence, thisDeviceKind } from "./people.js";
 import { flash, toastMesh } from "./app/feedback.js";
 import { aimedAtBuddy, buddy, buddyChangesWorld, syncBuddy, updateCradle } from "./app/buddy.js";
-import { openInFront, setButtonsHidden, setStartScreen, syncButtons, updateToolbar } from "./app/buttons.js";
+import { openInFront, setButtonsHidden, setStartScreen, syncButtons, toolbar, updateToolbar } from "./app/buttons.js";
 import { camView, desktopWalk, seeThrough, toggleCamera } from "./app/desktop.js";
 import { guide, showTitle, updateTitle } from "./app/guide.js";
 import { closeAllStreams, closeWindow, getWindow, immersion, retire, stepInside, stepOut } from "./app/portals.js";
@@ -58,6 +58,7 @@ Object.assign(handlers, {
       // Someone else (the console, a co-narrator) named the world we were asking about.
       if (state.asking?.kind === "window" && m.story?.seed) clearAsk(true);
       showChoices(m.choices || []); // the director's options, plus the audience's ideas and votes
+      toolbar.setStory(m.log); // the story so far, below the menu button
       showPeople(m.people);
       updateJoinCard();
     } else if (m.t === "joined") {
