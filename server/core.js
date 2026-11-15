@@ -409,11 +409,21 @@ export function applyDirection(s, out, ms, seq = 0, event = null) {
 }
 
 /** What the gallery shows for a room. */
+/** A story's title when nobody named it: its first window's world ("A misty pine forest at dawn"). */
+export function autoTitle(s) {
+  const ids = (s.portals || []).map((p) => p.id);
+  const seed = [...ids, ...Object.keys(s.threads || {})].map((id) => s.threads?.[id]?.seed).find(Boolean) || s.story?.seed || "";
+  const t = seed.replace(/\s+/g, " ").trim().replace(/[.!?,;:]+$/, "");
+  if (!t) return "";
+  const short = t.length > 60 ? `${t.slice(0, 57).replace(/\s+\S*$/, "")}…` : t;
+  return short[0].toUpperCase() + short.slice(1);
+}
+
 export function summary(room, s, snap) {
   const lastLine = [...(s.log || [])].reverse().find((l) => l.kind === "director");
   return {
     room,
-    title: s.meta?.title || room,
+    title: s.meta?.title || autoTitle(s) || "A new story",
     line: lastLine ? lastLine.text.replace(/\s*\(\d+ ms.*\)$/, "") : "",
     portals: (s.portals || []).length,
     crowd: Boolean(s.meta?.crowd),
