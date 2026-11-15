@@ -86,8 +86,13 @@ export class Backdrop {
     }
   }
 
-  /** The scene background to use: a sky colour once the world is fully in, else whatever it was. */
+  /**
+   * The scene background to use: a sky colour once the world is fully in, else whatever it was.
+   * It also stays while the world fades for a step inside a window (and back): dropping it the moment
+   * the world starts fading let your real room flash through the gaps behind the opening world.
+   */
   background(fallback) {
-    return this.opacity >= 1 ? (this.holder?.userData.sky ?? SKY) : fallback;
+    const sky = this.opacity >= 1 || (this.on && this.suppressed && this.holder);
+    return sky ? (this.holder?.userData.sky ?? SKY) : fallback;
   }
 }

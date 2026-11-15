@@ -242,6 +242,7 @@ function stopSides() {
     immersion.setSide(side, null);
   }
   sides.for = null;
+  sides.leftAt = 0;
 }
 function steerSides(id, prompt) {
   if (sides.for !== id) return;
@@ -249,9 +250,18 @@ function steerSides(id, prompt) {
   sides.R?.steer(sidePrompt(prompt, "right"));
 }
 // Called every frame: start the side views when you're inside with Wide view on, stop them otherwise.
+// Stepping out keeps them for a little while, so stepping back in (or peeking out) doesn't mean
+// another 20-30 s wait for the side views.
+const SIDES_GRACE_MS = 15000;
 function updateSides() {
   const wantFor = wideOn && immersion.inside ? [...portals.entries()].find(([, x]) => x.portal === immersion.portal)?.[0] : null;
-  if (sides.for && sides.for !== wantFor) stopSides();
+  if (wantFor) sides.leftAt = 0;
+  if (sides.for && sides.for !== wantFor) {
+    const now = performance.now();
+    const outOnly = wideOn && !immersion.inside && portals.has(sides.for); // stepped out, not switched or closed
+    if (outOnly && !sides.leftAt) sides.leftAt = now;
+    if (!outOnly || now - sides.leftAt > SIDES_GRACE_MS) stopSides();
+  }
   if (wantFor && !sides.for && performance.now() - sides.triedAt > 2000) (sides.triedAt = performance.now()), startSides();
 }
 function toggleWide() {
@@ -373,21 +383,38 @@ setInterval(() => {
 setInterval(() => !retired && send({ t: "heartbeat" }), 30000);
 
 // Small snapshots of each portal so watchers and the gallery can see the story (no extra credits).
+// One window per tick, encoded asynchronously (toBlob), so it never stalls a frame in the headset;
+// less often while you're in the headset, where a dropped frame shows as judder.
 const snapCanvas = Object.assign(document.createElement("canvas"), { width: 480, height: 270 });
+let snapTurn = 0, snapBusy = false, snapNext = 0;
 setInterval(() => {
-  if (retired) return;
-  const g = snapCanvas.getContext("2d");
-  for (const [id, p] of portals) {
-    const v = p.stream.video;
-    if (p.stream.status !== "streaming" || v.readyState < 2) continue;
-    g.drawImage(v, 0, 0, 480, 270);
-    fetch("/api/snapshot", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ room: ROOM, cred: credFor(ROOM), id, data: snapCanvas.toDataURL("image/jpeg", 0.62) }),
-    }).catch(() => {});
-  }
-}, 3000);
+  if (retired || snapBusy || performance.now() < snapNext) return;
+  const live = [...portals].filter(([, p]) => p.stream.status === "streaming" && p.stream.video.readyState >= 2);
+  if (!live.length) return;
+  const [id, p] = live[snapTurn++ % live.length];
+  // Every 3 s on a flat screen; in the headset each window about every 6 s.
+  snapNext = performance.now() + (renderer.xr.isPresenting ? 6000 / live.length : 3000 / live.length) - 50;
+  snapBusy = true;
+  snapCanvas.getContext("2d").drawImage(p.stream.video, 0, 0, 480, 270);
+  snapCanvas.toBlob(
+    (blob) => {
+      if (!blob) return void (snapBusy = false);
+      const reader = new FileReader();
+      reader.onload = () => {
+        snapBusy = false;
+        fetch("/api/snapshot", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ room: ROOM, cred: credFor(ROOM), id, data: reader.result }),
+        }).catch(() => {});
+      };
+      reader.onerror = () => (snapBusy = false);
+      reader.readAsDataURL(blob);
+    },
+    "image/jpeg",
+    0.62,
+  );
+}, 250);
 
 function applyDirection({ portal_id, narration, updates, choices, speech, companion }) {
   if (guideStep === 1 && roomState?.log?.some((l) => ["voice", "choice", "guest", "crowd"].includes(l.kind))) setTimeout(() => guide(2), 6000);
@@ -488,6 +515,8 @@ const toast = new Portal("toast"); // reuse the caption renderer only
 const toastMesh = toast.group.children[2];
 toast.group.remove(toastMesh);
 toastMesh.position.set(0, -0.32, -1.1);
+toastMesh.renderOrder = 50; // on top of everything, in a fixed order
+toastMesh.material.depthTest = false; // ...even when a window or its wall mask is nearer than the toast
 toastMesh.scale.setScalar(0.5);
 camera.add(toastMesh);
 let toastTimer;
@@ -1314,24 +1343,36 @@ const HUB = (() => {
   const id = q.get("backdrop") || q.get("world");
   return id && id !== "moon" ? id : "moon";
 })();
-const HUB_NAME = HUB === "moon" ? "the Moon" : "Stanford's Main Quad";
-const HUB_LABEL = HUB === "moon" ? "Moon" : "Stanford";
-const HUB_ICON = HUB === "moon" ? "🌕" : "🏛";
+// The world button cycles: your room → the Moon → Stanford's golden-hour Main Quad → your room.
+// (A world picked in the URL comes first in the cycle.)
+const WORLD_CYCLE = [...new Set([HUB, "moon", "stanford-golden"])];
+const worldInfo = (id) =>
+  id === "moon"
+    ? { label: "Moon", bar: "Moon", icon: "🌕", name: "the Moon", on: "on" }
+    : { label: "Stanford", bar: "Stanford Quad", icon: "🏛", name: "Stanford's Main Quad", on: "in" };
+/** Where the world button takes you next (null = back to see-through). */
+function nextWorld() {
+  if (!backdrop.on) return WORLD_CYCLE[0];
+  const i = WORLD_CYCLE.indexOf(backdrop.worldId);
+  return i >= 0 && i < WORLD_CYCLE.length - 1 ? WORLD_CYCLE[i + 1] : null;
+}
 async function toggleBackdrop() {
-  if (backdrop.on) {
+  if (backdrop.loading) return;
+  const next = nextWorld();
+  if (!next) {
     backdrop.hide();
     return flash("Back to your room.", 3000);
   }
-  if (backdrop.loading) return;
+  const info = worldInfo(next);
   const quality = splatQuality(renderer);
-  const light = HUB !== "moon" && quality === "low" ? " (light version)" : "";
-  showLoading(HUB === "moon" ? "Flying to the Moon…" : `Loading ${HUB_NAME}${light}…`, HUB === "moon" ? null : 0);
+  const light = next !== "moon" && quality === "low" ? " (light version)" : "";
+  showLoading(next === "moon" ? "Flying to the Moon…" : `Loading ${info.name}${light}…`, next === "moon" ? null : 0);
   const ok = await backdrop
-    .show(HUB, {
+    .show(next, {
       quality,
       onProgress: ({ stage, fraction }) =>
         stage === "download"
-          ? showLoading(`Loading ${HUB_NAME}${light}… ${Math.round(fraction * 100)}%`, fraction)
+          ? showLoading(`Loading ${info.name}${light}… ${Math.round(fraction * 100)}%`, fraction)
           : showLoading(`Building the world${light}… hold still, this can take a moment.`),
     })
     .catch(() => false);
@@ -1339,7 +1380,9 @@ async function toggleBackdrop() {
   const how = renderer.xr.isPresenting
     ? "Walk, use the left thumbstick, or point at the ground and pinch to jump there."
     : "Use W/A/S/D or the arrow keys to walk around.";
-  flash(ok ? `You're standing ${HUB === "moon" ? "on" : "in"} ${HUB_NAME}. ${how} Press See-through to return to your room.` : "Couldn't load the 3D world.", 9000);
+  const after = nextWorld();
+  const then = after ? `Press ${worldInfo(after).label} to go there next, or keep pressing to return to your room.` : "Press See-through to return to your room.";
+  flash(ok ? `You're standing ${info.on} ${info.name}. ${how} ${then}` : "Couldn't load the 3D world.", 9000);
 }
 
 // ---------- Buttons (floating panel in the headset, bar at the bottom on desktop) ----------
@@ -1493,7 +1536,7 @@ const toolbar = new Toolbar(camera, [
   { id: "step", icon: "🚪", label: "Step inside", press: toggleStep },
   { id: "hide", icon: "▾", label: "Hide buttons", press: () => setButtonsHidden(true) },
   { id: "buddy", icon: BUDDY.icon, label: BUDDY.name, press: toggleBuddy },
-  { id: "world", icon: HUB_ICON, label: HUB_LABEL, press: toggleBackdrop },
+  { id: "world", icon: worldInfo(WORLD_CYCLE[0]).icon, label: worldInfo(WORLD_CYCLE[0]).label, press: toggleBackdrop },
   { id: "wide", icon: "🔭", label: "Wide view", press: toggleWide },
   { id: "newstory", icon: "✨", label: "New story", press: newStoryPressed },
   { id: "reset", icon: "↺", label: "Reset story", press: resetPressed },
@@ -1538,8 +1581,10 @@ function updateToolbar() {
   syncButtons();
 }
 function syncButtons() {
-  toolbar.set("world", { label: backdrop.on ? "See-through" : HUB_LABEL, icon: backdrop.on ? "👓" : HUB_ICON });
-  bar.world.textContent = backdrop.on ? "See-through" : HUB === "moon" ? "Moon" : "Stanford Quad";
+  // The world button names where it takes you next.
+  const nw = nextWorld();
+  toolbar.set("world", { label: nw ? worldInfo(nw).label : "See-through", icon: nw ? worldInfo(nw).icon : "👓" });
+  bar.world.textContent = nw ? worldInfo(nw).bar : "See-through";
   toolbar.set("wide", { state: wideOn ? "active" : "idle", label: wideOn ? "Wide: on" : "Wide view" });
   bar.wide.textContent = wideOn ? "Wide view: on" : "Wide view";
   bar.wide.classList.toggle("on", wideOn);
@@ -1769,7 +1814,7 @@ renderer.setAnimationLoop(() => {
   const t = clock.elapsedTime;
   for (const { portal } of portals.values()) portal.update(t);
   checkWalking();
-  immersion.update(t, dt);
+  immersion.update(t, dt, { presenting: renderer.xr.isPresenting });
   backdrop.update(dt, { inside: immersion.active });
   // Moving around: only in a 3D world, not inside a window. Back to see-through puts you back
   // where your real room is, so windows line up with your walls again.
@@ -1792,9 +1837,11 @@ renderer.setAnimationLoop(() => {
   updateRipples();
   updateTitle();
   for (const { portal, stream } of portals.values()) {
-    // The "hole in the wall" only makes sense over passthrough, not inside a world.
+    // The "hole in the wall" only makes sense over passthrough
     // ...nor over a 3D world background (there's no real wall to cut into).
-    portal.mask.visible = renderer.xr.isPresenting && !immersion.active && backdrop.opacity === 0;
+    // It stays on while you step in and out (the world is drawn before it, so it can't cut holes there),
+    // but not once you're fully inside: there it would hide the motes and Bonnie behind each window's frame.
+    portal.mask.visible = renderer.xr.isPresenting && backdrop.opacity === 0 && !(immersion.inside && immersion.progress >= 1);
     if (guideStep === 0 && stream.status === "streaming") guide(1);
   }
   if (!renderer.xr.isPresenting) syncButtons();
