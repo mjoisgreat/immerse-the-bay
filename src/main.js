@@ -88,7 +88,7 @@ function buzz(strength = 0.6, ms = 90) {
   for (const src of renderer.xr.getSession()?.inputSources || []) src.gamepad?.hapticActuators?.[0]?.pulse?.(strength, ms);
 }
 // A short tone so a gesture is heard as well as seen (hands have no haptics; controllers also buzz).
-const TONES = { talk: [660, 880], send: [880, 660], open: [392, 523, 784], close: [784, 523, 392], shake: [300, 220, 300, 220] };
+const TONES = { talk: [660, 880], send: [880, 660], open: [392, 523, 784], close: [784, 523, 392], shake: [300, 220, 300, 220], whee: [523, 784, 1047], bounce: [160, 95] };
 function chime(kind) {
   const ctx = listener.context;
   if (ctx.state !== "running") return;
@@ -461,6 +461,7 @@ for (let i = 0; i < 2; i++) {
 
   const hand = renderer.xr.getHand(i);
   hand.add(handFactory.createHandModel(hand, "mesh"));
+  ctrl.userData.hand = hand;
   scene.add(hand);
 }
 
@@ -478,7 +479,12 @@ function onSelectStart(ctrl) {
     return toolbar.press(ctrl.userData.button, ctrl);
   }
   if (hit?.object.userData.choice !== undefined) return pickChoice(hit.object.userData.choice);
-  if (hit?.object.userData.companion) return toggleBuddyFollow();
+  // Pick the companion up (pointing at it, or reaching out and touching it). A quick tap toggles
+  // following (see onSelectEnd); holding carries it, and letting go throws it.
+  if (hit?.object.userData.companion || buddyTouched(ctrl)) {
+    if (buddy.grab(ctrl)) ctrl.userData.heldBuddy = true;
+    return;
+  }
   const portal = hit?.object.userData.portal;
   if (portal) {
     setFocus(portal.id);
@@ -504,6 +510,11 @@ function onSelectStart(ctrl) {
 }
 
 function onSelectEnd(ctrl) {
+  if (ctrl.userData.heldBuddy) {
+    ctrl.userData.heldBuddy = false;
+    if (buddy.release() === "tap") toggleBuddyFollow();
+    return;
+  }
   if (ctrl.userData.button) {
     toolbar.release(ctrl.userData.button, ctrl);
     ctrl.userData.button = null;
@@ -846,7 +857,53 @@ function buddyReply({ reply, gesture, move }, announce) {
   });
 }
 
-// Pinch / point at the companion to toggle following you around.
+// Grab and throw (src/physics.js): what it bounces off, and how it reacts.
+const tmpV = new THREE.Vector3();
+function buddyTouched(ctrl) {
+  if (!buddy.visible || !renderer.xr.isPresenting) return false;
+  const c = buddy.centerWorld();
+  const tip = ctrl.userData.hand?.joints?.["index-finger-tip"];
+  return ctrl.getWorldPosition(tmpV).distanceTo(c) < 0.32 || Boolean(tip?.visible && tip.getWorldPosition(tmpV).distanceTo(c) < 0.32);
+}
+buddy.physicsEnv = () => {
+  // A rough room around you (so it can't fly off forever), and the open windows.
+  const eye = camera.getWorldPosition(new THREE.Vector3()), c = buddy.centerWorld();
+  const R = 4;
+  const bounds = {
+    minX: Math.min(eye.x - R, c.x - 0.5), maxX: Math.max(eye.x + R, c.x + 0.5),
+    minZ: Math.min(eye.z - R, c.z - 0.5), maxZ: Math.max(eye.z + R, c.z + 0.5),
+    maxY: Math.max(3, c.y + 0.5),
+  };
+  const rects = [];
+  if (!immersion.inside)
+    for (const { portal } of portals.values()) {
+      const g = portal.group;
+      if (!g.visible) continue;
+      const q = g.getWorldQuaternion(new THREE.Quaternion());
+      rects.push({
+        center: g.getWorldPosition(new THREE.Vector3()),
+        normal: new THREE.Vector3(0, 0, 1).applyQuaternion(q),
+        right: new THREE.Vector3(1, 0, 0).applyQuaternion(q),
+        up: new THREE.Vector3(0, 1, 0).applyQuaternion(q),
+        halfW: PORTAL_SIZE.W / 2,
+        halfH: PORTAL_SIZE.H / 2,
+      });
+    }
+  return { bounds, rects };
+};
+const pick = (list) => list[Math.floor(Math.random() * list.length)];
+buddy.onPhysics = (event, amount) => {
+  if (event === "grab") buzz(0.4, 40);
+  if (event === "throw" && amount > 1.5) chime("whee"), buddy.say(pick(["Wheeeee!", "I can flyyy!", "Woooah!"]), 2500);
+  if (event === "bounce") chime("bounce");
+  if (event === "landed" && amount > 1.2) {
+    const hard = amount > 4;
+    buddy.gesture(hard ? "no" : "jump");
+    buddy.say(hard ? pick(["Oof. I'm okay!", "Bunnies bounce. Mostly."]) : pick(["Again! Again!", "Ta-da!", "Nice throw!"]), 3500);
+  }
+};
+
+// A quick pinch / tap on the companion toggles following you around.
 function toggleBuddyFollow() {
   buddy.setFollowing(!buddy.following);
   buddy.gesture(buddy.following ? "thumbs_up" : "wave");
@@ -871,7 +928,7 @@ function toggleBuddy() {
   }
   syncBuddy(true);
   buddy.say(`Hi! I'm ${BUDDY.name}. Talk to me any time!`, 6000);
-  flash(`Meet ${BUDDY.name}! Say “${BUDDY.name}”, or look at ${BUDDY.name} while you talk, to chat. Pinch, or say “follow me”, and ${BUDDY.name} comes with you.`, 8000);
+  flash(`Meet ${BUDDY.name}! Say “${BUDDY.name}”, or look at ${BUDDY.name} while you talk, to chat. Pinch, or say “follow me”, and ${BUDDY.name} comes with you. Pinch and hold to pick ${BUDDY.name} up, let go to throw!`, 9000);
 }
 
 // ---------- Room background: see-through (your real room) or a 3D world around you ----------
@@ -1160,7 +1217,7 @@ const gestures = new HandGestures(renderer, camera, {
   "talk-end": () => (gestures.pulse(0xffd08a), stopTalking()),
   open() {
     if (immersion.inside) return;
-    if ([0, 1].some((i) => renderer.xr.getController(i).userData.grabbed)) return; // dragging a window, not parting curtains
+    if ([0, 1].some((i) => renderer.xr.getController(i).userData.grabbed || renderer.xr.getController(i).userData.heldBuddy)) return; // dragging a window, not parting curtains
     const p = portals.get(focusId)?.portal || facingPortal();
     if (!p) return flash("Open a window first, then part your hands to step inside.");
     confirmGesture("open", 0x7fd4ff);
@@ -1213,9 +1270,28 @@ $("#bar").hidden = false; // only clickable once everything is wired up
 
 // ---------- Desktop controls (for building and testing without the headset) ----------
 let yaw = 0, pitch = 0, dragging = false, moved = 0;
-renderer.domElement.addEventListener("pointerdown", (e) => ((dragging = true), (moved = 0)));
+// Drag the companion with the mouse to pick it up; let go to throw it.
+const mouseHand = new THREE.Object3D();
+scene.add(mouseHand);
+let buddyDrag = 0; // how far along the mouse ray it is held (0 = not held)
+const mouseRay = (e) => raycaster.setFromCamera(new THREE.Vector2((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1), camera);
+renderer.domElement.addEventListener("pointerdown", (e) => {
+  dragging = true;
+  moved = 0;
+  if (renderer.xr.isPresenting || !buddy.visible) return;
+  mouseRay(e);
+  if (!raycaster.intersectObjects(targets(), false)[0]?.object.userData.companion) return;
+  buddyDrag = buddy.centerWorld().distanceTo(raycaster.ray.origin);
+  raycaster.ray.at(buddyDrag, mouseHand.position);
+  if (!buddy.grab(mouseHand, { reel: false })) buddyDrag = 0;
+});
 addEventListener("pointerup", (e) => {
   dragging = false;
+  if (buddyDrag) {
+    buddyDrag = 0;
+    if (buddy.release() === "tap") toggleBuddyFollow();
+    return;
+  }
   if (moved > 6 || renderer.xr.isPresenting || e.target !== renderer.domElement) return;
   const ndc = new THREE.Vector2((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
   raycaster.setFromCamera(ndc, camera);
@@ -1235,6 +1311,7 @@ renderer.domElement.addEventListener("dblclick", (e) => {
 });
 addEventListener("pointermove", (e) => {
   if (!dragging) return;
+  if (buddyDrag) return mouseRay(e), void raycaster.ray.at(buddyDrag, mouseHand.position);
   moved += Math.abs(e.movementX) + Math.abs(e.movementY);
   yaw -= e.movementX * 0.004;
   pitch = Math.max(-1.2, Math.min(1.2, pitch - e.movementY * 0.004));
