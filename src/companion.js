@@ -689,7 +689,7 @@ export class Companion {
     this.aimGlow.visible = Boolean(on) && this.visible;
     if (this.aimGlow.visible) {
       this.centerWorld(this.aimGlow.position);
-      this.aimGlow.material.opacity = 0.75 + Math.sin(performance.now() / 120) * 0.25;
+      this.aimGlow.material.opacity = 0.85 + Math.sin(performance.now() / 400) * 0.1; // gentle, not flickering
     }
   }
 

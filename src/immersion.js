@@ -25,11 +25,17 @@ void main() {
 
 // Wide view: two more live streams of the same scene, the camera turned SIDE_YAW to the left and right.
 // They overlap the main view by a few degrees and blend into it, giving about 230° of live picture.
+// 0 → 1 with eased ends (smoothstep), clamped.
+const smooth01 = (x) => {
+  const t = Math.min(1, Math.max(0, x));
+  return t * t * (3 - 2 * t);
+};
+
 export const SIDE_YAW = (72 * Math.PI) / 180;
 
 const domeFrag = /* glsl */ `
 uniform sampler2D map; uniform float hasVideo; uniform float progress; uniform float time; uniform vec2 texel;
-uniform sampler2D mapL; uniform sampler2D mapR; uniform float hasL; uniform float hasR;
+uniform sampler2D mapL; uniform sampler2D mapR; uniform float hasL; uniform float hasR; uniform float premult;
 varying vec3 vDir;
 float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7))) * 43758.5453); }
 float noise(vec2 p){ vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);
@@ -60,7 +66,8 @@ void main(){
   vec3 n = texture2D(map, uv + vec2(0.0, texel.y)).rgb, s = texture2D(map, uv - vec2(0.0, texel.y)).rgb;
   vec3 e = texture2D(map, uv + vec2(texel.x, 0.0)).rgb, w = texture2D(map, uv - vec2(texel.x, 0.0)).rgb;
   vec3 mn = min(c, min(min(n, s), min(e, w))), mx = max(c, max(max(n, s), max(e, w)));
-  float amt = sqrt(clamp(min(mn.g, 1.0 - mx.g) / max(mx.g, 0.001), 0.0, 1.0)) * 0.22;
+  // Gentler in the headset: strong sharpening shimmers on edges as your head moves.
+  float amt = sqrt(clamp(min(mn.g, 1.0 - mx.g) / max(mx.g, 0.001), 0.0, 1.0)) * mix(0.22, 0.07, premult);
   vec3 sharp = clamp((c + (c * 4.0 - n - s - e - w) * amt), 0.0, 1.0);
 
   // Beyond the frame: a soft, ever blurrier glow of the picture fading into the scene's colour.
@@ -91,7 +98,9 @@ void main(){
   float wsum = inFrame + wl + wr;
   vec3 picture = (sharp * inFrame + colL * wl + colR * wr) / max(wsum, 0.0001);
   vec3 video = mix(ext, picture, clamp(wsum, 0.0, 1.0));
-  video += (hash(gl_FragCoord.xy + fract(time) * 91.0) - 0.5) * 0.022; // fine grain hides compression blocks
+  // Fine grain hides compression blocks on a flat screen. Not in the headset: per-frame noise that
+  // differs between your eyes reads as sparkling and flicker.
+  video += (hash(gl_FragCoord.xy + fract(time) * 91.0) - 0.5) * 0.022 * (1.0 - premult);
 
   // Before frames arrive: the same swirl the portal shows while a world forms.
   float sw = noise(vec2(atan(d.x, -d.z) * 2.0 + time * 0.6, d.y * 3.0 - time * 0.4));
@@ -103,7 +112,8 @@ void main(){
   float iris = 1.0 - smoothstep(r - 0.35, r, ang);
   float rim = smoothstep(r - 0.5, r - 0.2, ang) * iris * (1.0 - progress);
   col += vec3(1.0, 0.7, 0.4) * rim * 1.5;
-  gl_FragColor = vec4(col, iris);
+  // In the headset it's drawn opaque and first (see update), writing premultiplied colour and alpha.
+  gl_FragColor = premult > 0.5 ? vec4(col * iris, iris) : vec4(col, iris);
 }`;
 
 const moteVert = /* glsl */ `
@@ -115,9 +125,9 @@ void main() {
   p.x += sin(time * 0.21 + seed * 6.3) * 0.35;
   p.z += cos(time * 0.17 + seed * 4.1) * 0.35;
   p.y += mod(time * (0.03 + seed * 0.05) + seed * 4.0, 4.0) - 2.0; // slow rise, wraps
-  vTw = 0.55 + 0.45 * sin(time * (1.5 + seed * 2.0) + seed * 30.0);
+  vTw = 0.82 + 0.18 * sin(time * (0.6 + seed * 0.8) + seed * 30.0); // a slow, gentle shimmer, not a flicker
   vec4 mv = modelViewMatrix * vec4(p, 1.0);
-  gl_PointSize = size * (0.6 + seed) / -mv.z;
+  gl_PointSize = max(size * (0.6 + seed) / -mv.z, 2.5); // never smaller than a few pixels (tiny dots flash)
   gl_Position = projectionMatrix * mv;
 }`;
 
@@ -154,6 +164,7 @@ export class Immersion {
       mapR: { value: new THREE.Texture() },
       hasL: { value: 0 },
       hasR: { value: 0 },
+      premult: { value: 0 },
     };
     this.sideVideo = { L: null, R: null };
     this.dome = new THREE.Mesh(
@@ -272,7 +283,7 @@ export class Immersion {
 
   _release(portal) {
     portal.setImmersed(false);
-    portal.group.visible = true;
+    portal.setFade(1);
   }
 
   /** Where a world-space direction lands in the video (u right, v up), or null if past its edges. */
@@ -295,7 +306,7 @@ export class Immersion {
   _sampleColour(now) {
     const v = this.video;
     if (!v || v.readyState < 2 || now < this.nextSample) return;
-    this.nextSample = now + 500;
+    this.nextSample = now + (this.uniforms.premult.value ? 3000 : 500); // a pixel readback can stall the GPU: rarely in the headset
     try {
       const g = this.sampler.getContext("2d", { willReadFrequently: true });
       g.drawImage(v, 0, 0, 16, 9);
@@ -334,7 +345,17 @@ export class Immersion {
     src.stop(t + len);
   }
 
-  update(t, dt) {
+  update(t, dt, { presenting = false } = {}) {
+    // In the headset the world is drawn first, as an opaque layer (premultiplied alpha straight into the
+    // passthrough blend), so the windows' "hole in the wall" depth masks drawn after it can't punch holes
+    // in it. The masks can then stay on while you step in and out (no flash of tunnel walls or room) and
+    // walking through a window's surface no longer flickers. On a flat screen it stays a normal blend.
+    const opaque = presenting;
+    if (this.dome.material.transparent === opaque) {
+      this.dome.material.transparent = !opaque;
+      this.dome.renderOrder = opaque ? -30 : -10;
+    }
+    this.uniforms.premult.value = opaque ? 1 : 0;
     const target = this.inside ? 1 : 0;
     const step = dt / FADE_S;
     this.progress = target > this.progress ? Math.min(1, this.progress + step) : Math.max(0, this.progress - step);
@@ -350,8 +371,9 @@ export class Immersion {
       if (v?.videoWidth) this.uniforms.texel.value.set(1 / v.videoWidth, 1 / v.videoHeight);
     }
     if (this.portal) {
-      // The window you walked through disappears once the world is around you.
-      this.portal.group.visible = this.progress < 0.55;
+      // The window you walked through fades away as the world opens around you (and back on the way out).
+      const p = this.progress;
+      this.portal.setFade(1 - smooth01((p - 0.2) / 0.55));
       if (!this.inside && this.progress === 0) this.reset();
     }
     if (this.world.visible) this._sampleColour(performance.now());

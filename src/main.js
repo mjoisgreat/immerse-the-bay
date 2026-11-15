@@ -373,21 +373,38 @@ setInterval(() => {
 setInterval(() => !retired && send({ t: "heartbeat" }), 30000);
 
 // Small snapshots of each portal so watchers and the gallery can see the story (no extra credits).
+// One window per tick, encoded asynchronously (toBlob), so it never stalls a frame in the headset;
+// less often while you're in the headset, where a dropped frame shows as judder.
 const snapCanvas = Object.assign(document.createElement("canvas"), { width: 480, height: 270 });
+let snapTurn = 0, snapBusy = false, snapNext = 0;
 setInterval(() => {
-  if (retired) return;
-  const g = snapCanvas.getContext("2d");
-  for (const [id, p] of portals) {
-    const v = p.stream.video;
-    if (p.stream.status !== "streaming" || v.readyState < 2) continue;
-    g.drawImage(v, 0, 0, 480, 270);
-    fetch("/api/snapshot", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ room: ROOM, cred: credFor(ROOM), id, data: snapCanvas.toDataURL("image/jpeg", 0.62) }),
-    }).catch(() => {});
-  }
-}, 3000);
+  if (retired || snapBusy || performance.now() < snapNext) return;
+  const live = [...portals].filter(([, p]) => p.stream.status === "streaming" && p.stream.video.readyState >= 2);
+  if (!live.length) return;
+  const [id, p] = live[snapTurn++ % live.length];
+  // Every 3 s on a flat screen; in the headset each window about every 6 s.
+  snapNext = performance.now() + (renderer.xr.isPresenting ? 6000 / live.length : 3000 / live.length) - 50;
+  snapBusy = true;
+  snapCanvas.getContext("2d").drawImage(p.stream.video, 0, 0, 480, 270);
+  snapCanvas.toBlob(
+    (blob) => {
+      if (!blob) return void (snapBusy = false);
+      const reader = new FileReader();
+      reader.onload = () => {
+        snapBusy = false;
+        fetch("/api/snapshot", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ room: ROOM, cred: credFor(ROOM), id, data: reader.result }),
+        }).catch(() => {});
+      };
+      reader.onerror = () => (snapBusy = false);
+      reader.readAsDataURL(blob);
+    },
+    "image/jpeg",
+    0.62,
+  );
+}, 250);
 
 function applyDirection({ portal_id, narration, updates, choices, speech, companion }) {
   if (guideStep === 1 && roomState?.log?.some((l) => ["voice", "choice", "guest", "crowd"].includes(l.kind))) setTimeout(() => guide(2), 6000);
@@ -488,6 +505,8 @@ const toast = new Portal("toast"); // reuse the caption renderer only
 const toastMesh = toast.group.children[2];
 toast.group.remove(toastMesh);
 toastMesh.position.set(0, -0.32, -1.1);
+toastMesh.renderOrder = 50; // on top of everything, in a fixed order
+toastMesh.material.depthTest = false; // ...even when a window or its wall mask is nearer than the toast
 toastMesh.scale.setScalar(0.5);
 camera.add(toastMesh);
 let toastTimer;
@@ -1785,7 +1804,7 @@ renderer.setAnimationLoop(() => {
   const t = clock.elapsedTime;
   for (const { portal } of portals.values()) portal.update(t);
   checkWalking();
-  immersion.update(t, dt);
+  immersion.update(t, dt, { presenting: renderer.xr.isPresenting });
   backdrop.update(dt, { inside: immersion.active });
   // Moving around: only in a 3D world, not inside a window. Back to see-through puts you back
   // where your real room is, so windows line up with your walls again.
@@ -1808,9 +1827,11 @@ renderer.setAnimationLoop(() => {
   updateRipples();
   updateTitle();
   for (const { portal, stream } of portals.values()) {
-    // The "hole in the wall" only makes sense over passthrough, not inside a world.
+    // The "hole in the wall" only makes sense over passthrough
     // ...nor over a 3D world background (there's no real wall to cut into).
-    portal.mask.visible = renderer.xr.isPresenting && !immersion.active && backdrop.opacity === 0;
+    // It stays on while you step in and out (the world is drawn before it, so it can't cut holes there),
+    // but not once you're fully inside: there it would hide the motes and Bonnie behind each window's frame.
+    portal.mask.visible = renderer.xr.isPresenting && backdrop.opacity === 0 && !(immersion.inside && immersion.progress >= 1);
     if (guideStep === 0 && stream.status === "streaming") guide(1);
   }
   if (!renderer.xr.isPresenting) syncButtons();
