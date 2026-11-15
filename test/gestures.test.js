@@ -130,3 +130,12 @@ test("a hands-free talk sends by itself after a minute", () => {
   const out = run([[10, rest], [30, thumbsUp], [3900, rest]]); // ~63 s
   assert.deepEqual(out, ["talk-start", "talk-end"]);
 });
+
+// Holding your hand at your mouth like a microphone is a fist with the thumb up.
+const micFist = { ...rest, right: fist("up", [0.02, 1.5, -0.05]) };
+test("a thumb-up fist at the mouth is a normal talk: lowering it sends", () => {
+  assert.deepEqual(run([[10, rest], [60, micFist], [10, rest]]), ["talk-start", "talk-end"]);
+});
+test("a thumbs up read on the way to the mouth still ends when the hand is lowered", () => {
+  assert.deepEqual(run([[10, rest], [30, thumbsUp], [60, micFist], [10, rest]]), ["talk-start", "talk-mouth", "talk-end"]);
+});
