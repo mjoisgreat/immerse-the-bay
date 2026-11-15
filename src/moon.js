@@ -284,18 +284,27 @@ function sunDisc() {
 
 // An opaque black dome behind everything. In passthrough three.js clears to transparent whatever
 // the background colour is, so without this your real room would show through the sky.
+// It's drawn in the opaque pass, first of all (a custom blend still fades it there): the transparent
+// pass comes after the step-inside world (immersion.js draws it opaque in the headset), so there the
+// sky covered the world in black while you stepped into a window on the Moon, and back out.
 function blackSky() {
   const m = new THREE.ShaderMaterial({
     uniforms: { opacity: { value: 1 } },
     vertexShader: SKY_VERT_HEAD + "void main() { gl_Position = skyPosition(position); }",
     fragmentShader: "uniform float opacity; void main() { gl_FragColor = vec4(0.0, 0.0, 0.0, opacity); }",
-    transparent: true,
+    transparent: false,
+    blending: THREE.CustomBlending,
+    blendSrc: THREE.SrcAlphaFactor,
+    blendDst: THREE.OneMinusSrcAlphaFactor,
+    blendSrcAlpha: THREE.OneFactor,
+    blendDstAlpha: THREE.OneMinusSrcAlphaFactor,
     depthWrite: false,
     side: THREE.DoubleSide,
   });
+  m.userData.keepPass = true; // the fader leaves it in the opaque pass
   const mesh = new THREE.Mesh(new THREE.SphereGeometry(SKY_DIST, 32, 16), m);
   mesh.frustumCulled = false;
-  mesh.renderOrder = -30;
+  mesh.renderOrder = -40; // before the step-inside world (-30) and the windows' wall masks (-20)
   return mesh;
 }
 
@@ -536,7 +545,7 @@ export async function buildMoon() {
       for (const m of mats) {
         if (m.uniforms?.opacity) m.uniforms.opacity.value = v;
         else m.opacity = v;
-        if (m.blending === THREE.AdditiveBlending) continue;
+        if (m.blending === THREE.AdditiveBlending || m.userData.keepPass) continue;
         const t = v < 1;
         if (m.transparent !== t) ((m.transparent = t), (m.needsUpdate = true));
       }
