@@ -105,6 +105,7 @@ async function setupXR() {
   };
 }
 setupXR();
+state.started = true; // every module has loaded: the background timers may run now
 document.addEventListener("click", () => listener.context.state === "suspended" && listener.context.resume());
 
 // ---------- Loop ----------

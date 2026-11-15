@@ -32,11 +32,10 @@ function menuItems() {
     moon: () => void toggleWorld("moon"),
     "exit-moon": () => void toggleWorld("moon"),
     wide: toggleWide,
-    camera: () => void toggleCamera(),
     cheat: showCheatSheet,
     exitvr: () => renderer.xr.getSession()?.end(),
   };
-  const entries = menuFor({ inside: immersion.inside, world: worldKey(), loading: backdrop.loading, armed: state.armed, wideOn: state.wideOn, cameraOn: camView.on });
+  const entries = menuFor({ inside: immersion.inside, world: worldKey(), loading: backdrop.loading, armed: state.armed, wideOn: state.wideOn });
   return entries.map((e) => ({ ...e, press: act[e.id] }));
 }
 // How close (metres) a ray must pass to a menu item to zone in on it.

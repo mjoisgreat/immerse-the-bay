@@ -1,6 +1,7 @@
 // app/state.js: the mutable variables that more than one module reads or writes. ES module `let`s can't be assigned from
 // an importer, so they live on this one object: `state.focusId = ...`.
 export const state = {
+  started: false, // true once every module has loaded (see main.js)
   focusId: null,
   maxPortals: 3,
   wideOn: false,
