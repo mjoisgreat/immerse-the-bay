@@ -28,8 +28,20 @@ async function roleOf(store, room, cred = {}) {
   return { role: "viewer", auth: a };
 }
 
+/**
+ * Servers that help live viewers connect (see src/app/livecast.js): public STUN always, plus a TURN relay
+ * when TURN_URL (comma-separated), TURN_USERNAME and TURN_CREDENTIAL are set, for networks that block
+ * direct connections (some phone carriers, VPNs, strict firewalls).
+ */
+export function iceServers(env = process.env) {
+  const list = [{ urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"] }];
+  const urls = String(env.TURN_URL || "").split(",").map((u) => u.trim()).filter(Boolean);
+  if (urls.length && env.TURN_USERNAME && env.TURN_CREDENTIAL) list.push({ urls, username: env.TURN_USERNAME, credential: env.TURN_CREDENTIAL });
+  return list;
+}
+
 export function config() {
-  return ok({ maxPortals: MAX_PORTALS, director: director.provider || "template" });
+  return ok({ maxPortals: MAX_PORTALS, director: director.provider || "template", iceServers: iceServers() });
 }
 
 export async function relayGet(store, query) {

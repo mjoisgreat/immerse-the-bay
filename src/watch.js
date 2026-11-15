@@ -13,6 +13,7 @@ let state = null;
 let canNarrate = false;
 const link = createLink(room, {
   onMessage(m) {
+    if (m.t === "rtc") return void onLive(m);
     if (m.t === "state") render((state = m));
     if (m.t === "direction" && m.narration) $("#narration").textContent = m.narration;
   },
@@ -75,6 +76,7 @@ function render(s) {
     : `<li class="muted">Nothing yet.</li>`;
 
   renderIdeas(s);
+  maybeAskLive();
   renderSnaps();
 }
 
@@ -130,7 +132,8 @@ async function pollSnaps() {
     .then((r) => r.json())
     .catch(() => snaps);
   renderSnaps();
-  setTimeout(pollSnaps, document.hidden ? 15000 : 5000);
+  // Fast while pictures are all you have; slow once the live video is playing.
+  setTimeout(pollSnaps, document.hidden ? 15000 : live === "live" ? 6000 : 1200);
 }
 function renderSnaps() {
   const ids = (state?.portals || []).map((p) => p.id).filter((id) => snaps[id]);
@@ -145,6 +148,102 @@ function renderSnaps() {
   if (html !== snapsHtml) $("#snaps").innerHTML = snapsHtml = html; // same frames: don't reload the images
 }
 pollSnaps();
+
+// ---------- Live view: the storyteller's device passes the focused window on, peer to peer ----------
+// (See src/app/livecast.js.) Ask once a window is streaming; if the live view is full, blocked by the
+// network, or stops, the pictures above carry on (refreshing about once a second) and we try again later.
+let ICE_SERVERS = [{ urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"] }];
+fetch("/api/config") // a TURN relay, when the server has one (for networks that block direct links)
+  .then((r) => r.json())
+  .then((c) => Array.isArray(c.iceServers) && c.iceServers.length && (ICE_SERVERS = c.iceServers))
+  .catch(() => {});
+const viewerId = `v${Math.random().toString(36).slice(2, 10)}`;
+let pc = null, live = "idle"; // idle | asking | connecting | live
+let askedAt = 0, retryAt = 0;
+const liveVideo = $("#liveVideo");
+function liveNote(text) {
+  $("#liveNote").hidden = !text;
+  $("#liveNote").textContent = text || "";
+}
+function closeLive() {
+  try {
+    pc?.close();
+  } catch {}
+  pc = null;
+  liveVideo.srcObject = null;
+  $("#liveBox").hidden = true;
+}
+function fallBack(note, retryMs) {
+  closeLive();
+  live = "idle";
+  retryAt = performance.now() + retryMs;
+  liveNote(note);
+}
+function maybeAskLive() {
+  const streaming = (state?.portals || []).some((p) => p.status === "streaming");
+  const now = performance.now();
+  if (live === "asking" && now - askedAt > 15000) return fallBack("The live video didn't start. Showing pictures instead; trying again shortly.", 20000);
+  if (live !== "idle" || !streaming || now < retryAt || document.hidden) return;
+  live = "asking";
+  askedAt = now;
+  link.request({ t: "rtc", kind: "join", to: "host", from: viewerId });
+}
+setInterval(maybeAskLive, 2000);
+const iceDone = (p, ms = 3000) =>
+  p.iceGatheringState === "complete"
+    ? Promise.resolve()
+    : new Promise((r) => {
+        const t = setTimeout(r, ms);
+        p.addEventListener("icegatheringstatechange", () => p.iceGatheringState === "complete" && (clearTimeout(t), r()));
+      });
+const setWhich = (id) => ($("#liveWhich").textContent = id ? `Window ${id}` : "");
+async function onLive(m) {
+  if (m.to !== viewerId || m.from !== "host") return;
+  if (m.kind === "full") return fallBack("Live video is full right now (4 viewers). Showing pictures instead.", 60000);
+  if (m.kind === "bye") return fallBack("The live video stopped. Showing pictures instead.", 15000);
+  if (m.kind === "join") return setWhich(m.portal); // the storyteller moved to another window
+  if (m.kind !== "offer") return;
+  closeLive();
+  live = "connecting";
+  const conn = (pc = new RTCPeerConnection({ iceServers: ICE_SERVERS }));
+  const media = new MediaStream();
+  conn.ontrack = (e) => {
+    media.addTrack(e.track);
+    if (liveVideo.srcObject !== media) liveVideo.srcObject = media;
+    liveVideo.play().catch(() => {});
+  };
+  conn.onconnectionstatechange = () => {
+    if (pc !== conn) return;
+    if (conn.connectionState === "connected") {
+      live = "live";
+      $("#liveBox").hidden = false;
+      liveNote("");
+    } else if (conn.connectionState === "failed") fallBack("Couldn't connect to the live video from this network. Showing pictures instead.", 30000);
+    else if (conn.connectionState === "disconnected" && live === "live") fallBack("The live video dropped. Reconnecting…", 4000);
+  };
+  setWhich(m.portal);
+  try {
+    await conn.setRemoteDescription({ type: "offer", sdp: m.sdp });
+    await conn.setLocalDescription(await conn.createAnswer());
+    await iceDone(conn);
+    if (pc !== conn) return;
+    link.request({ t: "rtc", kind: "answer", to: "host", from: viewerId, sdp: conn.localDescription.sdp });
+  } catch {
+    fallBack("Couldn't start the live video. Showing pictures instead.", 30000);
+  }
+}
+// Browsers only start video with sound after a tap.
+$("#liveSound").addEventListener("click", () => {
+  liveVideo.muted = !liveVideo.muted;
+  liveVideo.play().catch(() => {});
+  $("#liveSound").textContent = liveVideo.muted ? "🔊 Tap for sound" : "🔇 Mute";
+});
+// Leaving: tell the storyteller's device right away, so the spot frees up for someone else.
+addEventListener("pagehide", () => {
+  if (live === "idle") return;
+  const body = JSON.stringify({ t: "rtc", kind: "bye", to: "host", from: viewerId, room, voter: voterId });
+  navigator.sendBeacon?.("/api/relay", new Blob([body], { type: "application/json" }));
+});
 
 // Suggestions and votes (anyone). The optional name is shown with the idea, in the headset too.
 const NAME_KEY = "lw:name";

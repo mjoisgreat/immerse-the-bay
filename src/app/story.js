@@ -40,9 +40,14 @@ setInterval(() => {
   if (!state.started || state.retired || snapBusy || performance.now() < snapNext) return; // not before the app has finished loading
   const live = [...portals].filter(([, p]) => p.stream.status === "streaming" && p.stream.video.readyState >= 2);
   if (!live.length) return;
-  const [id, p] = live[snapTurn++ % live.length];
-  // Every 3 s on a flat screen; in the headset each window about every 6 s.
-  snapNext = performance.now() + (renderer.xr.isPresenting ? 6000 / live.length : 3000 / live.length) - 50;
+  // While friends are watching, the window everyone's looking at refreshes about once a second (the
+  // fallback for anyone not on the live video; see livecast.js), with the others still taking turns.
+  const watched = (state.roomState?.people || []).some((x) => x.role !== "owner");
+  const turn = snapTurn++;
+  const focusedLive = live.find(([id]) => id === state.focusId);
+  const [id, p] = watched && focusedLive && turn % 3 !== 0 ? focusedLive : live[turn % live.length];
+  // Every 3 s on a flat screen; in the headset each window about every 6 s; ~1 s while watched.
+  snapNext = performance.now() + (watched ? (renderer.xr.isPresenting ? 1200 : 1000) : renderer.xr.isPresenting ? 6000 / live.length : 3000 / live.length) - 50;
   snapBusy = true;
   snapCanvas.getContext("2d").drawImage(p.stream.video, 0, 0, 480, 270);
   snapCanvas.toBlob(

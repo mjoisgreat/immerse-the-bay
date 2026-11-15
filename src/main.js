@@ -4,6 +4,7 @@ import { $, DESKTOP_BG, camera, listener, previewRoom, renderer, scene } from ".
 import { state } from "./app/state.js";
 import { RID, ROOM, handlers, link, send, showPeople } from "./app/room.js";
 import { updateJoinCard } from "./app/join.js";
+import { onRtc } from "./app/livecast.js";
 import { joinedLine, myName, startPresence, thisDeviceKind } from "./people.js";
 import { flash, toastMesh } from "./app/feedback.js";
 import { aimedAtBuddy, buddy, buddyOpensWindow, syncBuddy, updateCradle } from "./app/buddy.js";
@@ -64,7 +65,8 @@ Object.assign(handlers, {
     } else if (m.t === "joined") {
       const line = joinedLine(m); // a friend arrived: the storyteller sees it (never for their own devices)
       if (line) flash(line, 4000);
-    } else if (m.t === "close_portal") closePortal(m.id);
+    } else if (m.t === "rtc") onRtc(m); // a friend's watch page asking for (or answering) a live view
+    else if (m.t === "close_portal") closePortal(m.id);
     else if (m.t === "reset") resetLocal(m);
     else if (m.t === "open_portal") openInFront();
     else if (m.t === "takeover" && m.rid !== RID && !state.retired) retire();
