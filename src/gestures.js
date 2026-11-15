@@ -1,8 +1,7 @@
 import * as THREE from "three";
 
 // Hand gestures (Quest hand tracking), on top of pinching:
-//  - Raise a hand to your mouth like a microphone → talk; lower it → send.
-//  - Thumbs up (either hand) → talk hands-free: lower your hand and keep talking; thumbs up again → send.
+//  - Thumbs up held to your mouth like a microphone → talk; lower the hand (or drop the thumb) → send.
 //  - Part both hands like curtains → step into the focused window; bring them back together → step out.
 //  - Shake both hands in front of you (wipe away) → close the focused window (or step out when inside).
 //  - Turn your LEFT palm toward your face and hold it there → show / hide the buttons.
@@ -10,6 +9,7 @@ import * as THREE from "three";
 
 const MIC_ON = 0.13, MIC_OFF = 0.2; // metres from the mouth (hysteresis so it doesn't flicker)
 const MIC_HOLD_MS = 350;
+const MIC_POSE_LOST_MS = 300; // the thumbs up may flicker this long (tracking noise) before the mic goes off
 const MIC_LOST_MS = 2500; // the talking hand went untracked this long (controllers picked up, session over): send
 // Two-hand gestures share one cooldown, so the return stroke of one can never fire another.
 const TWO_HAND_COOLDOWN_MS = 1500;
@@ -22,7 +22,6 @@ const GAP_MS = 300; // tracking gap after which half-finished two-hand motions a
 const PALM_HOLD_MS = 600;
 // Thumbs up: thumb pointing up, the four fingers curled into a fist, held a moment. Measured against the
 // hand's own size (wrist to middle knuckle), so it works for any hand.
-const THUMB_HOLD_MS = 300, THUMB_REARM_MS = 250, THUMB_TALK_MAX_MS = 60000;
 const CURLED = 1.35; // a fingertip closer to the wrist than this × hand size is curled (stretched out ≈ 1.9)
 const THUMB_UP = 0.7; // how upright the thumb must point (cosine to straight up)
 
@@ -76,9 +75,6 @@ export class GestureDetector {
     this.palmSince = 0;
     this.palmArmed = true;
     this.talkBy = null; // "mouth" | "thumb": what started the current talk
-    this.thumbSince = 0;
-    this.thumbArmed = true;
-    this.thumbOffSince = 0;
   }
 
   _resetTwoHand() {
@@ -100,12 +96,10 @@ export class GestureDetector {
   /** Forget everything in progress. Returns ["talk-end"] if a talk was open, so the mic is never left on. */
   reset() {
     const events = this.talking ? ["talk-end"] : [];
-    if (!events.length && !this.talkHand && !this.talkBy && !this.thumbSince && this.thumbArmed === true && !this.nearSince && !this.palmSince && this._twoHandClean) return events; // already reset
+    if (!events.length && !this.talkHand && !this.talkBy && !this.nearSince && !this.palmSince && this._twoHandClean) return events; // already reset
     this.talking = false;
     this.talkHand = null;
     this.talkBy = null;
-    this.thumbSince = 0;
-    this.thumbArmed = true;
     this.nearSince = 0;
     this.palmSince = 0;
     this._resetTwoHand();
@@ -137,62 +131,28 @@ export class GestureDetector {
       head.pos[2] - head.up[2] * 0.08 + head.fwd[2] * 0.06,
     ];
 
-    // Talk: either hand near the mouth.
-    // While talking only the hand that started it counts; if it drops out of tracking (it is right
-    // under the headset) keep listening for a while rather than cutting the speaker off.
-    // Thumbs up starts (or, when it started the talk, ends) a hands-free talk. It needs re-arming: the
-    // pose has to be let go of for a moment before it can fire again.
-    // A hand held at the mouth like a microphone is a fist with the thumb up too: that is never a thumbs up.
-    const thumbSide = ["right", "left"].find((side) => isThumbsUp(hands[side]?.fingers) && dMouth(hands[side], mouth) > MIC_OFF);
-    if (thumbSide) {
-      this.thumbOffSince = 0;
-      this.thumbSince ||= now;
-      if (this.thumbArmed && now - this.thumbSince >= THUMB_HOLD_MS) {
-        this.thumbArmed = false;
-        if (!this.talking) {
-          this.talking = true;
-          this.talkBy = "thumb";
-          this.talkHand = thumbSide;
-          this.talkStarted = now;
-          events.push("talk-start");
-        } else if (this.talkBy === "thumb") {
-          this._endTalk(events);
-        }
-      }
-    } else {
-      this.thumbSince = 0;
-      this.thumbOffSince ||= now;
-      if (now - this.thumbOffSince >= THUMB_REARM_MS) this.thumbArmed = true;
-    }
-    // A hands-free talk whose hand then comes up to the mouth (the fist was read as a thumbs up on the way
-    // there) becomes an ordinary one: lowering that hand sends it.
-    const micSide = this.talkBy === "thumb" && this.talking && ["right", "left"].find((side) => dMouth(hands[side], mouth) < MIC_ON);
-    if (micSide) {
-      this.talkBy = "mouth";
-      this.talkHand = micSide;
-      events.push("talk-mouth");
-    }
-    if (this.talkBy === "thumb") {
-      // Hands-free: lowering or losing the hand doesn't stop it; a second thumbs up does (or a minute).
-      if (this.talking && now - this.talkStarted > THUMB_TALK_MAX_MS) this._endTalk(events);
-      return this._afterTalk(events, now, hands, head);
-    }
-    const talkHand = this.talking ? hands[this.talkHand] : null;
-    if (talkHand || !this.talking) this.talkSeen = now;
-    const toMouth = this.talking
-      ? talkHand ? dMouth(talkHand, mouth) : now - this.talkSeen > MIC_LOST_MS ? Infinity : 0
-      : Math.min(dMouth(hands.left, mouth), dMouth(hands.right, mouth));
+    // Talk: a thumbs up held up to the mouth like a microphone. A hand at the mouth without the thumbs up
+    // does nothing; the mic stays on only while the hand keeps that pose near the mouth.
+    // The talking hand may drop out of tracking for a while (right under the headset) without cutting you off.
+    const micPose = (side) => isThumbsUp(hands[side]?.fingers) && dMouth(hands[side], mouth) < (this.talking ? MIC_OFF : MIC_ON);
     if (!this.talking) {
-      if (toMouth < MIC_ON) {
+      const side = ["right", "left"].find(micPose);
+      if (side) {
         this.nearSince ||= now;
         if (now - this.nearSince >= MIC_HOLD_MS) {
           this.talking = true;
           this.talkBy = "mouth";
-          this.talkHand = dMouth(hands.left, mouth) < dMouth(hands.right, mouth) ? "left" : "right";
+          this.talkHand = side;
+          this.talkSeen = this.talkPose = now;
           events.push("talk-start");
         }
       } else this.nearSince = 0;
-    } else if (toMouth > MIC_OFF) this._endTalk(events);
+    } else {
+      const h = hands[this.talkHand];
+      if (h) this.talkSeen = now;
+      if (micPose(this.talkHand)) this.talkPose = now;
+      if (now - this.talkPose > MIC_POSE_LOST_MS && (h || now - this.talkSeen > MIC_LOST_MS)) this._endTalk(events);
+    }
     return this._afterTalk(events, now, hands, head);
   }
 

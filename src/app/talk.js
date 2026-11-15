@@ -11,7 +11,6 @@ import { buzz, chime, flash } from "./feedback.js";
 import { buddy, buddyIdle } from "./buddy.js";
 import { immersion, portals } from "./portals.js";
 import { answerWorld } from "./story.js";
-import { gestures } from "./xrinput.js";
 
 // ---------- Voice ----------
 // On phones the mic is let go of shortly after each turn: while it's open, iPhones play everything
@@ -21,7 +20,7 @@ const MAX_TALK_MS = 90000; // a held button (or a stuck press) still sends after
 let talkTimer = 0;
 /** How to talk on this device, for "didn't catch that". */
 function howToTalk() {
-  if (renderer.xr.isPresenting) return "Raise a hand to your mouth, give a 👍, or hold A, and speak.";
+  if (renderer.xr.isPresenting) return "Hold a 👍 to your mouth, or hold A, and speak.";
   if (CameraView.touch) return "Hold 🎙 and speak, then let go.";
   return "Hold Space (or the Hold to talk button) and speak, then let go.";
 }
@@ -48,11 +47,7 @@ export async function startTalking(gesture = false) {
     chime("talk");
     buzz(0.5, 60);
     flash(
-      !byGesture
-        ? "Listening… let go when you're done"
-        : gestures.detector.talkBy === "thumb"
-          ? "Listening… 👍 thumbs up again when you're done"
-          : "Listening… lower your hand when you're done",
+      byGesture ? "Listening… lower your hand when you're done" : "Listening… let go when you're done",
       60000,
     );
   } catch (e) {

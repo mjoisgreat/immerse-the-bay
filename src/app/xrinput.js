@@ -341,7 +341,6 @@ export function facingPortal() {
 export const gestures = new HandGestures(renderer, camera, {
   "talk-start": () => (gestures.pulse(0xff5533), startTalking(true)),
   "talk-end": () => (gestures.pulse(0xffd08a), stopTalking()),
-  "talk-mouth": () => state.talking && flash("Listening… lower your hand when you're done", 60000),
   open() {
     if (immersion.inside) return;
     if ([0, 1].some((i) => renderer.xr.getController(i).userData.grabbed || renderer.xr.getController(i).userData.heldBuddy)) return; // dragging a window, not parting curtains
