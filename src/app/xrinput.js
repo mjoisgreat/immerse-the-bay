@@ -33,7 +33,7 @@ export function targets() {
   if (cheatSheet.visible) ui.push(cheatSheet.mesh);
   const join = joinCardMesh();
   if (join) ui.push(join);
-  return [...ui.filter((o) => o.visible || o === buddy.hitbox), ...(getWindow()?.portal.group.visible ? [getWindow().portal.screen] : [])];
+  return [...ui.filter((o) => o.visible || o === buddy.hitbox), ...(getWindow()?.portal.group.visible ? [getWindow().portal.hitbox] : [])];
 }
 
 function rayFrom(obj) {
@@ -77,7 +77,14 @@ function onSelectStart(ctrl) {
   const ray = rayFrom(ctrl);
   const snap = menuSnap(ray); // pointing near a menu item zones in on it
   if (snap) return pressMenuPart(snap.part);
-  const hit = raycaster.intersectObjects(targets(), false)[0];
+  let hit = raycaster.intersectObjects(targets(), false)[0];
+  // Pinching is also how a window is drawn, so aim is judged generously: a pinch pointed roughly at the
+  // window, or reaching into it, grabs it (with one window open, drawing another would be refused anyway).
+  const w = getWindow()?.portal;
+  if (!hit && w?.group.visible) {
+    const point = w.containsWorld(pinchPoint(ctrl)) ? pinchPoint(ctrl) : w.aimedBy(ray);
+    if (point) hit = { object: w.hitbox, point };
+  }
   if (hit?.object.userData.joinCard) return pressJoinCard(hit.uv); // the invite card has its own switch and close; the menu stays open
   if (!(hit?.object.userData.button || hit?.object.userData.choice !== undefined)) closeMenu(); // any other action shuts the menu
   if (hit?.object.userData.gestureCard) return cheatSheet.hide(); // pinching the cheat sheet closes it
@@ -115,7 +122,7 @@ function onSelectStart(ctrl) {
   }
   if (portal) {
     // A quick tap touches the world at that spot; holding and dragging moves the window.
-    ctrl.userData.tap = { at: performance.now(), uv: hit.uv.clone(), point: hit.point.clone() };
+    ctrl.userData.tap = { at: performance.now(), uv: portal.uvAt(hit.point), point: hit.point.clone() };
     // Remember where it was: pulling it into your face steps inside and puts the window back.
     const at = portal.group.getWorldPosition(new THREE.Vector3());
     ctrl.userData.grabFrom = {

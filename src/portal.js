@@ -79,6 +79,8 @@ export class Caption {
   }
 }
 
+const HIT_MARGIN = 0.3, HIT_FRONT = 0.3, HIT_BACK = 0.5; // metres at scale 1
+
 export class Portal {
   constructor(listener) {
     this.group = new THREE.Group();
@@ -103,6 +105,17 @@ export class Portal {
     this.screen.userData.portal = this;
     this.group.add(this.screen);
 
+    // An invisible solid around the opening, for pointing at and reaching into: bigger than the picture in
+    // every direction (a margin around it, and depth in front and behind), so a ray or a pinch that is a
+    // little off still grabs the window instead of drawing.
+    this.hitbox = new THREE.Mesh(
+      new THREE.BoxGeometry(W + 2 * HIT_MARGIN, H + 2 * HIT_MARGIN, HIT_FRONT + HIT_BACK),
+      new THREE.MeshBasicMaterial({ visible: false }),
+    );
+    this.hitbox.position.z = (HIT_FRONT - HIT_BACK) / 2;
+    this.hitbox.userData.portal = this;
+    this.group.add(this.hitbox);
+
     this.sparks = new RimSparks(this.group, W, H); // the burning rim (see sparks.js)
 
     // Caption panel under the portal (status, then the storyteller's line).
@@ -120,6 +133,31 @@ export class Portal {
 
     this.listener = listener;
     this.sound = null;
+  }
+
+  /** Where a world point falls on the picture (u right, v up, 0..1, clamped): what a touch there means. */
+  uvAt(point) {
+    const p = this.group.worldToLocal(point.clone());
+    return new THREE.Vector2(Math.min(1, Math.max(0, p.x / W + 0.5)), Math.min(1, Math.max(0, p.y / H + 0.5)));
+  }
+
+  /**
+   * Is a pointing ray aimed at the window, roughly? True when it passes within about a window's width of
+   * its middle. Pinching is also how a window is drawn, and a hand's ray is shaky, so a generous aim grabs
+   * the window rather than starting a drawing. Returns the point on the ray nearest the middle, or null.
+   */
+  aimedBy(ray) {
+    const mid = this.group.getWorldPosition(new THREE.Vector3());
+    const s = this.group.scale.x;
+    if (ray.distanceToPoint(mid) > (W / 2 + HIT_MARGIN + 0.3) * s) return null;
+    return ray.closestPointToPoint(mid, new THREE.Vector3());
+  }
+
+  /** Is this world point inside the invisible solid (reaching into the window with a pinch)? */
+  containsWorld(point) {
+    const p = this.group.worldToLocal(point.clone());
+    const z = p.z - this.hitbox.position.z;
+    return Math.abs(p.x) <= W / 2 + HIT_MARGIN && Math.abs(p.y) <= H / 2 + HIT_MARGIN && Math.abs(z) <= (HIT_FRONT + HIT_BACK) / 2;
   }
 
   attachVideo(video) {

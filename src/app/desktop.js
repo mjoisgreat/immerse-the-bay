@@ -87,7 +87,7 @@ function tapAt(x, y) {
   if (hit?.object.userData.exit) stepOut();
   else if (hit?.object.userData.portal) {
     const p = hit.object.userData.portal;
-    touchPortal(p, hit.uv, hit.point);
+    touchPortal(p, p.uvAt(hit.point), hit.point);
   } else if (immersion.inside) touchWorld(raycaster.ray.origin.clone(), raycaster.ray.direction.clone());
   else if (!hit) openWindow({ origin: raycaster.ray.origin.clone(), dir: raycaster.ray.direction.clone() });
 }
