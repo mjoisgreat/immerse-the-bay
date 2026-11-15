@@ -479,5 +479,12 @@ export function summary(room, s, snap) {
     live: Date.now() - (s.lastActive || 0) < 60_000,
     lastActive: s.lastActive || 0,
     thumb: snap || null,
+    watching: livePeople(s.people).length,
+    ideas: (s.suggestions || []).length,
+    // The newest ideas, shown on the card like the last lines of a stream chat.
+    chat: [...(s.suggestions || [])]
+      .sort((a, b) => a.at - b.at)
+      .slice(-2)
+      .map((x) => ({ by: x.by || "", text: x.text, votes: x.voters.length })),
   };
 }

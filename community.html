@@ -5,19 +5,40 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Living Window Community</title>
     <style>
-      .hero { padding: 2rem 0 1rem; }
-      .hero h2 { font: 500 2rem Georgia, serif; text-transform: none; letter-spacing: 0; color: var(--text); margin: 0 0 .4rem; }
-      .hero p { color: var(--muted); max-width: 40rem; margin: 0; }
-      .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 1rem; }
-      .card { display: block; color: inherit; text-decoration: none; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; transition: border-color .15s, transform .15s; }
-      .card:hover, .card:focus-visible { border-color: var(--warm); transform: translateY(-2px); }
-      .thumb { aspect-ratio: 16 / 9; background: radial-gradient(circle at 30% 40%, #3a2a5a, #0e1320 70%); position: relative; }
+      /* A Twitch-style browse page: stream cards with a LIVE badge, viewers, tags and the latest chat. */
+      html body { background: #0e0e10; font-family: Inter, system-ui, -apple-system, sans-serif; }
+      body header.top { border-bottom-color: #2f2f35; background: #18181b; }
+      .hero { padding: 1.6rem 0 1.2rem; }
+      .hero h2 { font: 700 1.9rem/1.2 Inter, system-ui, sans-serif; text-transform: none; letter-spacing: -.01em; color: #efeff1; margin: 0 0 .35rem; }
+      .hero h2 span { color: #bf94ff; }
+      .hero p { color: #adadb8; max-width: 44rem; margin: 0; }
+      .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1.6rem 1rem; }
+      .card { display: block; color: inherit; text-decoration: none; }
+      .thumbWrap { position: relative; background: #9147ff; border-radius: 0; }
+      .thumb { aspect-ratio: 16 / 9; background: radial-gradient(circle at 30% 40%, #3a2a5a, #0e1320 70%); position: relative; overflow: hidden;
+        transition: transform .12s ease; }
+      .card:hover .thumb, .card:focus-visible .thumb { transform: translate(6px, -6px); }
       .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
-      .thumb .pill { position: absolute; top: .6rem; left: .6rem; }
-      .body { padding: .8rem 1rem 1rem; }
-      .body h3 { margin: 0 0 .3rem; font: 500 1.1rem Georgia, serif; }
-      .body p { margin: 0; color: #ffe9c7; font: italic .95rem Georgia, serif; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-      .meta { display: flex; gap: .5rem; margin-top: .6rem; flex-wrap: wrap; }
+      .tag-live { position: absolute; top: .55rem; left: .55rem; background: #eb0400; color: #fff; font: 700 .78rem system-ui, sans-serif;
+        padding: .05rem .35rem; border-radius: 4px; letter-spacing: .02em; }
+      .tag-ago { position: absolute; top: .55rem; left: .55rem; background: #000c; color: #efeff1; font-size: .78rem; padding: .05rem .4rem; border-radius: 4px; }
+      .viewers { position: absolute; bottom: .55rem; left: .55rem; background: #000c; color: #efeff1; font-size: .8rem; padding: 0 .35rem; border-radius: 4px; }
+      .info { display: grid; grid-template-columns: 2.5rem 1fr; gap: .6rem; padding-top: .65rem; }
+      .ava { width: 2.5rem; height: 2.5rem; border-radius: 50%; display: grid; place-items: center; font-weight: 700; color: #fff;
+        background: hsl(var(--hue) 55% 42%); }
+      .card.live .ava { box-shadow: 0 0 0 2px #0e0e10, 0 0 0 4px #eb0400; }
+      .info h3 { margin: 0; font: 600 .95rem/1.3 Inter, system-ui, sans-serif; color: #efeff1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .card:hover h3 { color: #bf94ff; }
+      .channel { color: #adadb8; font-size: .85rem; }
+      .line { color: #adadb8; font: italic .85rem/1.35 Georgia, serif; margin: .2rem 0 0; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+      .tags { display: flex; gap: .35rem; margin-top: .4rem; flex-wrap: wrap; }
+      .tags span { background: #2f2f35; color: #dedee3; font-size: .75rem; font-weight: 600; padding: .05rem .55rem; border-radius: 999px; }
+      .peek { margin-top: .5rem; background: #18181b; border: 1px solid #2f2f35; border-radius: 6px; padding: .3rem .5rem; font-size: .82rem; line-height: 1.4; }
+      .peek div { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #efeff1; }
+      .peek b { color: hsl(var(--hue) 85% 66%); }
+      .peek .v { color: #adadb8; font-size: .75rem; margin-left: .3rem; }
+      .peek .more { color: #adadb8; font-size: .75rem; }
+      .cards > .empty { color: #adadb8; }
     </style>
   </head>
   <body>
@@ -27,9 +48,9 @@
     </header>
     <div class="wrap">
       <div class="hero">
-        <h2>Stories happening now</h2>
-        <p>One person speaks, the room becomes the story, and everyone watching shapes what happens next, live. Step into one to watch,
-          suggest what happens next, and vote on the crowd's ideas.</p>
+        <h2>Live <span>stories</span></h2>
+        <p>One person speaks, the room becomes the story, and everyone watching shapes what happens next, live. Jump into one to watch,
+          chat what happens next, and vote on the crowd's ideas.</p>
       </div>
       <div class="cards" id="cards"><div class="empty">Loading…</div></div>
     </div>
