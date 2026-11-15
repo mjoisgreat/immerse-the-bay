@@ -151,11 +151,17 @@ fallback. Besides pointing and pinching (open, move, tap to touch, press buttons
 | Bring both hands back together | Step back out | B / Y |
 | Shake both hands in front of you, like wiping something away | Close the focused window (inside a world: step back out) | Grip while pointing at it |
 | Turn your left palm toward your face and hold | Show / hide the buttons | Thumbstick click |
+| Snap your fingers (either hand) | Call the companion: Bonnie appears, or hops back over to you if she is already here | The **Bonnie** button |
+| Pinch a window and drag | Move it (a quick tap touches the world instead) | Trigger on it, drag |
+| Pinch the same window with your other hand, then move your hands apart or together | Resize it (40 % to 250 % of its size) | n/a |
 
 Every gesture answers so you know it registered: your palms glow, a short tone plays, and controllers buzz.
 The two-hand gestures share a 1.5 s cooldown and are ignored while you talk; parting has to end with the hands
-held apart for a moment, so a shake never reads as an opening motion. Tuning constants sit at the top of
-`src/gestures.js`.
+held apart for a moment, so a shake never reads as an opening motion. A snap is a thumb-to-middle-fingertip
+touch followed by a fast flick apart (under about 160 ms), at most once per 1.5 s, and it is ignored while you
+talk or are inside a world. On hands, a middle-finger pinch no longer counts as a "grip", so a snap can't close
+the window you happen to be pointing at. Tuning constants sit at the top of `src/gestures.js`; the resize math
+is in `src/portalresize.js`.
 
 ## Controls in the headset
 
@@ -171,6 +177,8 @@ to bring them back.
 |---|---|---|
 | Open a portal | Pinch at empty space | Trigger at empty space |
 | Focus and move a portal | Pinch on it, drag, release | Trigger on it, drag, release |
+| Resize a portal | Pinch it with both hands, then move the hands apart / together | n/a |
+| Call Bonnie | Snap your fingers | The **Bonnie** button |
 | Talk | Raise a hand to your mouth (or pinch and hold the orange orb) | Hold A or X (or trigger on the orb) |
 | Close a portal | Shake both hands | Grip while pointing at it |
 | Step inside a portal | Part your hands like curtains, walk through it, or pinch it and pull it toward you | Walk through it, or press B / Y |

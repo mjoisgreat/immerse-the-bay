@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { XRControllerModelFactory } from "three/addons/webxr/XRControllerModelFactory.js";
 import { XRHandModelFactory } from "three/addons/webxr/XRHandModelFactory.js";
 import { Portal, PORTAL_SIZE } from "./portal.js";
+import { resizedScale } from "./portalresize.js";
 import { Immersion } from "./immersion.js";
 import { Toolbar } from "./toolbar.js";
 import { HandGestures } from "./gestures.js";
@@ -88,7 +89,7 @@ function buzz(strength = 0.6, ms = 90) {
   for (const src of renderer.xr.getSession()?.inputSources || []) src.gamepad?.hapticActuators?.[0]?.pulse?.(strength, ms);
 }
 // A short tone so a gesture is heard as well as seen (hands have no haptics; controllers also buzz).
-const TONES = { talk: [660, 880], send: [880, 660], open: [392, 523, 784], close: [784, 523, 392], shake: [300, 220, 300, 220] };
+const TONES = { talk: [660, 880], send: [880, 660], open: [392, 523, 784], close: [784, 523, 392], shake: [300, 220, 300, 220], snap: [660, 990] };
 function chime(kind) {
   const ctx = listener.context;
   if (ctx.state !== "running") return;
@@ -449,7 +450,10 @@ for (let i = 0; i < 2; i++) {
   );
   line.scale.z = 3;
   ctrl.add(line);
-  ctrl.addEventListener("connected", (e) => (line.visible = !e.data.hand)); // hands have their own visuals
+  ctrl.addEventListener("connected", (e) => {
+    line.visible = !e.data.hand; // hands have their own visuals
+    ctrl.userData.isHand = Boolean(e.data.hand);
+  });
   ctrl.addEventListener("selectstart", () => onSelectStart(ctrl));
   ctrl.addEventListener("selectend", () => onSelectEnd(ctrl));
   ctrl.addEventListener("squeezestart", () => onSqueeze(ctrl));
@@ -480,6 +484,15 @@ function onSelectStart(ctrl) {
   if (hit?.object.userData.choice !== undefined) return pickChoice(hit.object.userData.choice);
   if (hit?.object.userData.companion) return toggleBuddyFollow();
   const portal = hit?.object.userData.portal;
+  // Second hand pinches the window the first hand is already holding: resize with both.
+  const holder = portal && [0, 1].map((i) => renderer.xr.getController(i)).find((c) => c !== ctrl && c.userData.grabbed === portal);
+  if (holder) {
+    holder.userData.tap = null; // this is not a tap on the world
+    ctrl.userData.resizing = portal;
+    const a = holder.getWorldPosition(new THREE.Vector3()), b = ctrl.getWorldPosition(new THREE.Vector3());
+    resize = { portal, holder, ctrl, dist: a.distanceTo(b), scale: portal.group.scale.x };
+    return buzz(0.3, 30);
+  }
   if (portal) {
     setFocus(portal.id);
     // A quick tap touches the world at that spot; holding and dragging moves the window.
@@ -503,7 +516,21 @@ function onSelectStart(ctrl) {
   openPortal(ray.origin.clone(), ray.direction.clone());
 }
 
+// Two-hand resize in progress: { portal, holder (hand carrying the window), ctrl (second hand), dist, scale }.
+let resize = null;
+function updateResize() {
+  if (!resize) return;
+  const a = resize.holder.getWorldPosition(new THREE.Vector3()), b = resize.ctrl.getWorldPosition(new THREE.Vector3());
+  resize.portal.group.scale.setScalar(resizedScale(resize.scale, resize.dist, a.distanceTo(b)));
+}
+
 function onSelectEnd(ctrl) {
+  if (ctrl.userData.resizing) {
+    ctrl.userData.resizing = null;
+    resize = null; // the other hand keeps holding the window, now at its new size
+    return;
+  }
+  if (resize && resize.holder === ctrl) resize = null; // let go of the carrying hand: resizing ends too
   if (ctrl.userData.button) {
     toolbar.release(ctrl.userData.button, ctrl);
     ctrl.userData.button = null;
@@ -534,6 +561,7 @@ function onSelectEnd(ctrl) {
 }
 
 function onSqueeze(ctrl) {
+  if (ctrl.userData.isHand) return; // a middle-finger pinch (like a snap) must not close a window; shake does that
   rayFrom(ctrl);
   const portal = raycaster.intersectObjects(targets(), false)[0]?.object.userData.portal;
   if (portal) closePortal(portal.id);
@@ -576,6 +604,7 @@ function checkWalking() {
   for (const { portal } of portals.values()) {
     const grabbedBy = [0, 1].map((i) => renderer.xr.getController(i)).find((c) => c.userData.grabbed === portal);
     if (grabbedBy) {
+      if (resize?.portal === portal) continue; // two-handed resize: never mistaken for pulling it into your face
       const from = grabbedBy.userData.grabFrom;
       const d = portal.group.getWorldPosition(local).distanceTo(eye);
       if (d < 0.4 || (from && d < from.dist - 0.45)) {
@@ -805,7 +834,7 @@ function updateTitle() {
 const GUIDE = [
   "Welcome, storyteller. Point at a wall and pinch, or pull the trigger, to open your first window.",
   "A world is waking. Raise your hand to your mouth like a microphone, and tell me what happens next. Lower it when you're done.",
-  "Now reach out and tap anything in the window to touch it. Or part your hands like curtains, and step inside. Shake both hands to wipe a window away.",
+  "Now part your hands like curtains, and step inside. Shake both hands to wipe a window away.",
 ];
 let guideStep = -1;
 function guide(step) {
@@ -855,6 +884,14 @@ function toggleBuddyFollow() {
     buddy.following ? `${BUDDY.name} is following you. Pinch ${BUDDY.name} again (or say “stay”) to stop.` : `${BUDDY.name} will stay here.`,
     5000,
   );
+}
+/** Snap: call Bonnie. If she isn't here she appears; if she is, she hops back over to you. */
+function callBuddy() {
+  if (!buddy.visible) return toggleBuddy();
+  if (!buddy.ready || !renderer.xr.isPresenting) return;
+  buddy.summon(1.4);
+  buddy.gesture("wave");
+  buddy.say("Coming!", 3000);
 }
 function toggleBuddy() {
   if (buddy.visible) return buddy.dismiss(), syncBuddy(false), flash(`${BUDDY.name} waves goodbye.`);
@@ -1178,9 +1215,17 @@ const gestures = new HandGestures(renderer, camera, {
     flash(`Window ${focusId} wiped away.`, 2500);
     closePortal(focusId);
   },
+  snap() {
+    if (immersion.inside) return; // Bonnie lives in your room, not inside a world
+    confirmGesture("snap", 0xffd08a);
+    callBuddy();
+  },
   palm: () => (gestures.pulse(0xffffff), setButtonsHidden(!toolbar.collapsed)),
   firstSeen: () =>
-    flash("Hands: raise one to your mouth to talk · part both like curtains to step inside · shake both to close a window · left palm shows the buttons.", 12000),
+    flash(
+      `Hands: raise one to your mouth to talk · part both like curtains to step inside · shake both to close a window · snap to call ${BUDDY.name} · pinch a window to move it, with both hands to resize · left palm shows the buttons.`,
+      12000,
+    ),
 });
 scene.add(gestures.fx);
 
@@ -1337,6 +1382,7 @@ renderer.setAnimationLoop(() => {
   exitOrb.visible = immersion.inside && renderer.xr.isPresenting && !toolbar.collapsed;
   updateToolbar();
   gestures.update();
+  updateResize();
   buddy.update(dt);
   updateRipples();
   updateTitle();
