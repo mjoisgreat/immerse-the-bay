@@ -251,7 +251,11 @@ export function askWorld(kind) {
   const xr = renderer.xr.isPresenting;
   if (kind === "window") getWindow()?.portal.setCaption(ASK.window, "status");
   flash(`${ASK[kind]} ${xr ? "Raise a hand to your mouth (or hold A) and say it." : CameraView.touch ? "Type it, or hold 🎙 and say it." : "Type it, or hold Space and say it."}`, 600000);
-  if (xr) speak(ASK[kind], ...NARRATOR);
+  // Bonnie, when she's here, asks it herself and offers an idea (the director answers this message).
+  if (kind === "window" && buddy.visible) {
+    state.asking.offered = true;
+    send({ t: "world_asked" });
+  } else if (xr) speak(ASK[kind], ...NARRATOR);
   if (!xr && $("#overlay").hidden) $("#askText").focus();
 }
 export function clearAsk(quiet = false) {
@@ -261,10 +265,16 @@ export function clearAsk(quiet = false) {
   $("#askText").value = "";
   if (quiet) flash("", 1);
 }
+const YES = /^\s*(yes|yeah|yep|yup|sure|ok|okay|please|do it|go for it|sounds good|that one|why not)\b[\s.!,]*(please|bonnie)?[\s.!]*$/i;
 export function answerWorld(text) {
   const a = state.asking;
   text = String(text || "").trim();
   if (!a || !text) return;
+  // "Yes" to Bonnie's idea goes to her (she knows what she offered and sets the world), not in as the world.
+  if (a.offered && YES.test(text)) {
+    send({ t: "utterance", text, addressed: true });
+    return flash(`“${text}”`, 4000);
+  }
   clearAsk();
   flash(`“${text}”`, 5000);
   setWorld(text); // the window's story starts there (a new story's first window opens onto it)

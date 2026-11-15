@@ -64,6 +64,16 @@ test("character speech is logged and sent to the headset", () => {
   assert.equal(s.log.at(-1).text, "Mei: Hello");
 });
 
+test("world_asked asks the director for an idea only while the window has no world and Bonnie is here", () => {
+  const s = start("");
+  assert.equal(reduce(s, { t: "world_asked", rid: "r1" }, owner).director, null); // Bonnie not in the room
+  s.companion = { id: "bunny", present: true };
+  assert.equal(reduce(s, { t: "world_asked", rid: "r1" }, owner).director.type, "world_asked");
+  assert.equal(allowed("viewer", "world_asked"), false);
+  s.story.seed = "A coral city";
+  assert.equal(reduce(s, { t: "world_asked", rid: "r1" }, owner).director, null);
+});
+
 test("touch sends the frame to the director but never stores it", () => {
   const s = start();
   const image = "data:image/jpeg;base64," + "A".repeat(100);
