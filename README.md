@@ -114,7 +114,7 @@ drag Bonnie with the mouse and let go. The physics is a small hand-rolled integr
 (tests in `test/physics.test.js`). **Bonnie and the story director are the same mind:** everything you say goes to one
 Claude call that both steers the windows and decides what Bonnie says and does, so Bonnie sees what is in every
 window and "Bonnie, make it snow!" changes the world in the same breath as its answer. Say its name, or **look at
-Bonnie while you talk** (orb, A/X or hand to mouth), and it always answers out loud from where it sits (OpenAI TTS
+Bonnie while you talk** (hand to mouth, A/X or Hold to talk), and it always answers out loud from where it sits (OpenAI TTS
 for the voice) with a matching gesture; while you're just narrating it mostly stays quiet and only chimes in now
 and then. Small talk ("hi Bonnie", "follow me") leaves the story untouched. Its lines appear in the watch feed and
 on the theater view.
@@ -191,7 +191,7 @@ to bring them back.
 | Pick up and throw Bonnie | Pinch and hold on Bonnie (or touching it), swing, release | Trigger and hold on Bonnie, swing, release |
 | Resize a portal | Pinch it with both hands, then move the hands apart / together | n/a |
 | Call Bonnie | Snap your fingers | The **Bonnie** button |
-| Talk | Raise a hand to your mouth (or pinch and hold the orange orb) | Hold A or X (or trigger on the orb) |
+| Talk | Raise a hand to your mouth (or press and hold **Hold to talk** on the panel) | Hold A or X |
 | Close a portal | Shake both hands | Grip while pointing at it |
 | Step inside a portal | Part your hands like curtains, walk through it, or pinch it and pull it toward you | Walk through it, or press B / Y |
 | Step back out | Bring your hands together or shake them, walk back ~60 cm, or pinch the blue ring | Walk back, or press B / Y |

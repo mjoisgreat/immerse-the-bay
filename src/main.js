@@ -55,7 +55,7 @@ addEventListener("resize", () => {
   renderer.setSize(innerWidth, innerHeight);
 });
 
-// ---------- Mic orb (follows your view; pinch or click and hold it to talk) ----------
+// ---------- Mic orb: retired (hidden), kept only so older code paths that reference it still work ----------
 const micOrb = new THREE.Mesh(
   new THREE.SphereGeometry(0.035, 32, 16),
   new THREE.MeshStandardMaterial({ color: 0xffb36b, emissive: 0x442200, roughness: 0.3 }),
@@ -1186,7 +1186,7 @@ const toolbar = new Toolbar(camera, [
   // Close window sits in the far corner, away from the buttons you press all the time.
   { id: "close", icon: "✕", label: "Close window", press: closeFocused },
 ]);
-// Hide / show the buttons (the orb and ring hide with them; A/X and B/Y still work).
+// Hide / show the buttons (the exit ring hides with them; A/X and B/Y still work).
 // They start hidden (less to take in on a first visit: H, the ☰ handle, a thumbstick click or
 // your left palm brings them out) and after that stay the way you last left them.
 let autoHidden = false;
@@ -1479,7 +1479,9 @@ renderer.setAnimationLoop(() => {
   if (!renderer.xr.isPresenting) syncButtons();
   micOrb.position.y = -0.2 + Math.sin(t * 2) * 0.004;
   // The orb and in-view caption are headset UI; on desktop, Space and the status bar do the job.
-  micOrb.visible = renderer.xr.isPresenting && !toolbar.collapsed;
+  // The old pinch-and-hold mic orb is retired (it floated as an orange ball in your view): talk with your
+  // hand to your mouth, A/X, or the Hold-to-talk button, which all show "Listening…".
+  micOrb.visible = false;
   if (!renderer.xr.isPresenting) toastMesh.visible = false;
   pollButtons();
   renderer.render(scene, camera);
