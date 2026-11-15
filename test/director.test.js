@@ -150,3 +150,12 @@ test("asking Bonnie for several windows at once", async () => {
   const one = (await ask("Bonnie, open a window onto a misty pine forest")).companion;
   assert.deepEqual(one.more_windows, []);
 });
+
+test("asking Bonnie for a trick: the one asked for, or any when asked to show off", async () => {
+  assert.equal((await ask("Bonnie, do a backflip!")).companion.gesture, "flip");
+  assert.equal((await ask("Bonnie can you moonwalk?")).companion.gesture, "moonwalk");
+  assert.equal((await ask("Bonnie, do a cartwheel")).companion.gesture, "cartwheel");
+  assert.equal((await ask("Bonnie, spin around")).companion.gesture, "spin");
+  assert.ok(["flip", "cartwheel", "spin", "moonwalk"].includes((await ask("Bonnie, show me something cool")).companion.gesture));
+  assert.equal((await ask("Bonnie, let's dance")).companion.gesture, "dance");
+});

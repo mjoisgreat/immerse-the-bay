@@ -113,7 +113,10 @@ You, in the room (the companion field):
   exchanges with them. Never claim to see things in their real room beyond the portals.
 - gesture: the body animation that best fits your reply: "wave" (greeting or goodbye), "yes"
   (agreeing), "no" (disagreeing), "thumbs_up" (praise), "jump" (excited), "dance" (celebrating
-  or asked to dance), "think" (pondering), "none".
+  or asked to dance), "think" (pondering), "none". You have arms and legs and can do tricks:
+  "flip" (a backflip), "cartwheel", "spin" (a pirouette), "clap", "moonwalk". Do the one they
+  ask for ("do a backflip", "can you moonwalk?"); when they ask you to show off or do something
+  cool, pick one and say so with flair.
 - move: "follow" if they ask you to follow them, come along or walk with them; "come" if they
   just ask you to come over or come closer; "stay" if they ask you to stay, wait or stop
   following; "wander" if they ask you to go explore, go away or give them space; "none"
@@ -165,7 +168,7 @@ const Direction = z.object({
   companion: z
     .object({
       reply: z.string(),
-      gesture: z.enum(["wave", "yes", "no", "thumbs_up", "jump", "dance", "think", "none"]),
+      gesture: z.enum(["wave", "yes", "no", "thumbs_up", "jump", "dance", "think", "flip", "cartwheel", "spin", "clap", "moonwalk", "none"]),
       move: z.enum(["follow", "come", "stay", "wander", "none"]),
       open_window: z.string().nullable(),
       more_windows: z.array(z.string()),
@@ -456,6 +459,15 @@ function smallTalk(text, { byName = true } = {}) {
   const stay = /\b(stay|wait|stop)\b/i.test(text);
   const come = /\b(come|here|closer)\b/i.test(text);
   const dance = /dance/i.test(text);
+  // Tricks: the one asked for, or any when asked to show off.
+  const trick = /back\s*flip|\bflip\b/i.test(text) ? "flip" : /cartwheel/i.test(text) ? "cartwheel" : /moon\s*walk/i.test(text) ? "moonwalk"
+    : /\bspin\b|twirl|pirouette/i.test(text) ? "spin" : /\bclap\b/i.test(text) ? "clap"
+    : /show off|something cool|a trick|cool stuff|cool move/i.test(text) ? ["flip", "cartwheel", "spin", "moonwalk"][chatterTurn % 4] : null;
+  if (trick) {
+    const say = { flip: "Watch this backflip!", cartwheel: "Cartwheel time!", moonwalk: "Smooth moves, coming up!", spin: "Wheee, watch me spin!", clap: "Yay! Clap clap clap!" }[trick];
+    chatterTurn++;
+    return { reply: say, gesture: trick, move: "none" };
+  }
   const hello = /\b(hi|hello|hey)\b/i.test(text);
   const question = /\?\s*$/.test(text);
   if (!(follow || stay || come || dance || hello || question)) return null;
