@@ -100,12 +100,39 @@ test("suggestions and votes", () => {
   assert.equal(s.suggestions[0].voters.length, 1);
 });
 
-test("companion chats are logged for watchers and broadcast", () => {
+const bunny = (reply, more = {}) => ({ narration: "", bible: "b", updates: [], choices: [], speech: null, companion: { reply, gesture: "wave", move: "none" }, ...more });
+
+test("small talk with the companion is spoken and logged but leaves the story alone", () => {
   const s = start();
-  const { events } = reduce(s, { t: "pip_said", name: "Bunny", you: "Hi Bunny", pip: "Hello!", rid: "r1" }, owner);
-  assert.deepEqual(events, [{ t: "pip", name: "Bunny", line: "Hello!" }]);
-  assert.deepEqual(s.log.slice(-2).map((l) => [l.kind, l.text]), [["pip_you", "Hi Bunny"], ["speech", "Bunny: Hello!"]]);
-  assert.equal(allowed("console", "pip_said"), false);
+  reduce(s, { t: "companion", id: "bunny", present: true, rid: "r1" }, owner);
+  applyDirection(s, { narration: "n", bible: "b", updates: [], choices: ["Go left", "Go right"], speech: null, companion: null }, 10);
+  const { director } = reduce(s, { t: "utterance", text: "Hi Bunny", addressed: true }, owner);
+  assert.deepEqual(director, { type: "utterance", text: "Hi Bunny", addressed: true });
+  const [ev] = applyDirection(s, bunny("Hello!"), 10, 0, director);
+  assert.deepEqual(ev.companion, { name: "Bunny", reply: "Hello!", gesture: "wave", move: "none" });
+  assert.deepEqual(s.story.beats, []);
+  assert.deepEqual(s.choices, ["Go left", "Go right"]);
+  assert.equal(s.log.at(-1).text, "Bunny: Hello!");
+  assert.equal(s.log.filter((l) => l.kind === "director").length, 1);
+  assert.deepEqual(s.chat, [{ you: "Hi Bunny", reply: "Hello!" }]);
+});
+
+test("a companion reply that comes with a story change keeps the beat", () => {
+  const s = start();
+  const { director } = reduce(s, { t: "utterance", text: "Bunny, make it snow" }, owner);
+  const out = bunny("Snow coming up!", { narration: "Snow begins to fall.", updates: [{ portal_id: "A", prompt: "snowy pier" }] });
+  const [ev] = applyDirection(s, out, 10, 0, director);
+  assert.deepEqual(s.story.beats, ["Bunny, make it snow"]);
+  assert.equal(s.portals[0].prompt, "snowy pier");
+  assert.equal(ev.companion.reply, "Snow coming up!");
+});
+
+test("only the headset can say where the companion is or that it was addressed", () => {
+  const s = start();
+  assert.equal(allowed("console", "companion"), false);
+  reduce(s, { t: "companion", id: "pip", present: true, rid: "r1" }, owner);
+  assert.deepEqual(s.companion, { id: "pip", present: true });
+  assert.equal(reduce(s, { t: "utterance", text: "Hi", addressed: true }, { role: "co" }).director.addressed, undefined);
 });
 
 test("a slow director reply can't overwrite a newer one", () => {

@@ -1,10 +1,29 @@
 // The AI "story director": turns what people say into Orbis prompts for each
 // portal while keeping characters and setting consistent across portals.
+// It is also the companion (Bunny, or Pip the robot) who walks around the storyteller's room:
+// one mind, one call. The same answer steers the worlds and says what the companion says and does.
 import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 
 const MODEL = "claude-opus-5-5";
+
+// The companion's body in the room. Bunny is the default (after the Stanford XR mascot); Pip is the robot.
+export const PERSONAS = {
+  bunny: {
+    name: "Bunny",
+    who: `In the person's room you are Bunny, a small white rabbit (about knee height) who always wears a
+sleek black VR headset and loves anything mixed reality. You hop around their real floor. You see
+the story worlds through your visor, so you often say what you "see" in them. You're curious,
+upbeat and a bit cheeky; you adore stories and carrots.`,
+  },
+  pip: {
+    name: "Pip",
+    who: `In the person's room you are Pip, a small curious clockwork robot (about knee height) who walks
+around their real floor. You're quick, playful, warm and a little mischievous; you adore stories.`,
+  },
+};
+const personaOf = (companion) => PERSONAS[companion?.id] || PERSONAS.bunny;
 
 const SYSTEM = `You are the story director for "Living Window", a mixed-reality storytelling
 experience. A person wearing a Meta Quest headset has opened portals on the walls of
@@ -62,6 +81,39 @@ Making it interactive (this matters most):
   character notices). If the ring is on empty sky or ground, something small and magical
   happens right there. Never mention the ring itself.
 
+You, in the room (the companion field):
+- You are not only a voice behind the scenes. You also have a small body in the person's real
+  room, their companion, described at the end of these instructions. The worlds in the portals
+  are your doing: when they ask you to make something happen ("make it snow", "can you call
+  the dragon?"), write the portal updates in this same answer and say in your reply that you're
+  making it happen.
+- The input's companion.present says whether your body is in the room right now. If it is
+  false, companion must be null.
+- You are being spoken TO when the event has addressed: true (they were looking at you while
+  they talked), when they say your name, or when their words are clearly meant for you (a
+  greeting, a question about you, asking you to follow or stay). Then always reply.
+- Otherwise they are narrating the story. Stay quiet (companion: null) for most beats and
+  reply only when you have something worth saying, such as a short reaction to a big moment
+  or to a touch, a new window or stepping inside; roughly one beat in four. Narrating a
+  story must not turn into a conversation with you.
+- reply is spoken aloud by a voice actor: one to three short sentences, at most 30 words. No
+  emojis, no stage directions, no lists. Warm, playful, curious. React to what they actually
+  said and ask a question back now and then. The input's conversation holds your recent
+  exchanges with them. Never claim to see things in their real room beyond the portals.
+- gesture: the body animation that best fits your reply: "wave" (greeting or goodbye), "yes"
+  (agreeing), "no" (disagreeing), "thumbs_up" (praise), "jump" (excited), "dance" (celebrating
+  or asked to dance), "think" (pondering), "none".
+- move: "follow" if they ask you to follow them, come along or walk with them; "come" if they
+  just ask you to come over or come closer; "stay" if they ask you to stay, wait or stop
+  following; "wander" if they ask you to go explore, go away or give them space; "none"
+  otherwise.
+- Just chatting: when their words are only for you and change nothing in the story ("hi
+  Bunny", "what's your favourite food?", "follow me"), leave the story alone: updates is an
+  empty list, narration is an empty string, choices is an empty list, speech is null, and the
+  bible is returned unchanged. Do not invent a story change to go with small talk.
+- Only one voice can play at a time: never give both a companion reply and a character's
+  speech in the same answer. If you were spoken to, the reply wins.
+
 Keep the story bible short (under 120 words): setting, characters with fixed visual
 descriptions, current time of day and mood. The narration is one short line (under 15
 words) shown as a subtitle, in the voice of a storyteller.
@@ -77,14 +129,36 @@ const Direction = z.object({
   speech: z
     .object({ speaker: z.string(), portal_id: z.string(), line: z.string(), voice: z.string() })
     .nullable(),
+  companion: z
+    .object({
+      reply: z.string(),
+      gesture: z.enum(["wave", "yes", "no", "thumbs_up", "jump", "dance", "think", "none"]),
+      move: z.enum(["follow", "come", "stay", "wander", "none"]),
+    })
+    .nullable(),
 });
+
+/** One voice per beat, and no companion lines when the companion isn't in the room. */
+function tidy(out, { event, companion }) {
+  let c = companion?.present && out.companion?.reply?.trim() ? out.companion : null;
+  let speech = out.speech?.line?.trim() ? out.speech : null;
+  if (c && speech) event.addressed ? (speech = null) : (c = null);
+  return { ...out, companion: c, speech };
+}
 
 export function createDirector() {
   const hasKey = Boolean(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN);
   const client = hasKey ? new Anthropic() : null;
 
-  async function direct({ event, story, portals, focusId, immersedId = null }) {
-    if (!client) return fallback({ event, story, portals, focusId, immersedId });
+  /** companion: { id: "bunny" | "pip", present }, chat: recent [{ you, reply }] with the companion. */
+  async function direct(input) {
+    return tidy(await think(input), input);
+  }
+
+  async function think({ event, story, portals, focusId, immersedId = null, companion = null, chat = [] }) {
+    const backup = () => fallback({ event, story, portals, focusId, immersedId, companion });
+    if (!client) return backup();
+    const persona = personaOf(companion);
 
     const payload = {
       event,
@@ -92,6 +166,8 @@ export function createDirector() {
       immersed_portal: immersedId,
       story_bible: story.bible,
       recent_beats: story.beats.slice(-8),
+      companion: { name: persona.name, present: Boolean(companion?.present) },
+      conversation: chat.slice(-6),
       portals: portals.map((p) => ({ portal_id: p.id, current_prompt: p.prompt || null })),
     };
 
@@ -112,12 +188,12 @@ export function createDirector() {
         betas: ["server-side-fallback-2026-07-01"],
         fallbacks: "default",
         output_config: { effort: "low", format: zodOutputFormat(Direction) },
-        system: SYSTEM,
+        system: [{ type: "text", text: SYSTEM }, { type: "text", text: `Your body in the room. ${persona.who}` }],
         messages: [{ role: "user", content }],
       });
       if (response.stop_reason === "refusal") {
         console.warn("[director] refusal", response.stop_details?.category);
-        return fallback({ event, story, portals, focusId, immersedId });
+        return backup();
       }
       const out = response.parsed_output;
       if (!out) throw new Error(`no parsed output (stop_reason=${response.stop_reason})`);
@@ -128,7 +204,7 @@ export function createDirector() {
       if (error instanceof Anthropic.RateLimitError) console.warn("[director] rate limited");
       else if (error instanceof Anthropic.APIError) console.warn(`[director] API ${error.status}: ${error.message}`);
       else console.warn("[director]", error.message);
-      return fallback({ event, story, portals, focusId, immersedId });
+      return backup();
     }
   }
 
@@ -183,8 +259,21 @@ let choiceTurn = 0;
 
 // Works without Claude (no key, no credits): each event steers the portal's *current* scene, so
 // speaking changes what happens in it instead of cutting back to the opening setting.
-function fallback({ event, story, portals, focusId, immersedId = null }) {
-  const extra = { choices: CHOICES[choiceTurn++ % CHOICES.length], speech: null };
+function fallback({ event, story, portals, focusId, immersedId = null, companion = null }) {
+  const name = personaOf(companion).name;
+  const named = new RegExp(`\\b${name}\\b[,!.]?\\s*`, "ig");
+  const said = String(event.text || "");
+  const addressed = Boolean(companion?.present && event.type === "utterance" && (event.addressed || named.test(said)));
+  // Small talk with the companion leaves the story alone.
+  // Just its name ("Bunny?") is a call for attention, not a story change.
+  const calling = addressed && !said.replace(named, "").replace(/[^\p{L}\p{N}]/gu, "");
+  const chat = calling ? { reply: "Yes? I'm listening!", gesture: "wave", move: "none" } : addressed ? smallTalk(said) : null;
+  if (chat) return { narration: "", bible: story.bible, updates: [], choices: [], speech: null, companion: chat };
+  const extra = {
+    choices: CHOICES[choiceTurn++ % CHOICES.length],
+    speech: null,
+    companion: addressed ? { reply: "On it! Watch the window.", gesture: "thumbs_up", move: "none" } : null,
+  };
   const find = (id) => portals.find((x) => x.id === id);
   if (event.type === "step_inside") {
     return {
@@ -215,11 +304,39 @@ function fallback({ event, story, portals, focusId, immersedId = null }) {
   const target = focusId || portals[0]?.id;
   const look = target && target === immersedId ? IMMERSIVE : STYLE;
   const scene = sceneOf(find(target)?.prompt, story.seed);
-  const change = String(event.text || "").trim().replace(/[.!?\s]*$/, "");
+  // "Bunny, make it snow" asks for snow, not for a bunny in the scene.
+  const change = (addressed ? said.replace(named, "") : said).trim().replace(/[.!?\s]*$/, "");
   return {
     ...extra,
     narration: event.text,
     bible: story.bible,
     updates: target ? [{ portal_id: target, prompt: `${scene}${NOW}${change}, happening gradually. ${look}` }] : [],
+  };
+}
+
+// The companion without Claude: understands the basic moves and questions, and doesn't repeat itself.
+const CHATTER = [
+  "Ooh, tell me more! What happens next in our story?",
+  "I love that! What should we try in the windows?",
+  "Hmm, interesting. Do you want to step inside one of the worlds with me?",
+  "Ha! You always surprise me. What's your favourite part so far?",
+  "I'm all ears. What next?",
+];
+let chatterTurn = 0;
+/** A reply if `text` is small talk (a greeting, a question, a move), or null if it asks for a story change. */
+function smallTalk(text) {
+  const follow = /follow|come along|with me/i.test(text);
+  const stay = /\b(stay|wait|stop)\b/i.test(text);
+  const come = /\b(come|here|closer)\b/i.test(text);
+  const dance = /dance/i.test(text);
+  const hello = /\b(hi|hello|hey)\b/i.test(text);
+  const question = /\?\s*$/.test(text);
+  if (!(follow || stay || come || dance || hello || question)) return null;
+  const reply = follow ? "Right behind you!" : stay ? "Okay, I'll wait right here." : come ? "Coming! Wait for me!"
+    : dance ? "Watch these moves!" : hello ? "Hi there! I'm so happy you're here." : CHATTER[chatterTurn++ % CHATTER.length];
+  return {
+    reply,
+    gesture: dance ? "dance" : follow || come || hello ? "wave" : stay ? "yes" : "think",
+    move: follow ? "follow" : stay ? "stay" : come ? "come" : "none",
   };
 }
