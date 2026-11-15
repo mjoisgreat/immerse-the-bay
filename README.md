@@ -87,8 +87,9 @@ history, kept per `portal_id` in `server/core.js` (`state.threads`). Each window
 ## Interactive story
 
 * **Choices:** after every beat the director offers 2–3 options for what happens next (gentle, surprising,
-  bold). They float above the button panel in the headset and appear on desktop, the console and for
-  co-narrators on the watch page. Pick one, or just say something else.
+  bold). They appear on desktop, the console and for co-narrators on the watch page. Pick one, or just say
+  something else. **In the headset the story is steered by voice only:** the director's options are not
+  shown there (an audience idea sent by a friend still floats above the buttons).
 * **Characters talk to you:** when a character is present, the director gives them a line spoken directly to
   you (often a question you can answer out loud). It's voiced with OpenAI TTS (same character, same voice) and
   plays from their window, or all around you when you're inside it.
@@ -103,12 +104,17 @@ tilted, black headset visor with side straps, an "x" nose and a round tail) hops
 soft shadow under it. It's built from simple shapes and animated in code (no model file): it hops with squash and
 stretch and flowing ears, breathes and twitches its ears when idle, waves an ear, nods, shakes its head, does happy
 hops, spins in the air and dances, and its visor glows while it listens and pulses while it talks.
-It wanders in front of you, and comes over when you ask. **Pinch Bonnie, or say "follow me",** and it hops beside you
+If you throw it far or leave it behind, it trots back to you a few seconds after landing. It wanders in front of you, and comes over when you ask. **Pinch Bonnie, or say "follow me",** and it hops beside you
 wherever you go (a little ahead and to your left, bounding to catch up, popping back if you leave the room); pinch
-again or say "stay" to stop. **Bonnie and the story director are the same mind:** everything you say goes to one
+again or say "stay" to stop. **Pick Bonnie up and throw it:** pinch (or trigger) and hold while pointing at
+Bonnie, or reach out and pinch it directly, and it comes to your hand; let go and it flies off with your hand's speed,
+tumbling, bouncing off the floor, the open windows and a rough 8 m room box around you, then picks itself up, faces
+you and carries on (still following if it was). A quick pinch without moving is still the follow toggle. On desktop,
+drag Bonnie with the mouse and let go. The physics is a small hand-rolled integrator in `src/physics.js`
+(tests in `test/physics.test.js`). **Bonnie and the story director are the same mind:** everything you say goes to one
 Claude call that both steers the windows and decides what Bonnie says and does, so Bonnie sees what is in every
 window and "Bonnie, make it snow!" changes the world in the same breath as its answer. Say its name, or **look at
-Bonnie while you talk** (orb, A/X or hand to mouth), and it always answers out loud from where it sits (OpenAI TTS
+Bonnie while you talk** (hand to mouth, A/X or Hold to talk), and it always answers out loud from where it sits (OpenAI TTS
 for the voice) with a matching gesture; while you're just narrating it mostly stays quiet and only chimes in now
 and then. Small talk ("hi Bonnie", "follow me") leaves the story untouched. Its lines appear in the watch feed and
 on the theater view.
@@ -126,6 +132,10 @@ Press **See-through** to fade back to your real room. The story windows aren't a
 of you (without the "hole in the wall" effect, since there's no real wall), stepping inside a window still shows its
 live video (the Quad hides while you're inside and comes back when you step out), and Bonnie comes along. The splat
 renderer is only downloaded the first time you press the button.
+
+The button shows the **golden-hour** Main Quad (`stanford-golden`, the first Marble world). Casimir's photo-based
+Inner Quad (`stanford`) is still in `worlds/manifest.json` for the director's world matching; add `?backdrop=stanford`
+to the headset URL to use it as the background instead.
 
 **Loading and weak hardware:** pressing the button shows a loading state (download percentage, then "Building the
 world…"). Headsets, phones, software rendering and small machines get a light version of the splat
@@ -151,17 +161,24 @@ fallback. Besides pointing and pinching (open, move, tap to touch, press buttons
 | Bring both hands back together | Step back out | B / Y |
 | Shake both hands in front of you, like wiping something away | Close the focused window (inside a world: step back out) | Grip while pointing at it |
 | Turn your left palm toward your face and hold | Show / hide the buttons | Thumbstick click |
+| Snap your fingers (either hand) | Call the companion: Bonnie appears, or hops back over to you if she is already here | The **Bonnie** button |
+| Pinch a window and drag | Move it (a quick tap touches the world instead) | Trigger on it, drag |
+| Pinch the same window with your other hand, then move your hands apart or together | Resize it (40 % to 250 % of its size) | n/a |
 
 Every gesture answers so you know it registered: your palms glow, a short tone plays, and controllers buzz.
 The two-hand gestures share a 1.5 s cooldown and are ignored while you talk; parting has to end with the hands
-held apart for a moment, so a shake never reads as an opening motion. Tuning constants sit at the top of
-`src/gestures.js`.
+held apart for a moment, so a shake never reads as an opening motion. A snap is a thumb-to-middle-fingertip
+touch followed by a fast flick apart (under about 160 ms), at most once per 1.5 s, and it is ignored while you
+talk or are inside a world. On hands, a middle-finger pinch no longer counts as a "grip", so a snap can't close
+the window you happen to be pointing at. Tuning constants sit at the top of `src/gestures.js`; the resize math
+is in `src/portalresize.js`.
 
 ## Controls in the headset
 
 A button panel floats just below your gaze and follows you when you turn or walk away. Point at a button and
-pull the trigger (or pinch): **Hold to talk**, **New window**, **Step inside / Step out**, **Close window**,
-**New story** and **Reset story** (see above). The same buttons sit at the bottom of the screen on desktop,
+pull the trigger (or pinch): **Hold to talk**, **New window**, **Step inside / Step out**, **Hide buttons**,
+the companion, the room background, **New story** and **Reset story** (see above), and **Close window** in the
+far corner, away from the buttons you press most. The same buttons sit at the bottom of the screen on desktop,
 plus **Room info**; the director console has New story, Reset and Prepare demo too.
 **Hide buttons** (or click a thumbstick, or press H on desktop) leaves just a small **☰ Buttons** handle; point at it
 to bring them back.
@@ -171,7 +188,10 @@ to bring them back.
 |---|---|---|
 | Open a portal | Pinch at empty space | Trigger at empty space |
 | Focus and move a portal | Pinch on it, drag, release | Trigger on it, drag, release |
-| Talk | Raise a hand to your mouth (or pinch and hold the orange orb) | Hold A or X (or trigger on the orb) |
+| Pick up and throw Bonnie | Pinch and hold on Bonnie (or touching it), swing, release | Trigger and hold on Bonnie, swing, release |
+| Resize a portal | Pinch it with both hands, then move the hands apart / together | n/a |
+| Call Bonnie | Snap your fingers | The **Bonnie** button |
+| Talk | Raise a hand to your mouth (or press and hold **Hold to talk** on the panel) | Hold A or X |
 | Close a portal | Shake both hands | Grip while pointing at it |
 | Step inside a portal | Part your hands like curtains, walk through it, or pinch it and pull it toward you | Walk through it, or press B / Y |
 | Step back out | Bring your hands together or shake them, walk back ~60 cm, or pinch the blue ring | Walk back, or press B / Y |

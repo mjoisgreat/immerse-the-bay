@@ -5,6 +5,7 @@ import * as THREE from "three";
 //  - Part both hands like curtains → step into the focused window; bring them back together → step out.
 //  - Shake both hands in front of you (wipe away) → close the focused window (or step out when inside).
 //  - Turn your LEFT palm toward your face and hold it there → show / hide the buttons.
+//  - Snap your fingers (either hand) → call Bonnie.
 // Detection is pure geometry on joint positions, kept separate from three.js so it can be tested.
 
 const MIC_ON = 0.13, MIC_OFF = 0.2; // metres from the mouth (hysteresis so it doesn't flicker)
@@ -19,6 +20,10 @@ const SWING = 0.045, SHAKE_TURNS = 3, SHAKE_WINDOW_MS = 1400;
 const MOVED = 0.08; // both hands must travel at least this far in a parting / closing motion
 const GAP_MS = 300; // tracking gap after which half-finished two-hand motions are forgotten
 const PALM_HOLD_MS = 600;
+// Snap: thumb and middle fingertip touch (SNAP_CLOSE), then the middle finger flicks away
+// (SNAP_OPEN) within SNAP_RELEASE_MS. A slow release is just letting go, so it doesn't count.
+const SNAP_CLOSE = 0.03, SNAP_OPEN = 0.05; // metres between the two fingertips
+const SNAP_MIN_HOLD_MS = 30, SNAP_RELEASE_MS = 160, SNAP_COOLDOWN_MS = 1500;
 
 const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
 const len = (a) => Math.hypot(a[0], a[1], a[2]);
@@ -33,7 +38,8 @@ const norm = (a) => {
  * Pure gesture state machine.
  * update(frame) where frame = { now, head: {pos, up, fwd}, hands: { left?, right? } } and each hand is
  * { palm: [x,y,z], palmNormal: [x,y,z] (pointing out of the palm) }. Returns a list of events:
- * "talk-start", "talk-end", "open", "close", "shake", "palm". `talkHand` is "left" | "right" while talking.
+ * "talk-start", "talk-end", "open", "close", "shake", "palm", "snap" (a hand may also carry `thumb` and
+ * `middle`: the fingertip positions the snap needs). `talkHand` is "left" | "right" while talking.
  */
 export class GestureDetector {
   constructor() {
@@ -44,6 +50,24 @@ export class GestureDetector {
     this._resetTwoHand();
     this.palmSince = 0;
     this.palmArmed = true;
+    this.snapState = { left: null, right: null }; // { since, lastClosed } while that hand's fingers touch
+    this.lastSnap = -Infinity;
+  }
+
+  /** One hand's snap: fingertips touch for a moment, then spring apart fast. Returns true on the flick. */
+  _snap(side, h, now) {
+    if (!h?.thumb || !h?.middle) return (this.snapState[side] = null), false;
+    const gap = len(sub(h.thumb, h.middle));
+    const s = this.snapState[side];
+    if (gap < SNAP_CLOSE) {
+      if (s) s.lastClosed = now;
+      else this.snapState[side] = { since: now, lastClosed: now };
+      return false;
+    }
+    if (!s) return false;
+    if (gap < SNAP_OPEN) return now - s.lastClosed > SNAP_RELEASE_MS && ((this.snapState[side] = null), false); // opening slowly
+    this.snapState[side] = null;
+    return s.lastClosed - s.since >= SNAP_MIN_HOLD_MS && now - s.lastClosed <= SNAP_RELEASE_MS;
   }
 
   _resetTwoHand() {
@@ -158,6 +182,13 @@ export class GestureDetector {
       if (now >= this.pending.at) fire(this.pending.ev); // hands dropped right after the motion
     } else this._resetTwoHand();
 
+    // Snap (either hand), never while talking. Both hands are always read so a half-made snap is tracked.
+    const snapped = ["left", "right"].map((side) => this._snap(side, hands[side], now)).some(Boolean);
+    if (snapped && !this.talking && now - this.lastSnap > SNAP_COOLDOWN_MS) {
+      this.lastSnap = now;
+      events.push("snap");
+    }
+
     // Left palm turned toward your face, in front of you, held still for a moment.
     const L = hands.left;
     let facing = false;
@@ -225,7 +256,11 @@ export class HandGestures {
     const palm = j.getWorldPosition(this._v).toArray();
     // WebXR hand joints: -Y points out of the palm.
     const n = new THREE.Vector3(0, -1, 0).applyQuaternion(j.getWorldQuaternion(this._q)).toArray();
-    return { palm, palmNormal: n };
+    const tip = (name) => {
+      const t = hand.joints?.[name];
+      return t?.visible ? t.getWorldPosition(new THREE.Vector3()).toArray() : null;
+    };
+    return { palm, palmNormal: n, thumb: tip("thumb-tip"), middle: tip("middle-finger-tip") };
   }
 
   /** Flash both palms in a colour: "this gesture registered". */
