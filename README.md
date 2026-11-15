@@ -103,9 +103,14 @@ tilted, black headset visor with side straps, an "x" nose and a round tail) hops
 soft shadow under it. It's built from simple shapes and animated in code (no model file): it hops with squash and
 stretch and flowing ears, breathes and twitches its ears when idle, waves an ear, nods, shakes its head, does happy
 hops, spins in the air and dances, and its visor glows while it listens and pulses while it talks.
-It wanders in front of you, and comes over when you ask. **Pinch Bonnie, or say "follow me",** and it hops beside you
+If you throw it far or leave it behind, it trots back to you a few seconds after landing. It wanders in front of you, and comes over when you ask. **Pinch Bonnie, or say "follow me",** and it hops beside you
 wherever you go (a little ahead and to your left, bounding to catch up, popping back if you leave the room); pinch
-again or say "stay" to stop. **Bonnie and the story director are the same mind:** everything you say goes to one
+again or say "stay" to stop. **Pick Bonnie up and throw it:** pinch (or trigger) and hold while pointing at
+Bonnie, or reach out and pinch it directly, and it comes to your hand; let go and it flies off with your hand's speed,
+tumbling, bouncing off the floor, the open windows and a rough 8 m room box around you, then picks itself up, faces
+you and carries on (still following if it was). A quick pinch without moving is still the follow toggle. On desktop,
+drag Bonnie with the mouse and let go. The physics is a small hand-rolled integrator in `src/physics.js`
+(tests in `test/physics.test.js`). **Bonnie and the story director are the same mind:** everything you say goes to one
 Claude call that both steers the windows and decides what Bonnie says and does, so Bonnie sees what is in every
 window and "Bonnie, make it snow!" changes the world in the same breath as its answer. Say its name, or **look at
 Bonnie while you talk** (orb, A/X or hand to mouth), and it always answers out loud from where it sits (OpenAI TTS
@@ -177,6 +182,7 @@ to bring them back.
 |---|---|---|
 | Open a portal | Pinch at empty space | Trigger at empty space |
 | Focus and move a portal | Pinch on it, drag, release | Trigger on it, drag, release |
+| Pick up and throw Bonnie | Pinch and hold on Bonnie (or touching it), swing, release | Trigger and hold on Bonnie, swing, release |
 | Resize a portal | Pinch it with both hands, then move the hands apart / together | n/a |
 | Call Bonnie | Snap your fingers | The **Bonnie** button |
 | Talk | Raise a hand to your mouth (or pinch and hold the orange orb) | Hold A or X (or trigger on the orb) |
