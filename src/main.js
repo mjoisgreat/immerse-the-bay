@@ -767,13 +767,13 @@ function guide(step) {
   if (renderer.xr.isPresenting) speak(GUIDE[step], ...NARRATOR);
 }
 
-// ---------- The companion (Bunny, or Pip the robot with ?companion=pip) ----------
+// ---------- The companion (Bonnie, or Pip the robot with ?companion=pip) ----------
 // It hops around your room, follows you, and talks with you. It is the story director's body in
 // the room: what it says and does arrives with each direction (see applyDirection).
 const USE_PIP = new URLSearchParams(location.search).get("companion") === "pip";
 const BUDDY = USE_PIP
   ? { id: "pip", name: "Pip", icon: "🤖", voice: "a small, bright, curious robot companion; quick and playful, warm, a little mischievous" }
-  : { id: "bunny", name: "Bunny", icon: "🐰", voice: "a bright, friendly young voice; bubbly, quick and a little cheeky, full of wonder" };
+  : { id: "bunny", name: "Bonnie", icon: "🐰", voice: "a bright, friendly young voice; bubbly, quick and a little cheeky, full of wonder" };
 const buddy = new Companion(scene, camera, { name: BUDDY.name, rig: USE_PIP ? new RobotRig() : new BunnyRig() });
 buddy.load().catch((e) => console.warn("[companion] failed to load", e));
 let buddyWait = 0;
@@ -831,7 +831,7 @@ function toggleBuddy() {
 const backdrop = new Backdrop(scene, renderer, camera);
 const loco = new Locomotion(renderer, camera, scene);
 const aimRay = new THREE.Raycaster();
-// Pointing rays of the controllers/hands, skipping any that point at a button, window or Bunny.
+// Pointing rays of the controllers/hands, skipping any that point at a button, window or Bonnie.
 function locoRays() {
   if (!loco.enabled) return [];
   const hitTargets = targets();

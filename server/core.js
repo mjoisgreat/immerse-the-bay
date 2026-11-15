@@ -13,7 +13,7 @@ export function initialState() {
     focusId: null,
     immersedId: null, // the portal the storyteller has stepped inside, if any
     choices: [], // what could happen next, offered by the director
-    companion: { id: "bunny", present: false }, // the director's body in the room (Bunny or Pip), if summoned
+    companion: { id: "bunny", present: false }, // the director's body in the room (Bonnie or Pip), if summoned
     chat: [], // recent exchanges with the companion: [{ you, reply }]
     rendererId: null, // the owner's headset page that currently drives the streams
     meta: { title: "", shared: false, crowd: false },
@@ -252,7 +252,7 @@ export function askDirector(director, s, event) {
  */
 export function applyDirection(s, out, ms, seq = 0, event = null) {
   const companion = out.companion?.reply
-    ? { name: s.companion?.id === "pip" ? "Pip" : "Bunny", reply: String(out.companion.reply).slice(0, 300), gesture: out.companion.gesture || "none", move: out.companion.move || "none" }
+    ? { name: s.companion?.id === "pip" ? "Pip" : "Bonnie", reply: String(out.companion.reply).slice(0, 300), gesture: out.companion.gesture || "none", move: out.companion.move || "none" }
     : null;
   // Small talk with the companion: the story, its choices and its subtitle stay as they were.
   const chatOnly = Boolean(companion && !out.updates.length && !String(out.narration || "").trim());
