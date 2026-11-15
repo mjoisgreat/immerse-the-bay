@@ -11,12 +11,12 @@ import { state } from "./state.js";
 import { flash } from "./feedback.js";
 import { buddy, callBuddy, toggleBuddyFollow } from "./buddy.js";
 import { setButtonsHidden } from "./buttons.js";
-import { closePortal, immersion, openPortal, portals, setFocus, stepInside, stepOut } from "./portals.js";
+import { closeWindow, getWindow, immersion, openWindow, settlePortal, stepInside, stepOut } from "./portals.js";
 import { disarm, skipWorld, touchPortal, touchWorld } from "./story.js";
 import { startTalking, stopTalking } from "./talk.js";
 import { trail } from "./trail.js";
 import { backdrop } from "./world.js";
-import { facingPortal, raycaster, targets } from "./xrinput.js";
+import { raycaster, targets } from "./xrinput.js";
 
 // ---------- Camera: see your real surroundings on a phone or computer, like the Quest's see-through ----------
 export const camView = new CameraView();
@@ -79,16 +79,15 @@ function hitAt(x, y) {
   raycaster.setFromCamera(new THREE.Vector2((x / innerWidth) * 2 - 1, -(y / innerHeight) * 2 + 1), camera);
   return raycaster.intersectObjects(targets(), false)[0];
 }
-/** A click or tap: focus / touch a window, touch the world you're inside, or open a window. */
+/** A click or tap: touch the window, touch the world you're inside, or open the window. */
 function tapAt(x, y) {
   const hit = hitAt(x, y);
   if (hit?.object.userData.exit) stepOut();
   else if (hit?.object.userData.portal) {
     const p = hit.object.userData.portal;
-    if (p.id === state.focusId) touchPortal(p, hit.uv, hit.point); // click the focused window to touch it
-    else setFocus(p.id);
+    touchPortal(p, hit.uv, hit.point);
   } else if (immersion.inside) touchWorld(raycaster.ray.origin.clone(), raycaster.ray.direction.clone());
-  else if (!hit) openPortal(raycaster.ray.origin.clone(), raycaster.ray.direction.clone());
+  else if (!hit) openWindow({ origin: raycaster.ray.origin.clone(), dir: raycaster.ray.direction.clone() });
 }
 renderer.domElement.addEventListener("dblclick", (e) => {
   if (lastPointerType === "touch") return; // fingers have their own double tap
@@ -111,8 +110,8 @@ addEventListener("pointermove", (e) => {
 });
 addEventListener("keydown", (e) => {
   if (e.code === "Space" && !e.repeat && !/INPUT|TEXTAREA/.test(e.target.tagName)) (e.preventDefault(), startTalking());
-  if (e.code === "Backspace" && state.focusId && !/INPUT|TEXTAREA/.test(e.target.tagName)) closePortal(state.focusId);
-  if (e.code === "KeyE" && !/INPUT|TEXTAREA/.test(e.target.tagName)) immersion.inside ? stepOut() : stepInside(portals.get(state.focusId)?.portal);
+  if (e.code === "Backspace" && getWindow() && !/INPUT|TEXTAREA/.test(e.target.tagName)) closeWindow();
+  if (e.code === "KeyE" && !/INPUT|TEXTAREA/.test(e.target.tagName)) immersion.inside ? stepOut() : stepInside();
   if (e.code === "Escape") stepOut(), disarm(), skipWorld();
   if (e.code === "KeyH" && !/INPUT|TEXTAREA/.test(e.target.tagName)) setButtonsHidden(!document.body.classList.contains("clean"));
 });
@@ -145,7 +144,6 @@ const touch = new TouchGestureRecognizer({
     if (p && !immersion.inside) {
       const eye = camera.getWorldPosition(new THREE.Vector3());
       carry = { portal: p, dist: p.group.getWorldPosition(new THREE.Vector3()).distanceTo(eye) };
-      setFocus(p.id);
       haptic(20);
       return true;
     }
@@ -170,7 +168,7 @@ const touch = new TouchGestureRecognizer({
     }
   },
   onHoldEnd(_at, cancelled) {
-    if (carry) (carry = null), haptic(10);
+    if (carry) (settlePortal(carry.portal), (carry = null), haptic(10));
     if (!drawing) return;
     const stroke = drawing;
     drawing = null;
@@ -179,7 +177,7 @@ const touch = new TouchGestureRecognizer({
     const heart = analyzeHeart(stroke, camera.getWorldPosition(new THREE.Vector3()).toArray());
     if (heart.heart) return trail.end("heart"), haptic(40), heartsFor(heart.center);
     const r = analyzeStroke(stroke, camera.getWorldPosition(new THREE.Vector3()).toArray());
-    if (r.ok) return trail.end(true), haptic(40), openPortal(null, null, { at: r.position, scale: r.scale });
+    if (r.ok) return trail.end(true), haptic(40), openWindow({ at: r.position, scale: r.scale });
     trail.end(false);
     flash(strokeHint(r.reason), 4000);
   },
@@ -190,31 +188,35 @@ const touch = new TouchGestureRecognizer({
       else (state.yaw = start.yaw), (state.pitch = start.pitch), camera.rotation.set(state.pitch, state.yaw, 0, "YXZ");
     }
     const p = start?.portal;
-    if (!p || immersion.inside || !portals.has(p.id)) return;
-    if (flickArmed?.id === p.id && performance.now() - flickArmed.at < 3000) {
+    if (!p || immersion.inside || !getWindow()) return;
+    if (flickArmed && performance.now() - flickArmed < 3000) {
       flickArmed = null;
       haptic(40);
-      flash(`Window ${p.id} wiped away.`, 2500);
-      return closePortal(p.id);
+      flash("Window wiped away.", 2500);
+      return closeWindow();
     }
-    flickArmed = { id: p.id, at: performance.now() };
+    flickArmed = performance.now();
     haptic();
-    flash(`Flick up again to close window ${p.id}.`, 3000);
+    flash("Flick up again to close the window.", 3000);
   },
   onPinchStart(mid, a, b) {
     const p = [mid, a, b].map(([x, y]) => hitAt(x, y)?.object.userData.portal).find(Boolean);
     pinchResize = p && !immersion.inside ? { portal: p, s0: p.group.scale.x } : null;
-    if (pinchResize) setFocus(p.id);
   },
   onPinch(ratio) {
     if (pinchResize) pinchResize.portal.group.scale.setScalar(Math.min(MAX_SCALE, Math.max(MIN_SCALE, pinchResize.s0 * ratio)));
   },
   onPinchEnd(ratio, cancelled) {
-    if (pinchResize) return (pinchResize = null), haptic(10);
+    if (pinchResize) {
+      const { portal } = pinchResize;
+      pinchResize = null;
+      settlePortal(portal);
+      return haptic(10);
+    }
     if (cancelled) return;
     // Like parting curtains: fingers apart steps into the window; together steps back out.
     if (!immersion.inside && ratio > 1.45) {
-      const p = portals.get(state.focusId)?.portal || facingPortal();
+      const p = getWindow()?.portal;
       if (!p) return flash("Open a window first, then spread two fingers to step inside.", 3500);
       haptic(30);
       return stepInside(p);

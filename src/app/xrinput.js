@@ -9,13 +9,12 @@ import { analyzeHeart } from "../heartshape.js";
 import { heartsFor } from "./hearts.js";
 import { HandGestures } from "../gestures.js";
 import { camera, renderer, scene } from "./stage.js";
-import { state } from "./state.js";
 import { buzz, chime, flash } from "./feedback.js";
 import { buddy, buddyAimed, buddyTouched, cradle, nearBuddy, toggleBuddyFollow, updateCradle } from "./buddy.js";
 import { closeMenu, menuSnap, pressMenuPart, toolbar } from "./buttons.js";
 import { cheatSheet } from "./guide.js";
-import { closePortal, immersion, openPortal, portals, setFocus, stepInside, stepOut } from "./portals.js";
-import { disarm, pickChoice, touchPortal, touchWorld } from "./story.js";
+import { closeWindow, getWindow, immersion, openWindow, settlePortal, stepInside, stepOut } from "./portals.js";
+import { touchPortal, touchWorld } from "./story.js";
 import { startTalking, stopTalking } from "./talk.js";
 import { trail } from "./trail.js";
 import { loco } from "./world.js";
@@ -31,7 +30,7 @@ export function targets() {
   if (renderer.xr.isPresenting) ui.push(...toolbar.targets);
   if (buddy.visible) ui.push(buddy.hitbox);
   if (cheatSheet.visible) ui.push(cheatSheet.mesh);
-  return [...ui.filter((o) => o.visible || o === buddy.hitbox), ...[...portals.values()].filter((p) => p.portal.group.visible).map((p) => p.portal.screen)];
+  return [...ui.filter((o) => o.visible || o === buddy.hitbox), ...(getWindow()?.portal.group.visible ? [getWindow().portal.screen] : [])];
 }
 
 function rayFrom(obj) {
@@ -111,7 +110,6 @@ function onSelectStart(ctrl) {
     return buzz(0.3, 30);
   }
   if (portal) {
-    setFocus(portal.id);
     // A quick tap touches the world at that spot; holding and dragging moves the window.
     ctrl.userData.tap = { at: performance.now(), uv: hit.uv.clone(), point: hit.point.clone() };
     // Remember where it was: pulling it into your face steps inside and puts the window back.
@@ -177,7 +175,7 @@ function finishTap(ctrl) {
     if (floor) return loco.teleport(floor), buzz(0.3, 30);
     // With hands, windows are drawn (see below); a controller's trigger tap still opens one ahead.
     if (ctrl.userData.isHand) return flash("Pinch and draw a square in the air to open a window.", 4000);
-    return openPortal(t.origin, t.dir);
+    return openWindow({ origin: t.origin, dir: t.dir });
   }
   // A heart drawn in the air: Bonnie answers with hearts (inside a world too: she comes along).
   const eyeNow = camera.getWorldPosition(new THREE.Vector3()).toArray();
@@ -189,7 +187,7 @@ function finishTap(ctrl) {
   if (r.ok) {
     trail.end(true);
     buzz(0.5, 60);
-    return openPortal(null, null, { at: r.position, scale: r.scale });
+    return openWindow({ at: r.position, scale: r.scale });
   }
   let path = 0;
   for (let i = 1; i < stroke.length; i++) path += Math.hypot(...stroke[i].map((v, k) => v - stroke[i - 1][k]));
@@ -230,7 +228,7 @@ function onSelectEnd(ctrl) {
   if (ctrl.userData.pendingTap) return finishTap(ctrl);
   if (ctrl.userData.resizing) {
     ctrl.userData.resizing = null;
-    resize = null; // the other hand keeps holding the window, now at its new size
+    resize = null; // the other hand keeps holding the window, now at its new size (it settles when that hand lets go)
     return;
   }
   if (resize && resize.holder === ctrl) resize = null; // let go of the carrying hand: resizing ends too
@@ -252,6 +250,8 @@ function onSelectEnd(ctrl) {
     camera.getWorldPosition(eye);
     p.group.lookAt(eye.x, p.group.position.y, eye.z);
     ctrl.userData.grabbed = null;
+    // The window is solid: let go in the floor, the ceiling or your face and it moves to the nearest allowed spot.
+    settlePortal(p);
   }
 }
 
@@ -259,7 +259,7 @@ function onSqueeze(ctrl) {
   if (ctrl.userData.isHand) return; // a middle-finger pinch must not close a window by accident; shake does that
   rayFrom(ctrl);
   const portal = raycaster.intersectObjects(targets(), false)[0]?.object.userData.portal;
-  if (portal) closePortal(portal.id);
+  if (portal) closeWindow();
 }
 
 // A / X on Touch controllers = push-to-talk from anywhere. B / Y = step into the window you're
@@ -283,9 +283,7 @@ export function pollButtons() {
     closeMenu();
     if (immersion.inside) stepOut();
     else {
-      rayFrom(renderer.xr.getController(step));
-      const aimed = raycaster.intersectObjects(targets(), false).find((h) => h.object.userData.portal);
-      stepInside(aimed?.object.userData.portal || portals.get(state.focusId)?.portal);
+      stepInside();
     }
   }
   stepHeld = step !== null;
@@ -297,7 +295,7 @@ const eye = new THREE.Vector3(), local = new THREE.Vector3();
 export function checkWalking() {
   camera.getWorldPosition(eye);
   if (!renderer.xr.isPresenting) return;
-  for (const { portal } of portals.values()) {
+  for (const { portal } of [getWindow()].filter(Boolean)) {
     const grabbedBy = [0, 1].map((i) => renderer.xr.getController(i)).find((c) => c.userData.grabbed === portal);
     if (grabbedBy) {
       if (resize?.portal === portal) continue; // two-handed resize: never mistaken for pulling it into your face
@@ -330,16 +328,6 @@ function confirmGesture(kind, color) {
   chime(kind);
   buzz(0.7, 80);
 }
-export function facingPortal() {
-  const eye = camera.getWorldPosition(new THREE.Vector3());
-  const gaze = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.getWorldQuaternion(new THREE.Quaternion()));
-  let best = null, bestDot = 0.8;
-  for (const { portal } of portals.values()) {
-    const d = portal.group.getWorldPosition(new THREE.Vector3()).sub(eye).normalize().dot(gaze);
-    if (d > bestDot) (best = portal), (bestDot = d);
-  }
-  return best;
-}
 export const gestures = new HandGestures(renderer, camera, {
   "talk-start": () => (closeMenu(), gestures.pulse(0xff5533), startTalking(true)),
   "talk-end": () => (gestures.pulse(0xffd08a), stopTalking()),
@@ -347,7 +335,7 @@ export const gestures = new HandGestures(renderer, camera, {
     closeMenu();
     if (immersion.inside) return;
     if ([0, 1].some((i) => renderer.xr.getController(i).userData.grabbed || renderer.xr.getController(i).userData.heldBuddy)) return; // dragging a window, not parting curtains
-    const p = portals.get(state.focusId)?.portal || facingPortal();
+    const p = getWindow()?.portal;
     if (!p) return flash("Open a window first, then part your hands to step inside.");
     confirmGesture("open", 0x7fd4ff);
     stepInside(p);
@@ -361,10 +349,10 @@ export const gestures = new HandGestures(renderer, camera, {
   shake() {
     closeMenu();
     if (immersion.inside) return confirmGesture("close", 0xffd08a), stepOut();
-    if (!portals.has(state.focusId)) return;
+    if (!getWindow()) return;
     confirmGesture("shake", 0xff6a4a);
-    flash(`Window ${state.focusId} wiped away.`, 2500);
-    closePortal(state.focusId);
+    flash("Window wiped away.", 2500);
+    closeWindow();
   },
   palm: () => (gestures.pulse(0xffffff), toolbar.toggleOpen()),
 });

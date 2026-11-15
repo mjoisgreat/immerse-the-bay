@@ -1,8 +1,7 @@
 import * as THREE from "three";
 import { LAYER } from "./layers.js";
 
-const W = 1.6, H = 0.9; // metres, 16:9 like Orbis output
-const DEPTH = 0.32; // how far the picture sits "inside" the wall
+import { WIN_W as W, WIN_H as H, WIN_DEPTH as DEPTH } from "./windowplace.js"; // metres, 16:9 like Orbis output; how far the picture sits "inside" the wall
 
 // The tunnel walls between the wall opening and the picture: light from the world spills onto them.
 const tunnelVert = /* glsl */ `
@@ -109,7 +108,7 @@ void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(
 // Live video when available, a swirling "world forming" effect while connecting,
 // an iris that opens on creation, and feathered edges so it reads as a window.
 const screenFrag = /* glsl */ `
-uniform sampler2D map; uniform float hasVideo; uniform float time; uniform float reveal; uniform float focus; uniform float fade;
+uniform sampler2D map; uniform float hasVideo; uniform float time; uniform float reveal; uniform float fade;
 varying vec2 vUv;
 float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7))) * 43758.5453); }
 float noise(vec2 p){ vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);
@@ -123,7 +122,6 @@ void main(){
   float edge = min(min(vUv.x, 1.0 - vUv.x) * ${(W / H).toFixed(4)}, min(vUv.y, 1.0 - vUv.y));
   float feather = smoothstep(0.0, 0.035, edge);
   float iris = 1.0 - smoothstep(reveal * 1.2 - 0.05, reveal * 1.2, r);
-  col *= 0.92 + 0.08 * focus;
   gl_FragColor = vec4(col, feather * iris * fade);
 }`;
 
@@ -176,12 +174,10 @@ export class Caption {
 }
 
 export class Portal {
-  constructor(id, listener) {
-    this.id = id;
+  constructor(listener) {
     this.group = new THREE.Group();
-    this.group.name = `portal-${id}`;
+    this.group.name = "window";
     this.created = performance.now();
-    this.focused = false;
 
     this.texture = new THREE.Texture(); // replaced by a VideoTexture once frames arrive
     this.screenMat = new THREE.ShaderMaterial({
@@ -193,7 +189,6 @@ export class Portal {
         hasVideo: { value: 0 },
         time: { value: 0 },
         reveal: { value: 0 },
-        focus: { value: 0 },
         fade: { value: 1 },
       },
     });
@@ -207,7 +202,7 @@ export class Portal {
       transparent: true,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
-      uniforms: { color: { value: new THREE.Color(0xffb36b) }, strength: { value: 0.6 }, time: { value: 0 }, fade: this.screenMat.uniforms.fade },
+      uniforms: { color: { value: new THREE.Color(0xffd08a) }, strength: { value: 0.9 }, time: { value: 0 }, fade: this.screenMat.uniforms.fade },
     });
     const glow = new THREE.Mesh(new THREE.PlaneGeometry(W + 0.5, H + 0.5), this.glowMat);
     glow.position.z = 0.004; // just in front of the wall opening
@@ -313,13 +308,6 @@ export class Portal {
     this.caption.mesh.material.opacity = k;
     this.backMat.opacity = k;
     this.group.visible = k > 0.001;
-  }
-
-  setFocused(f) {
-    this.focused = f;
-    this.screenMat.uniforms.focus.value = f ? 1 : 0;
-    this.glowMat.uniforms.color.value.set(f ? 0xffd08a : 0x6aa8ff);
-    this.glowMat.uniforms.strength.value = f ? 0.9 : 0.35;
   }
 
   setCaption(text, kind = "story") {

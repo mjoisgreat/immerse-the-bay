@@ -9,7 +9,7 @@ import { flash } from "./feedback.js";
 import { buddy, toggleBuddy } from "./buddy.js";
 import { camView, haptic, toggleCamera } from "./desktop.js";
 import { cheatSheet, showCheatSheet } from "./guide.js";
-import { closePortal, immersion, openPortal, portals, stepInside, stepOut } from "./portals.js";
+import { closeWindow, getWindow, immersion, openWindow, stepInside, stepOut } from "./portals.js";
 import { disarm, newStoryPressed, pickChoice, resetPressed } from "./story.js";
 import { startTalking, stopTalking } from "./talk.js";
 import { toggleWide } from "./wide.js";
@@ -111,30 +111,25 @@ export function setStartScreen(on) {
 }
 
 function openInFront() {
-  const origin = camera.getWorldPosition(new THREE.Vector3());
-  const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.getWorldQuaternion(new THREE.Quaternion()));
-  dir.y = Math.max(-0.2, Math.min(0.2, dir.y));
-  openPortal(origin, dir.normalize());
+  openWindow();
 }
 export { openInFront };
 function toggleStep() {
   if (immersion.inside) stepOut();
-  else if (!portals.size) flash("Open a window first.");
-  else stepInside(portals.get(state.focusId)?.portal || portals.values().next().value.portal);
+  else if (!getWindow()) flash("Open the window first.");
+  else stepInside();
 }
 function closeFocused() {
-  const id = immersion.inside ? immersion.portal.id : state.focusId;
-  if (id) closePortal(id);
+  if (getWindow()) closeWindow();
   else flash("No window to close.");
 }
 /** The Close window button: asks for a second tap first (a window's story can't be brought back). */
 function closePressed() {
-  const id = immersion.inside ? immersion.portal?.id : state.focusId;
-  if (!id) return flash("No window to close.");
+  if (!getWindow()) return flash("No window to close.");
   if (state.armed === "close") return (state.armed = null), syncButtons(), closeFocused();
   state.armed = "close";
   syncButtons();
-  flash(`Tap Close window again to close window ${id}.`, 600000);
+  flash("Tap Close window again to close the window.", 600000);
 }
 
 // Called every frame: the DOM is only touched when a label or state actually changed.

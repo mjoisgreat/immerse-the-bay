@@ -7,6 +7,7 @@ import { $, camera, renderer, scene } from "./stage.js";
 import { WORLD_CYCLE, worldInfo } from "./config.js";
 import { flash } from "./feedback.js";
 import { targets, tmpMat } from "./xrinput.js";
+import { closeWindow, getWindow } from "./portals.js";
 
 // ---------- Room background: see-through (your real room) or a 3D world around you ----------
 // The story windows are unaffected; stepping inside a window still shows its live video.
@@ -68,6 +69,11 @@ export function worldKey() {
   return backdrop.worldId ? (backdrop.worldId === "moon" ? "moon" : "stanford") : null;
 }
 async function loadWorld(next) {
+  // Going from one 3D world straight to another (the Moon <-> Stanford): the window stays behind, deleted.
+  if (backdrop.on && backdrop.worldId !== next && getWindow()) {
+    closeWindow();
+    flash("The window closed behind you.", 3000);
+  }
   const info = worldInfo(next);
   const quality = splatQuality(renderer);
   const light = next !== "moon" && quality === "low" && backdrop.worlds.hasLight(next) ? " (light version)" : "";

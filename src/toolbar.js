@@ -239,7 +239,7 @@ export class Toolbar {
       g.textAlign = "left";
       g.fillStyle = hovered ? "#1b1206" : "#ffb36b";
       // With several windows open the card also says which one the idea will steer.
-      const right = `${item.to ? `→ WINDOW ${item.to}   ` : ""}▲ ${item.votes ?? 0}`;
+      const right = `▲ ${item.votes ?? 0}`;
       g.fillText((item.by || "A friend").toUpperCase(), 28, 34, w - 80 - g.measureText(right).width);
       g.textAlign = "right";
       g.fillStyle = hovered ? "#1b1206" : "#ffd08a";

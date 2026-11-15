@@ -1,9 +1,7 @@
 // app/state.js: the mutable variables that more than one module reads or writes. ES module `let`s can't be assigned from
-// an importer, so they live on this one object: `state.focusId = ...`.
+// an importer, so they live on this one object: `state.wideOn = ...`.
 export const state = {
   started: false, // true once every module has loaded (see main.js)
-  focusId: null,
-  maxPortals: 3,
   wideOn: false,
   retired: false,
   roomState: null,
@@ -11,7 +9,7 @@ export const state = {
   wantTalk: false, // the button is held (the mic may still be starting)
   buddyWait: 0,
   guideStep: -1,
-  asking: null, // { kind: "story" | "portal", id }
+  asking: null, // { kind: "story" | "window" }: the world question being asked
   pendingSeed: "", // a world chosen ahead of time for the next window (also kept by the server)
   armed: null, // "reset" | "newstory" | "close"
   yaw: 0,

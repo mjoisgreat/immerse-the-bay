@@ -8,10 +8,10 @@ import { $, camera, listener, renderer, scene } from "./stage.js";
 import { state } from "./state.js";
 import { ROOM, send } from "./room.js";
 import { buzz, flash } from "./feedback.js";
-import { buddy, buddyIdle, buddyOpensWindow, buddyReply } from "./buddy.js";
+import { buddy, buddyIdle, buddyChangesWorld, buddyReply } from "./buddy.js";
 import { openInFront, syncButtons, toolbar } from "./buttons.js";
 import { NARRATOR, guide } from "./guide.js";
-import { closePortal, entryOf, immersion, labelFor, portals } from "./portals.js";
+import { closeWindow, getWindow, immersion, setWorld } from "./portals.js";
 import { playVoice, speak } from "./talk.js";
 import { steerSides } from "./wide.js";
 
@@ -20,7 +20,7 @@ import { steerSides } from "./wide.js";
 // place the storyteller sees a friend's idea arrive.
 setInterval(() => {
   if (state.retired || state.talking || state.wantTalk || state.asking || !state.roomState?.meta?.crowd || !state.roomState.suggestions?.length) return;
-  if (!state.roomState.threads?.[state.focusId]?.seed) return; // the idea steers the focused window, which needs a world first
+  if (!state.roomState.story?.seed) return; // the idea steers the window's story, which needs a world first
   const top = [...state.roomState.suggestions].sort((a, b) => b.voters.length - a.voters.length || a.at - b.at)[0];
   state.roomState.suggestions = state.roomState.suggestions.filter((x) => x.id !== top.id);
   send({ t: "use_suggestion", id: top.id }); // by id, so the message names the idea actually used
@@ -31,20 +31,19 @@ setInterval(() => {
 // Keep the room marked "live" for the community page.
 setInterval(() => !state.retired && send({ t: "heartbeat" }), 30000);
 
-// Small snapshots of each portal so watchers and the gallery can see the story (no extra credits).
-// One window per tick, encoded asynchronously (toBlob), so it never stalls a frame in the headset;
-// less often while you're in the headset, where a dropped frame shows as judder.
+// A small snapshot of the window so watchers and the gallery can see the story (no extra credits).
+// Encoded asynchronously (toBlob), so it never stalls a frame in the headset; less often while you're in
+// the headset, where a dropped frame shows as judder.
 const snapCanvas = Object.assign(document.createElement("canvas"), { width: 480, height: 270 });
-let snapTurn = 0, snapBusy = false, snapNext = 0;
+let snapBusy = false, snapNext = 0;
 setInterval(() => {
   if (!state.started || state.retired || snapBusy || performance.now() < snapNext) return; // not before the app has finished loading
-  const live = [...portals].filter(([, p]) => p.stream.status === "streaming" && p.stream.video.readyState >= 2);
-  if (!live.length) return;
-  const [id, p] = live[snapTurn++ % live.length];
-  // Every 3 s on a flat screen; in the headset each window about every 6 s.
-  snapNext = performance.now() + (renderer.xr.isPresenting ? 6000 / live.length : 3000 / live.length) - 50;
+  const w = getWindow();
+  if (!w || w.stream.status !== "streaming" || w.stream.video.readyState < 2) return;
+  // Every 3 s on a flat screen, every 6 s in the headset.
+  snapNext = performance.now() + (renderer.xr.isPresenting ? 6000 : 3000) - 50;
   snapBusy = true;
-  snapCanvas.getContext("2d").drawImage(p.stream.video, 0, 0, 480, 270);
+  snapCanvas.getContext("2d").drawImage(w.stream.video, 0, 0, 480, 270);
   snapCanvas.toBlob(
     (blob) => {
       if (!blob) return void (snapBusy = false);
@@ -54,7 +53,7 @@ setInterval(() => {
         fetch("/api/snapshot", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ room: ROOM, cred: credFor(ROOM), id, data: reader.result }),
+          body: JSON.stringify({ room: ROOM, cred: credFor(ROOM), data: reader.result }),
         }).catch(() => {});
       };
       reader.onerror = () => (snapBusy = false);
@@ -65,29 +64,26 @@ setInterval(() => {
   );
 }, 250);
 
-export function applyDirection({ portal_id, narration, updates, choices, speech, companion }) {
+export function applyDirection({ narration, prompt, choices, speech, companion }) {
   if (state.guideStep === 1 && state.roomState?.log?.some((l) => ["voice", "choice", "guest", "crowd"].includes(l.kind))) setTimeout(() => guide(2), 6000);
   showChoices(choices || []);
   // The companion and the story are one mind: the same answer may carry its reply. One voice at a time.
   const replied = Boolean(companion?.reply && buddy.visible);
   if (replied) {
     buddyReply(companion, !narration);
-    if (typeof companion.open_window === "string") buddyOpensWindow(companion);
+    if (typeof companion.world === "string") buddyChangesWorld(companion.world);
   } else if (buddy.listening) buddyIdle();
   if (speech?.line && !replied) playVoice(speech);
-  for (const u of updates) {
-    const p = portals.get(u.portal_id);
-    if (!p) continue;
-    if (p.stream.status === "idle") p.stream.start(u.prompt);
-    else p.stream.steer(u.prompt);
-    steerSides(u.portal_id, u.prompt); // Wide view: the left and right views follow the story too
+  const w = getWindow();
+  if (w && prompt) {
+    if (w.stream.status === "idle") w.stream.start(prompt);
+    else w.stream.steer(prompt);
+    steerSides(prompt); // Wide view: the left and right views follow the story too
   }
   if (narration) {
-    // The line belongs to the window whose story it is, which may not be the focused one any more.
-    const target = portals.get(portal_id) || portals.get(state.focusId) || portals.values().next().value;
-    if (target) {
-      target.portal._lastStory = narration;
-      if (target.stream.status === "streaming") target.portal.setCaption(narration, "story");
+    if (w) {
+      w.portal._lastStory = narration;
+      if (w.stream.status === "streaming") w.portal.setCaption(narration, "story");
     }
     flash(narration, 5000);
   }
@@ -97,9 +93,9 @@ export function applyDirection({ portal_id, narration, updates, choices, speech,
 const touchCanvas = Object.assign(document.createElement("canvas"), { width: 512, height: 288 });
 let lastTouch = 0;
 export function touchPortal(portal, uv, point) {
-  const entry = entryOf(portal);
-  const v = entry?.stream.video;
-  if (!v || entry.stream.status !== "streaming" || v.readyState < 2) return flash("This world is still forming…");
+  const stream = getWindow()?.stream;
+  const v = stream?.video;
+  if (!v || stream.status !== "streaming" || v.readyState < 2) return flash("This world is still forming…");
   if (performance.now() - lastTouch < 4000) return flash("The world is still answering your last touch…");
   lastTouch = performance.now();
   const g = touchCanvas.getContext("2d");
@@ -113,7 +109,7 @@ export function touchPortal(portal, uv, point) {
   g.arc(x, y, 22, 0, Math.PI * 2);
   g.stroke();
   g.shadowBlur = 0;
-  send({ t: "touch", id: portal.id, image: touchCanvas.toDataURL("image/jpeg", 0.75) });
+  send({ t: "touch", image: touchCanvas.toDataURL("image/jpeg", 0.75) });
   if (point) ripple(point);
   buzz(0.35, 40);
   flash("You reach into the world…", 6000);
@@ -164,20 +160,19 @@ export function refreshCards() {
   const crowd = [...(state.roomState?.suggestions || [])]
     .sort((a, b) => b.voters.length - a.voters.length || a.at - b.at)
     .slice(0, MAX_CROWD_CARDS)
-    // With more than one window open, each idea card says which window it will steer: the focused one.
-    .map((x) => ({ kind: "crowd", id: x.id, text: x.text, by: x.by || "", votes: x.voters.length, to: portals.size > 1 ? state.focusId : null }));
+    .map((x) => ({ kind: "crowd", id: x.id, text: x.text, by: x.by || "", votes: x.voters.length }));
   const director = renderer.xr.isPresenting ? [] : directorChoices.map((text, index) => ({ kind: "choice", index, text }));
   const next = [...crowd, ...director].slice(0, 3);
   const key = JSON.stringify(next);
   if (key === cardsKey) return; // state arrives often; only redraw when something changed
   cardsKey = key;
   cards = next;
-  toolbar.setChoices(cards.map((c) => (c.kind === "crowd" ? { text: c.text, by: c.by, votes: c.votes, to: c.to } : c.text)));
+  toolbar.setChoices(cards.map((c) => (c.kind === "crowd" ? { text: c.text, by: c.by, votes: c.votes } : c.text)));
   const clean = (s) => String(s).replace(/[&<>"]/g, "");
   $("#choices").innerHTML = cards
     .map((c, i) =>
       c.kind === "crowd"
-        ? `<button data-choice="${i}" class="crowd"><small>${clean(c.by || "A friend")} · ▲ ${c.votes}${c.to ? ` · → window ${clean(c.to)}` : ""}</small>${clean(c.text)}</button>`
+        ? `<button data-choice="${i}" class="crowd"><small>${clean(c.by || "A friend")} · ▲ ${c.votes}</small>${clean(c.text)}</button>`
         : `<button data-choice="${i}">${clean(c.text)}</button>`,
     )
     .join("");
@@ -187,7 +182,7 @@ export function pickChoice(i) {
   if (!c) return;
   if (c.kind === "crowd") {
     // Hide it now; the server removes it and the director turns it into the next beat.
-    if (!portals.has(state.focusId)) return flash("Open a window first: an idea steers the window you're looking at.");
+    if (!getWindow()) return flash("Open the window first: an idea steers its story.");
     if (state.roomState) state.roomState.suggestions = (state.roomState.suggestions || []).filter((x) => x.id !== c.id);
     showChoices([]);
     send({ t: "use_suggestion", id: c.id });
@@ -209,13 +204,13 @@ $("#choices").addEventListener("click", (e) => {
 // "What world is this story set in?" (New story) and "What world is behind this window?" (every
 // new window). Answer by voice (hold to talk) or by typing; skip it and the first thing you say
 // defines the world instead. Nothing is ever taken from an earlier story.
-export const ASK = { story: "What world is this story set in?", portal: "What world is behind this window?" };
-export function askWorld(kind, id = null) {
-  state.asking = { kind, id };
+export const ASK = { story: "What world is this story set in?", window: "What world is behind this window?" };
+export function askWorld(kind) {
+  state.asking = { kind };
   $("#askQ").textContent = ASK[kind];
   $("#ask").hidden = false;
   const xr = renderer.xr.isPresenting;
-  if (id) portals.get(id)?.portal.setCaption(ASK.portal, "status");
+  if (kind === "window") getWindow()?.portal.setCaption(ASK.window, "status");
   flash(`${ASK[kind]} ${xr ? "Raise a hand to your mouth (or hold A) and say it." : CameraView.touch ? "Type it, or hold 🎙 and say it." : "Type it, or hold Space and say it."}`, 600000);
   if (xr) speak(ASK[kind], ...NARRATOR);
   else if ($("#overlay").hidden) $("#askText").focus();
@@ -233,15 +228,7 @@ export function answerWorld(text) {
   if (!a || !text) return;
   clearAsk();
   flash(`“${text}”`, 5000);
-  if (a.kind === "portal" && portals.has(a.id)) {
-    portals.get(a.id).portal.setCaption("The world is forming…", "status");
-    return send({ t: "set_seed", id: a.id, seed: text });
-  }
-  // A new story: its first window opens onto the world just named.
-  for (const id of [...portals.keys()]) closePortal(id);
-  send({ t: "set_seed", seed: text });
-  state.pendingSeed = text;
-  openInFront();
+  setWorld(text); // the window's story starts there (a new story's first window opens onto it)
 }
 export function skipWorld() {
   if (!state.asking) return;
@@ -258,10 +245,10 @@ $("#askSkip").onclick = skipWorld;
 // One tap arms the button, which then reads "Tap again to confirm" until you do (or press any
 // other button, or Esc). No timer: a toast that vanishes is easy to miss in the headset.
 function confirmTap(what) {
-  if (state.armed === what || !portals.size) return (state.armed = null), syncButtons(), true; // nothing open: nothing to lose
+  if (state.armed === what || !getWindow()) return (state.armed = null), syncButtons(), true; // nothing open: nothing to lose
   state.armed = what;
   syncButtons(); // show the confirm state right away, not on the next frame
-  flash(`This closes every window and forgets the story. Tap ${what === "reset" ? "Reset story" : "New story"} again to confirm.`, 600000);
+  flash(`This closes the window and forgets the story. Tap ${what === "reset" ? "Reset story" : "New story"} again to confirm.`, 600000);
   return false;
 }
 export function disarm() {
@@ -270,7 +257,7 @@ export function disarm() {
   syncButtons();
   flash("Cancelled.", 1500);
 }
-/** Reset: every window closes and every story, idea and seed is forgotten. */
+/** Reset: the window closes and the story, ideas and seed are forgotten. */
 export function resetPressed() {
   if (!confirmTap("reset")) return true; // waiting for the second tap: the menu stays open
   clearAsk();
@@ -291,7 +278,7 @@ export function resetLocal({ ask = false, open = false, seed = "" } = {}) {
   immersion.reset();
   clearAsk();
   showChoices([]);
-  for (const id of [...portals.keys()]) closePortal(id);
+  closeWindow();
   stopSides(); // the wide view's side streams too
   state.pendingSeed = seed;
   if (open) return openInFront(), flash(seed ? `A new story begins: ${seed}` : "A new story begins.", 6000);

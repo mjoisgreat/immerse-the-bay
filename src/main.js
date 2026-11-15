@@ -4,11 +4,11 @@ import { $, DESKTOP_BG, camera, listener, previewRoom, renderer, scene } from ".
 import { state } from "./app/state.js";
 import { RID, ROOM, handlers, link, send } from "./app/room.js";
 import { toastMesh } from "./app/feedback.js";
-import { aimedAtBuddy, buddy, buddyOpensWindow, syncBuddy, updateCradle } from "./app/buddy.js";
+import { aimedAtBuddy, buddy, buddyChangesWorld, syncBuddy, updateCradle } from "./app/buddy.js";
 import { openInFront, setStartScreen, syncButtons, updateToolbar } from "./app/buttons.js";
 import { camView, desktopWalk, seeThrough } from "./app/desktop.js";
 import { guide, showTitle, updateTitle } from "./app/guide.js";
-import { closeAllStreams, closePortal, immersion, portals, retire, setFocus, stepInside, stepOut } from "./app/portals.js";
+import { closeAllStreams, closeWindow, getWindow, immersion, retire, stepInside, stepOut } from "./app/portals.js";
 import { applyDirection, askWorld, clearAsk, resetLocal, showChoices, updateRipples } from "./app/story.js";
 import { ptt, stopTalking } from "./app/talk.js";
 import { trail } from "./app/trail.js";
@@ -37,12 +37,10 @@ Object.assign(handlers, {
   async onOpen() {
     const r = await link.request({ t: "hello", role: "renderer", rid: RID });
     if (r.status === 403) return location.replace(`/watch.html?room=${ROOM}`); // someone claimed it first
-    for (const [id, p] of portals) {
-      if (p.stream.prompt) send({ t: "portal_sync", id, prompt: p.stream.prompt, status: p.stream.status });
-      else send({ t: "portal_added", id });
-    }
-    if (state.focusId) send({ t: "focus", id: state.focusId });
-    if (immersion.inside) send({ t: "immerse", id: immersion.portal.id });
+    const w = getWindow();
+    if (w?.stream.prompt) send({ t: "window_sync", prompt: w.stream.prompt, status: w.stream.status });
+    else if (w) send({ t: "window_opened" });
+    if (immersion.inside) send({ t: "immerse", inside: true });
     syncBuddy();
   },
   onMessage(m) {
@@ -50,10 +48,9 @@ Object.assign(handlers, {
     else if (m.t === "state") {
       state.roomState = m;
       // Someone else (the console, a co-narrator) named the world we were asking about.
-      if (state.asking?.kind === "portal" && m.threads?.[state.asking.id]?.seed) clearAsk(true);
-      showChoices(m.choices || []); // the focused window's options, plus the audience's ideas and votes
-      if (m.focusId && m.focusId !== state.focusId && portals.has(m.focusId)) setFocus(m.focusId, false);
-    } else if (m.t === "close_portal") closePortal(m.id);
+      if (state.asking?.kind === "window" && m.story?.seed) clearAsk(true);
+      showChoices(m.choices || []); // the director's options, plus the audience's ideas and votes
+    } else if (m.t === "close_window") closeWindow();
     else if (m.t === "reset") resetLocal(m);
     else if (m.t === "open_portal") openInFront();
     else if (m.t === "takeover" && m.rid !== RID && !state.retired) retire();
@@ -71,9 +68,7 @@ $("#cheat-toggle").onclick = (e) => {
 };
 
 async function setupXR() {
-  const cfg = await fetch("/api/config").then((r) => r.json()).catch(() => ({}));
-  state.maxPortals = cfg.maxPortals || state.maxPortals;
-  const xrOk = Boolean(navigator.xr) && (await navigator.xr.isSessionSupported("immersive-ar").catch(() => false));
+    const xrOk = Boolean(navigator.xr) && (await navigator.xr.isSessionSupported("immersive-ar").catch(() => false));
   if (!xrOk) {
     // No mixed reality here: offer the desktop preview, and say where the real thing runs.
     enterBtn.textContent = "Explore the preview";
@@ -102,8 +97,8 @@ async function setupXR() {
     });
     showTitle();
     // A world question that was waiting on the flat page is asked again, out loud.
-    if (state.asking) setTimeout(() => state.asking && askWorld(state.asking.kind, state.asking.id), 7000);
-    else if (!portals.size) setTimeout(() => guide(0), 4500);
+    if (state.asking) setTimeout(() => state.asking && askWorld(state.asking.kind), 7000);
+    else if (!getWindow()) setTimeout(() => guide(0), 4500);
     else state.guideStep = 2; // already mid-story (or a prepared demo): no tutorial
   };
 }
@@ -116,7 +111,7 @@ const clock = new THREE.Clock();
 renderer.setAnimationLoop(() => {
   const dt = Math.min(clock.getDelta(), 0.1);
   const t = clock.elapsedTime;
-  for (const { portal } of portals.values()) portal.update(t);
+  getWindow()?.portal.update(t);
   checkWalking();
   if (!renderer.xr.isPresenting && camView.update(camera, state.yaw)) state.yaw = headingOf(camera.quaternion);
   // Over the real world (headset, or the camera view) the step-inside world is drawn first, so the
@@ -143,7 +138,9 @@ renderer.setAnimationLoop(() => {
   buddy.update(dt);
   updateRipples();
   updateTitle();
-  for (const { portal, stream } of portals.values()) {
+  const w = getWindow();
+  if (w) {
+    const { portal, stream } = w;
     // The "hole in the wall" only makes sense over passthrough
     // ...nor over a 3D world background (there's no real wall to cut into).
     // It stays on while you step in and out (the world is drawn before it, so it can't cut holes there),
@@ -158,4 +155,4 @@ renderer.setAnimationLoop(() => {
 });
 
 // `?debug`: the app's objects on `window.lw`, for poking at it from the browser console.
-if (new URLSearchParams(location.search).has("debug")) window.lw = { THREE, renderer, scene, camera, portals, immersion, backdrop, buddy, buddyOpensWindow, heartsFor, ptt, openInFront, stepInside, stepOut };
+if (new URLSearchParams(location.search).has("debug")) window.lw = { THREE, renderer, scene, camera, getWindow, immersion, backdrop, buddy, buddyChangesWorld, heartsFor, ptt, openInFront, stepInside, stepOut };

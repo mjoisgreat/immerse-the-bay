@@ -9,7 +9,7 @@ import { state } from "./state.js";
 import { ROOM, send } from "./room.js";
 import { buzz, chime, flash } from "./feedback.js";
 import { buddy, buddyIdle } from "./buddy.js";
-import { immersion, portals } from "./portals.js";
+import { getWindow, immersion } from "./portals.js";
 import { answerWorld } from "./story.js";
 
 // ---------- Voice ----------
@@ -94,8 +94,8 @@ export async function stopTalking() {
 // Characters speak their lines aloud, from their window (or all around you when you're inside it).
 let voice = null;
 let voiceEnd = null; // onEnd of the line playing now
-export async function playVoice({ speaker, line, voice: style, portal_id }) {
-  const target = portals.get(portal_id) || portals.get(state.focusId);
+export async function playVoice({ speaker, line, voice: style }) {
+  const target = getWindow();
   target?.portal.setCaption(`${speaker}: “${line}”`, "story");
   // From the character's window, or all around you when you're inside that world.
   const inside = immersion.inside && target && immersion.portal === target.portal;
