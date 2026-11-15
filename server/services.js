@@ -52,21 +52,9 @@ export async function endOrbisSession(sessionId, jwt) {
   if (!r.ok && r.status !== 404) throw new HttpError(r.status, "session cleanup failed");
 }
 
-/** 16 kHz mono Int16 PCM -> text. STT_MODE=openai uses OpenAI; otherwise the local Whisper sidecar. */
+/** 16 kHz mono Int16 PCM -> text, via OpenAI Whisper. */
 export async function transcribe(pcm) {
-  if (process.env.STT_MODE === "openai") return transcribeOpenAI(pcm);
-  let r;
-  try {
-    r = await fetch(`${process.env.STT_URL || "http://127.0.0.1:8790"}/transcribe`, {
-      method: "POST",
-      headers: { "Content-Type": "application/octet-stream" },
-      body: pcm,
-    });
-  } catch {
-    throw new HttpError(502, "speech-to-text sidecar is not running (npm run stt)");
-  }
-  if (!r.ok) throw new HttpError(502, `speech-to-text failed (${r.status})`);
-  return (await r.json()).text || "";
+  return transcribeOpenAI(pcm);
 }
 
 const VOICES = ["ash", "ballad", "coral", "echo", "fable", "nova", "onyx", "sage", "shimmer", "verse"];

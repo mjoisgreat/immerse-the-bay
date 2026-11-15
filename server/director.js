@@ -7,6 +7,9 @@ import { z } from "zod";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 
 const MODEL = "claude-opus-5-5";
+// OpenAI alternative. Set OPENAI_MODEL / OPENAI_REASONING_EFFORT to change them.
+const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-6-luna";
+const OPENAI_EFFORT = process.env.OPENAI_REASONING_EFFORT || "medium";
 
 // The companion's body in the room. Bonnie is the default (after the Stanford XR mascot); Pip is the robot.
 export const PERSONAS = {
@@ -155,8 +158,51 @@ function tidy(out, { event, companion }) {
 }
 
 export function createDirector() {
-  const hasKey = Boolean(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN);
-  const client = hasKey ? new Anthropic() : null;
+  // DIRECTOR_PROVIDER=anthropic|openai forces one; otherwise Claude if its key is set, else OpenAI.
+  const hasAnthropic = Boolean(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN);
+  const hasOpenAI = Boolean(process.env.OPENAI_API_KEY);
+  const forced = process.env.DIRECTOR_PROVIDER;
+  const provider =
+    forced === "openai" && hasOpenAI ? "openai"
+    : forced === "anthropic" && hasAnthropic ? "anthropic"
+    : hasAnthropic ? "anthropic"
+    : hasOpenAI ? "openai"
+    : null;
+  const client = provider === "anthropic" ? new Anthropic() : null;
+
+  async function askOpenAI({ system, payload, image }) {
+    const text = JSON.stringify(payload);
+    const r = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
+      body: JSON.stringify({
+        model: OPENAI_MODEL,
+        reasoning_effort: OPENAI_EFFORT,
+        max_completion_tokens: 8000,
+        messages: [
+          { role: "system", content: system },
+          {
+            role: "user",
+            content: image
+              ? [
+                  { type: "image_url", image_url: { url: `data:image/jpeg;base64,${image}` } },
+                  { type: "text", text },
+                ]
+              : text,
+          },
+        ],
+        response_format: {
+          type: "json_schema",
+          json_schema: { name: "direction", strict: true, schema: z.toJSONSchema(Direction) },
+        },
+      }),
+    });
+    if (!r.ok) throw new Error(`OpenAI API ${r.status}: ${(await r.text()).slice(0, 300)}`);
+    const choice = (await r.json()).choices?.[0];
+    if (choice?.message?.refusal) throw new Error(`OpenAI refusal: ${choice.message.refusal}`);
+    if (!choice?.message?.content) throw new Error(`no content (finish_reason=${choice?.finish_reason})`);
+    return Direction.parse(JSON.parse(choice.message.content));
+  }
 
   /** companion: { id: "bunny" | "pip", present }, chat: recent [{ you, reply }] with the companion. */
   async function direct(input) {
@@ -166,7 +212,7 @@ export function createDirector() {
   async function think({ event, story, portals, others = [], focusId, immersedId = null, companion = null, chat = [] }) {
     story = story || { seed: "", bible: "", beats: [] };
     const backup = () => fallback({ event, story, portals, focusId, immersedId, companion });
-    if (!client) return backup();
+    if (!provider) return backup();
     const persona = personaOf(companion);
 
     const payload = {
@@ -193,6 +239,16 @@ export function createDirector() {
       : JSON.stringify(payload);
 
     try {
+      if (provider === "openai") {
+        const out = await askOpenAI({
+          system: `${SYSTEM}\n\nYour body in the room. ${persona.who}`,
+          payload,
+          image,
+        });
+        const ids = new Set(portals.map((p) => p.id));
+        out.updates = out.updates.filter((u) => ids.has(u.portal_id) && u.prompt.trim());
+        return out;
+      }
       const response = await client.beta.messages.parse({
         model: MODEL,
         max_tokens: 4000,
@@ -219,7 +275,7 @@ export function createDirector() {
     }
   }
 
-  return { direct, usingClaude: hasKey };
+  return { direct, provider, usingClaude: provider === "anthropic" };
 }
 
 const IMMERSIVE =
