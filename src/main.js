@@ -93,7 +93,7 @@ function buzz(strength = 0.6, ms = 90) {
   for (const src of renderer.xr.getSession()?.inputSources || []) src.gamepad?.hapticActuators?.[0]?.pulse?.(strength, ms);
 }
 // A short tone so a gesture is heard as well as seen (hands have no haptics; controllers also buzz).
-const TONES = { talk: [660, 880], send: [880, 660], open: [392, 523, 784], close: [784, 523, 392], shake: [300, 220, 300, 220], whee: [523, 784, 1047], bounce: [160, 95], snap: [660, 990] };
+const TONES = { talk: [660, 880], send: [880, 660], open: [392, 523, 784], close: [784, 523, 392], shake: [300, 220, 300, 220], whee: [523, 784, 1047], bounce: [160, 95] };
 function chime(kind) {
   const ctx = listener.context;
   if (ctx.state !== "running") return;
@@ -456,6 +456,7 @@ async function startTalking(gesture = false) {
   wantTalk = true;
   byGesture = gesture === true;
   talkingToBuddy = buddy.isLookedAt(); // look at the companion while you talk and your words go to it
+  buddy.attend(true); // whatever you say, she comes over to listen
   if (talkingToBuddy) buddy.listen();
   try {
     await ptt.begin();
@@ -473,12 +474,14 @@ async function startTalking(gesture = false) {
     flash(byGesture ? "Listening… lower your hand when you're done" : "Listening… let go when you're done", 60000);
   } catch (e) {
     wantTalk = false;
+    buddy.attend(false);
     if (talkingToBuddy) buddy.react({ gesture: "none", move: "none" });
     flash(`Microphone unavailable: ${e.message}`);
   }
 }
 async function stopTalking() {
   wantTalk = false;
+  buddy.attend(false); // you've finished talking: she can go back to what she was doing
   if (!talking) return;
   talking = false;
   micOrb.material.emissive.set(0x442200);
@@ -865,7 +868,7 @@ function onSelectEnd(ctrl) {
 }
 
 function onSqueeze(ctrl) {
-  if (ctrl.userData.isHand) return; // a middle-finger pinch (like a snap) must not close a window; shake does that
+  if (ctrl.userData.isHand) return; // a middle-finger pinch must not close a window by accident; shake does that
   rayFrom(ctrl);
   const portal = raycaster.intersectObjects(targets(), false)[0]?.object.userData.portal;
   if (portal) closePortal(portal.id);
@@ -1281,14 +1284,6 @@ function toggleBuddyFollow() {
     5000,
   );
 }
-/** Snap: call Bonnie. If she isn't here she appears; if she is, she hops back over to you. */
-function callBuddy() {
-  if (!buddy.visible) return toggleBuddy();
-  if (!buddy.ready || !renderer.xr.isPresenting) return;
-  buddy.summon(1.4);
-  buddy.gesture("wave");
-  buddy.say("Coming!", 3000);
-}
 function toggleBuddy() {
   if (buddy.visible) return buddy.dismiss(), syncBuddy(false), flash(`${BUDDY.name} waves goodbye.`);
   if (!buddy.ready) return flash(`${BUDDY.name} is still waking up…`);
@@ -1646,11 +1641,6 @@ const gestures = new HandGestures(renderer, camera, {
     confirmGesture("shake", 0xff6a4a);
     flash(`Window ${focusId} wiped away.`, 2500);
     closePortal(focusId);
-  },
-  snap() {
-    if (immersion.inside) return; // Bonnie lives in your room, not inside a world
-    confirmGesture("snap", 0xffd08a);
-    callBuddy();
   },
   palm: () => (gestures.pulse(0xffffff), setButtonsHidden(!toolbar.collapsed)),
   // (the how-to card at the start of the session now teaches every gesture)
