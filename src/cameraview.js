@@ -24,6 +24,8 @@ const headingOf = (q) => new THREE.Euler().setFromQuaternion(q, "YXZ").y;
 export class CameraView {
   constructor() {
     this.on = false;
+    this._starting = false;
+    this._stopRequested = false;
     this.texture = null;
     this.video = null;
     this.mirrored = false;
@@ -46,6 +48,17 @@ export class CameraView {
 
   /** Turn it on (call from a tap or click: iPhones only ask for motion access inside one). */
   async start() {
+    if (this.on || this._starting) return;
+    this._starting = true;
+    this._stopRequested = false;
+    try {
+      await this._start();
+    } finally {
+      this._starting = false;
+    }
+  }
+
+  async _start() {
     // Ask for motion first, while the tap still counts as a user gesture (iOS).
     let motion = false;
     if (CameraView.touch && typeof DeviceOrientationEvent !== "undefined") {
@@ -60,6 +73,10 @@ export class CameraView {
       video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1080 } },
       audio: false,
     });
+    if (this._stopRequested) {
+      stream.getTracks().forEach((t) => t.stop());
+      return;
+    }
     const video = Object.assign(document.createElement("video"), { srcObject: stream, muted: true, playsInline: true, autoplay: true });
     video.setAttribute("playsinline", "");
     await video.play().catch(() => {});
@@ -84,11 +101,14 @@ export class CameraView {
   }
 
   stop() {
+    if (this._starting) this._stopRequested = true;
     if (!this.on) return;
     this.on = false;
     this.orienting = false;
     removeEventListener("deviceorientation", this._onOrient);
     removeEventListener("resize", this.fit);
+    this.video?.removeEventListener("loadedmetadata", this.fit);
+    this.video?.pause();
     this.video?.srcObject?.getTracks().forEach((t) => t.stop());
     this.texture?.dispose();
     this.texture = this.video = null;

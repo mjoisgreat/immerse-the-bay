@@ -7,11 +7,12 @@
 //   - long enough to go round (not a flick), and touch all four sides of its bounding box.
 // The window is then "projected" onto the wall: placed DISTANCE metres away along your line of
 // sight through the drawing, scaled so it looks exactly as big as what you drew.
+import { MIN_SCALE, MAX_SCALE } from "./portalresize.js";
+
 const MIN_SIDE = 0.12; // metres
 const MIN_POINTS = 10;
 export const DISTANCE = 1.8; // where windows sit (metres from your eyes)
-export const PORTAL_W = 1.6, PORTAL_H = 0.9; // a window's size at scale 1
-const MIN_SCALE = 0.4, MAX_SCALE = 2.5;
+const PORTAL_W = 1.6, PORTAL_H = 0.9; // a window's size at scale 1
 
 const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
 const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];

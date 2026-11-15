@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { LAYER } from "./layers.js";
 
 // "Step inside": one portal's live video becomes the world around you.
 //
@@ -8,7 +9,7 @@ import * as THREE from "three";
 // It covers your natural field of view ahead; past its edges, a soft blurred extension of the
 // picture fills your peripheral vision so there's no hard frame. It stays at "infinity" (follows
 // your head position, not your rotation), and motes drifting at arm's length give near depth.
-// A light sharpen and fine grain keep the upscaled video crisp instead of soft or blocky.
+// On a flat screen a light sharpen keeps the upscaled video crisp instead of soft.
 const HFOV = (84 * Math.PI) / 180; // matches the "20 mm wide-angle" view the director asks Orbis for
 const TANH = Math.tan(HFOV / 2);
 const TANV = TANH * (9 / 16);
@@ -128,9 +129,7 @@ void main(){
   // view overlap, the main one wins and only its soft edge crossfades into the side (a narrow band,
   // instead of the two different videos averaged over the whole overlap, which showed as ghosting).
   vec3 video = mix(mix(ext, sideCol, ws), sharp, inFrame);
-  // Fine grain hides compression blocks on a flat screen. Not in the headset: per-frame noise that
-  // differs between your eyes reads as sparkling and flicker.
-  video += (hash(gl_FragCoord.xy + fract(time) * 91.0) - 0.5) * 0.022 * (1.0 - premult);
+  // (No film grain: noise that changes every frame made the whole view flicker, on a flat screen too.)
 
   // Before frames arrive: the same swirl the portal shows while a world forms.
   float sw = noise(vec2(atan(d.x, -d.z) * 2.0 + time * 0.6, d.y * 3.0 - time * 0.4));
@@ -209,7 +208,7 @@ export class Immersion {
         depthWrite: false, // drawn behind your hands, Pip and the windows (wall masks are hidden while inside)
       }),
     );
-    this.dome.renderOrder = -10; // behind every portal and UI element
+    this.dome.renderOrder = LAYER.INSIDE;
     this.dome.frustumCulled = false;
     this.dome.visible = false;
     scene.add(this.dome); // at infinity: follows your head position, keeps the world's rotation
@@ -239,7 +238,7 @@ export class Immersion {
     });
     this.motes = new THREE.Points(g, this.moteMat);
     this.motes.frustumCulled = false;
-    this.motes.renderOrder = 5;
+    this.motes.renderOrder = LAYER.MOTES;
     this.world.add(this.motes);
 
     this.sampler = Object.assign(document.createElement("canvas"), { width: 16, height: 9 });
@@ -418,7 +417,7 @@ export class Immersion {
       m.blending = opaque ? THREE.CustomBlending : THREE.NormalBlending;
       m.blendSrc = m.blendSrcAlpha = THREE.OneFactor;
       m.blendDst = m.blendDstAlpha = THREE.OneMinusSrcAlphaFactor;
-      this.dome.renderOrder = opaque ? -30 : -10;
+      this.dome.renderOrder = opaque ? LAYER.INSIDE_OPAQUE : LAYER.INSIDE;
     }
     this.uniforms.premult.value = opaque ? 1 : 0;
     const target = this.inside ? 1 : 0;

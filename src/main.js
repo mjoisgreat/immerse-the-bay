@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { XRControllerModelFactory } from "three/addons/webxr/XRControllerModelFactory.js";
 import { XRHandModelFactory } from "three/addons/webxr/XRHandModelFactory.js";
-import { Portal, PORTAL_SIZE } from "./portal.js";
+import { Portal, Caption, PORTAL_SIZE } from "./portal.js";
 import { resizedScale, carriedPosition, MIN_SCALE, MAX_SCALE } from "./portalresize.js";
 import { TouchGestureRecognizer } from "./touchgestures.js";
 import { analyzeStroke, strokeHint } from "./drawportal.js";
@@ -20,6 +20,7 @@ import { createLink, speechHeaders } from "./link.js";
 import { PRESETS, TAGLINE } from "./presets.js";
 import { CameraView, headingOf } from "./cameraview.js";
 import { urlRoom, urlInvite, owned, lastOwnedRoom, newRoomCode, makeOwnerCreds, credFor, voterId } from "./identity.js";
+import { LAYER } from "./layers.js";
 
 const $ = (s) => document.querySelector(s);
 const statusEl = $("#status");
@@ -59,15 +60,6 @@ addEventListener("resize", () => {
   camera.updateProjectionMatrix();
   renderer.setSize(innerWidth, innerHeight);
 });
-
-// ---------- Mic orb: retired (hidden), kept only so older code paths that reference it still work ----------
-const micOrb = new THREE.Mesh(
-  new THREE.SphereGeometry(0.035, 32, 16),
-  new THREE.MeshStandardMaterial({ color: 0xffb36b, emissive: 0x442200, roughness: 0.3 }),
-);
-micOrb.position.set(-0.22, -0.2, -0.55);
-micOrb.userData.mic = true;
-camera.add(micOrb);
 
 // Exit orb (blue, right side): only shown while you're inside a world. Pinch it to step back out.
 const exitOrb = new THREE.Mesh(
@@ -114,7 +106,7 @@ function stepInside(portal) {
   if (!portal || (immersion.inside && immersion.portal === portal)) return;
   hideGestureCard(); // you've clearly found your way around
   setFocus(portal.id);
-  immersion.enter(portal, [...portals.values()].find((p) => p.portal === portal)?.stream.video);
+  immersion.enter(portal, entryOf(portal)?.stream.video);
   flash(
     renderer.xr.isPresenting
       ? `You stepped into window ${portal.id}. Bring your hands together, or shake them, to step back out (or press B/Y).`
@@ -136,6 +128,12 @@ let focusId = null;
 let maxPortals = 3;
 const LETTERS = "ABCDEF";
 
+/** The { portal, stream } entry (and id) of a Portal object. */
+function entryOf(portal) {
+  for (const [id, e] of portals) if (e.portal === portal) return { id, ...e };
+  return null;
+}
+
 function nextId() {
   for (const l of LETTERS) if (!portals.has(l)) return l;
   return null;
@@ -151,8 +149,6 @@ function placeInFront(obj, origin, dir, dist = 1.8) {
 /**
  * Opens a window. Every window is its own story, so unless a world was chosen ahead of time
  * (New story, Prepare demo, the console) it asks "what world is behind this window?".
- */
-/**
  * opts.at: where it goes ([x, y, z] where you drew it, or {x, y, z} where the companion stands), facing you;
  * opts.scale: its size (a drawn window); opts.world: the world its story starts in (no question asked).
  */
@@ -231,9 +227,9 @@ function sidePrompt(prompt, side) {
   return `The same place at the same moment, seen from the same standing spot with the camera turned 72 degrees to the ${side}. ${prompt} This shot shows what lies to the ${side} of that view, continuing the same ground, horizon height, light, weather and time of day seamlessly. One continuous take, an almost still camera.`;
 }
 function startSides() {
-  const entry = [...portals.entries()].find(([, x]) => x.portal === immersion.portal);
-  if (!entry || !entry[1].stream.prompt) return; // the main view has no scene yet: try again shortly
-  const [id, { stream }] = entry;
+  const entry = entryOf(immersion.portal);
+  if (!entry?.stream.prompt) return; // the main view has no scene yet: try again shortly
+  const { id, stream } = entry;
   stopSides();
   sides.for = id;
   for (const side of ["L", "R"]) {
@@ -263,7 +259,7 @@ function steerSides(id, prompt) {
 // another 20-30 s wait for the side views.
 const SIDES_GRACE_MS = 15000;
 function updateSides() {
-  const wantFor = wideOn && immersion.inside ? [...portals.entries()].find(([, x]) => x.portal === immersion.portal)?.[0] : null;
+  const wantFor = wideOn && immersion.inside ? (entryOf(immersion.portal)?.id ?? null) : null;
   if (wantFor) sides.leftAt = 0;
   if (sides.for && sides.for !== wantFor) {
     const now = performance.now();
@@ -474,8 +470,6 @@ async function startTalking(gesture = false) {
       return;
     }
     talking = true;
-    micOrb.material.emissive.set(0xff3300);
-    micOrb.scale.setScalar(1.4);
     chime("talk");
     buzz(0.5, 60);
     flash(byGesture ? "Listening… lower your hand when you're done" : "Listening… let go when you're done", 60000);
@@ -489,8 +483,6 @@ async function stopTalking() {
   wantTalk = false;
   if (!talking) return;
   talking = false;
-  micOrb.material.emissive.set(0x442200);
-  micOrb.scale.setScalar(1);
   chime("send");
   buzz(0.3, 40);
   flash("Thinking…", 20000);
@@ -520,18 +512,17 @@ async function stopTalking() {
 }
 
 // ---------- In-headset toast ----------
-const toast = new Portal("toast"); // reuse the caption renderer only
-const toastMesh = toast.group.children[2];
-toast.group.remove(toastMesh);
+const toast = new Caption();
+const toastMesh = toast.mesh;
 toastMesh.position.set(0, -0.32, -1.1);
-toastMesh.renderOrder = 50; // on top of everything, in a fixed order
+toastMesh.renderOrder = LAYER.TOAST;
 toastMesh.material.depthTest = false; // ...even when a window or its wall mask is nearer than the toast
 toastMesh.scale.setScalar(0.5);
 camera.add(toastMesh);
 let toastTimer;
 function flash(text, ms = 3000) {
   say(text);
-  toast.setCaption(text, "status");
+  toast.set(text, "status");
   toastMesh.visible = true;
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => (toastMesh.visible = false), ms);
@@ -545,7 +536,7 @@ const controllerFactory = new XRControllerModelFactory();
 const handFactory = new XRHandModelFactory();
 
 function targets() {
-  const ui = immersion.inside ? [micOrb, exitOrb] : [micOrb];
+  const ui = immersion.inside ? [exitOrb] : [];
   if (renderer.xr.isPresenting) ui.push(...toolbar.targets);
   if (buddy.visible) ui.push(buddy.hitbox);
   if (gestureCard.visible) ui.push(gestureCard.closeButton, gestureCard.mesh);
@@ -589,10 +580,6 @@ for (let i = 0; i < 2; i++) {
 function onSelectStart(ctrl) {
   const ray = rayFrom(ctrl);
   const hit = raycaster.intersectObjects(targets(), false)[0];
-  if (hit?.object.userData.mic) {
-    ctrl.userData.talking = true;
-    return startTalking();
-  }
   if (hit?.object.userData.exit) return stepOut();
   if (hit?.object.userData.cardClose) return hideGestureCard(), buzz(0.3, 30);
   if (hit?.object.userData.gestureCard) return; // pinching the card itself does nothing; only its ✕ closes it
@@ -702,7 +689,7 @@ const trail = (() => {
   });
   const pts = new THREE.Points(geo, mat);
   pts.frustumCulled = false;
-  pts.renderOrder = 40;
+  pts.renderOrder = LAYER.DRAW_TRAIL;
   pts.visible = false;
   scene.add(pts);
   let n = 0, fadeFrom = 0;
@@ -847,10 +834,6 @@ function onSelectEnd(ctrl) {
     toolbar.release(ctrl.userData.button, ctrl);
     ctrl.userData.button = null;
   }
-  if (ctrl.userData.talking) {
-    ctrl.userData.talking = false;
-    stopTalking();
-  }
   const p = ctrl.userData.grabbed;
   const tap = ctrl.userData.tap;
   ctrl.userData.tap = null;
@@ -942,7 +925,7 @@ function checkWalking() {
 const touchCanvas = Object.assign(document.createElement("canvas"), { width: 512, height: 288 });
 let lastTouch = 0;
 function touchPortal(portal, uv, point) {
-  const entry = [...portals.values()].find((x) => x.portal === portal);
+  const entry = entryOf(portal);
   const v = entry?.stream.video;
   if (!v || entry.stream.status !== "streaming" || v.readyState < 2) return flash("This world is still forming…");
   if (performance.now() - lastTouch < 4000) return flash("The world is still answering your last touch…");
@@ -978,7 +961,7 @@ function ripple(point) {
   );
   m.position.copy(point);
   m.lookAt(camera.getWorldPosition(new THREE.Vector3()));
-  m.renderOrder = 15;
+  m.renderOrder = LAYER.RIPPLE;
   m.userData.born = performance.now();
   scene.add(m);
   ripples.push(m);
@@ -1598,29 +1581,33 @@ function updateToolbar() {
   gestureCard.hoverClose(hits.includes(gestureCard.closeButton));
   syncButtons();
 }
+// Called every frame: the DOM is only touched when a label or state actually changed.
+const setText = (el, text) => el.textContent !== text && (el.textContent = text);
+const setClass = (el, name, on) => el.classList.contains(name) !== on && el.classList.toggle(name, on);
 function syncButtons() {
   // The world button names where it takes you next.
-  const nw = nextWorld();
-  toolbar.set("world", { label: nw ? worldInfo(nw).label : "See-through", icon: nw ? worldInfo(nw).icon : "👓" });
-  bar.world.textContent = nw ? worldInfo(nw).bar : "See-through";
+  const nw = nextWorld(), inside = immersion.inside;
+  const resetLabel = armed === "reset" ? "Tap again to confirm" : "Reset story";
+  const newLabel = armed === "newstory" ? "Tap again to confirm" : "New story";
+  toolbar.set("world", { label: nw ? worldInfo(nw).label : "See-through", icon: nw ? worldInfo(nw).icon : "👓", state: backdrop.loading ? "active" : "idle" });
   toolbar.set("wide", { state: wideOn ? "active" : "idle", label: wideOn ? "Wide: on" : "Wide view" });
-  bar.wide.textContent = wideOn ? "Wide view: on" : "Wide view";
-  bar.wide.classList.toggle("on", wideOn);
-  bar.camera.textContent = camView.on ? "Camera: on" : "Camera";
-  bar.camera.classList.toggle("on", camView.on);
   toolbar.set("talk", { state: talking ? "active" : "idle", label: talking ? "Listening…" : "Hold to talk" });
-  toolbar.set("step", { label: immersion.inside ? "Step out" : "Step inside", icon: immersion.inside ? "↩" : "🚪" });
-  toolbar.set("reset", { state: armed === "reset" ? "warn" : "idle", label: armed === "reset" ? "Tap again to confirm" : "Reset story" });
-  toolbar.set("newstory", { state: armed === "newstory" ? "warn" : "idle", label: armed === "newstory" ? "Tap again to confirm" : "New story" });
-  toolbar.set("world", { state: backdrop.loading ? "active" : "idle" });
-  bar.talk.classList.toggle("on", talking);
+  toolbar.set("step", { label: inside ? "Step out" : "Step inside", icon: inside ? "↩" : "🚪" });
+  toolbar.set("reset", { state: armed === "reset" ? "warn" : "idle", label: resetLabel });
+  toolbar.set("newstory", { state: armed === "newstory" ? "warn" : "idle", label: newLabel });
+  setText(bar.world, nw ? worldInfo(nw).bar : "See-through");
+  setText(bar.wide, wideOn ? "Wide view: on" : "Wide view");
+  setClass(bar.wide, "on", wideOn);
+  setText(bar.camera, camView.on ? "Camera: on" : "Camera");
+  setClass(bar.camera, "on", camView.on);
+  setText(bar.talk, talking ? "Listening…" : "Hold to talk");
+  setClass(bar.talk, "on", talking);
+  setText(bar.step, inside ? "Step out" : "Step inside");
+  setText(bar.reset, resetLabel);
+  setClass(bar.reset, "warn", armed === "reset");
+  setText(bar.newstory, newLabel);
+  setClass(bar.newstory, "warn", armed === "newstory");
   syncDock();
-  bar.talk.textContent = talking ? "Listening…" : "Hold to talk";
-  bar.step.textContent = immersion.inside ? "Step out" : "Step inside";
-  bar.reset.textContent = armed === "reset" ? "Tap again to confirm" : "Reset story";
-  bar.reset.classList.toggle("warn", armed === "reset");
-  bar.newstory.textContent = armed === "newstory" ? "Tap again to confirm" : "New story";
-  bar.newstory.classList.toggle("warn", armed === "newstory");
 }
 
 // Hand gestures (the main way in; the controller buttons do the same three things): mic to the mouth,
@@ -1787,13 +1774,13 @@ function syncDock() {
   if (!MOBILE) return;
   const set = (b, icon, label, on) => {
     const [i, sp] = b.children;
-    if (i.textContent !== icon) i.textContent = icon;
-    if (sp.textContent !== label) sp.textContent = label;
-    b.classList.toggle("on", Boolean(on));
+    setText(i, icon);
+    setText(sp, label);
+    setClass(b, "on", Boolean(on));
   };
   set(dock.step, immersion.inside ? "↩" : "🚪", immersion.inside ? "Step out" : "Step in", immersion.inside);
   set(dock.talk, "🎙", talking ? "Listening…" : "Hold to talk", talking);
-  set(dock.buddy, "🐰", BUDDY.name, buddy.visible);
+  set(dock.buddy, BUDDY.icon, BUDDY.name, buddy.visible);
 }
 
 // ---------- Desktop controls (for building and testing without the headset) ----------
@@ -2050,14 +2037,10 @@ async function setupXR() {
     await renderer.xr.setSession(session);
     camView.stop(); // the headset (or phone AR) has its own see-through
     loco.start();
-    scene.background = null;
-    previewRoom.visible = false;
     $("#overlay").hidden = true;
     session.addEventListener("end", () => {
       immersion.reset();
       loco.stop();
-      scene.background = new THREE.Color(0x0b0e16);
-      previewRoom.visible = true;
       $("#overlay").hidden = false;
     });
     showTitle();
@@ -2111,12 +2094,10 @@ renderer.setAnimationLoop(() => {
     if (guideStep === 0 && stream.status === "streaming") guide(1);
   }
   if (!renderer.xr.isPresenting) syncButtons();
-  micOrb.position.y = -0.2 + Math.sin(t * 2) * 0.004;
-  // The orb and in-view caption are headset UI; on desktop, Space and the status bar do the job.
-  // The old pinch-and-hold mic orb is retired (it floated as an orange ball in your view): talk with your
-  // hand to your mouth, A/X, or the Hold-to-talk button, which all show "Listening…".
-  micOrb.visible = false;
-  if (!renderer.xr.isPresenting) toastMesh.visible = false;
+  if (!renderer.xr.isPresenting) toastMesh.visible = false; // headset UI; on a flat screen the status bar does the job
   pollButtons();
   renderer.render(scene, camera);
 });
+
+// `?debug`: the app's objects on `window.lw`, for poking at it from the browser console.
+if (new URLSearchParams(location.search).has("debug")) window.lw = { THREE, renderer, scene, camera, portals, immersion, backdrop, buddy, openInFront, stepInside, stepOut };

@@ -1,7 +1,10 @@
 import * as THREE from "three";
+import { LAYER } from "./layers.js";
 
 // A floating button panel for the headset. It rests below your gaze, follows you lazily when you
 // turn or walk away, and is pressed by pointing (controller trigger or hand pinch).
+const tmpEye = new THREE.Vector3(), tmpFwd = new THREE.Vector3(), tmpWant = new THREE.Vector3(), tmpTo = new THREE.Vector3();
+const tmpQ = new THREE.Quaternion();
 const BW = 0.12, BH = 0.071, GAP = 0.01; // nine buttons span about 1.16 m at arm's length
 
 function drawButton(canvas, { icon, label, state }) {
@@ -42,7 +45,7 @@ export class Toolbar {
         new THREE.PlaneGeometry(BW, BH),
         new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthTest: false }),
       );
-      mesh.renderOrder = 20; // always readable, even inside a world
+      mesh.renderOrder = LAYER.TOOLBAR; // always readable, even inside a world
       mesh.position.x = -total / 2 + BW / 2 + i * (BW + GAP);
       mesh.userData.button = b.id;
       this.group.add(mesh);
@@ -50,6 +53,7 @@ export class Toolbar {
       this.buttons.set(b.id, { ...b, canvas, tex, mesh, state: "idle", hovered: false });
       this._draw(b.id);
     });
+    this._targets = null;
     this.anchor = new THREE.Vector3();
     this.placed = false;
 
@@ -65,7 +69,7 @@ export class Toolbar {
         new THREE.PlaneGeometry(CW, CH),
         new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthTest: false }),
       );
-      mesh.renderOrder = 20;
+      mesh.renderOrder = LAYER.TOOLBAR;
       mesh.position.set(-total / 2 + CW / 2 + i * (CW + GAP), BH / 2 + GAP + CH / 2, 0);
       mesh.userData.choice = i;
       mesh.userData.canvas = canvas;
@@ -84,7 +88,7 @@ export class Toolbar {
       new THREE.PlaneGeometry(0.13, 0.04),
       new THREE.MeshBasicMaterial({ map: this.handleTex, transparent: true, depthTest: false, opacity: 0.85 }),
     );
-    this.handle.renderOrder = 20;
+    this.handle.renderOrder = LAYER.TOOLBAR;
     this.handle.userData.button = "__show";
     this.handle.visible = false;
     this.group.add(this.handle);
@@ -112,6 +116,7 @@ export class Toolbar {
 
   setCollapsed(on) {
     this.collapsed = Boolean(on);
+    this._targets = null;
     for (const m of this.meshes) m.visible = !this.collapsed;
     this.choiceMeshes.forEach((m, i) => (m.visible = !this.collapsed && Boolean(this.choices[i])));
     this.handle.visible = this.collapsed;
@@ -124,6 +129,7 @@ export class Toolbar {
    */
   setChoices(list) {
     this.choices = list || [];
+    this._targets = null;
     this._drawHandle();
     this.choiceMeshes.forEach((m, i) => {
       m.visible = !this.collapsed && Boolean(this.choices[i]);
@@ -182,7 +188,8 @@ export class Toolbar {
   set(id, patch) {
     const b = this.buttons.get(id);
     if (!b) return;
-    const changed = Object.entries(patch).some(([k, v]) => b[k] !== v);
+    let changed = false;
+    for (const k in patch) if (b[k] !== patch[k]) changed = true;
     if (!changed) return;
     Object.assign(b, patch);
     this._draw(id);
@@ -204,8 +211,8 @@ export class Toolbar {
   }
 
   get targets() {
-    if (this.collapsed) return [this.handle];
-    return [...this.meshes, ...this.choiceMeshes.filter((m) => m.visible)];
+    if (!this._targets) this._targets = this.collapsed ? [this.handle] : [...this.meshes, ...this.choiceMeshes.filter((m) => m.visible)];
+    return this._targets;
   }
 
   press(id, ctrl) {
@@ -217,23 +224,18 @@ export class Toolbar {
     this.buttons.get(id)?.release?.(ctrl);
   }
 
-  // Bring it back in front of you now.
-  recenter() {
-    this.placed = false;
-  }
-
   update() {
-    const eye = this.camera.getWorldPosition(new THREE.Vector3());
-    const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(this.camera.getWorldQuaternion(new THREE.Quaternion()));
+    const eye = this.camera.getWorldPosition(tmpEye);
+    const fwd = tmpFwd.set(0, 0, -1).applyQuaternion(this.camera.getWorldQuaternion(tmpQ));
     fwd.y = 0;
     if (fwd.lengthSq() < 1e-4) return;
     fwd.normalize();
     // Where it wants to be: 55 cm ahead, 40 cm below your eyes, tilted toward you.
-    const want = eye.clone().addScaledVector(fwd, 0.55);
+    const want = tmpWant.copy(eye).addScaledVector(fwd, 0.55);
     want.y -= 0.4;
-    const toPanel = this.anchor.clone().sub(eye).setY(0);
+    const toPanel = tmpTo.copy(this.anchor).sub(eye).setY(0);
     const off = !this.placed || toPanel.length() > 1.0 || toPanel.length() < 0.25 || toPanel.normalize().dot(fwd) < 0.55;
-    if (off) this.target = want;
+    if (off) (this.target ||= new THREE.Vector3()).copy(want);
     if (this.target) {
       this.anchor.lerp(this.target, this.placed ? 0.08 : 1);
       if (this.anchor.distanceTo(this.target) < 0.01) this.target = null;

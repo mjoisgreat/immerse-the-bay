@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { LAYER } from "./layers.js";
 
 // Moving around a 3D world beyond your real room: smooth walking with the left thumbstick,
 // snap turning with the right, and teleporting by pointing at the ground and pinching (or the
@@ -7,6 +8,9 @@ import * as THREE from "three";
 const SPEED = 2.0; // m/s at full stick
 const SNAP = THREE.MathUtils.degToRad(30);
 const MAX_TELEPORT = 12; // metres
+const tmpM1 = new THREE.Matrix4(), tmpM2 = new THREE.Matrix4(), tmpM3 = new THREE.Matrix4();
+const tmpFwd = new THREE.Vector3(), tmpRight = new THREE.Vector3(), tmpP = new THREE.Vector3(), tmpS = new THREE.Vector3(), tmpHead = new THREE.Vector3();
+const tmpQ = new THREE.Quaternion();
 
 export class Locomotion {
   constructor(renderer, camera, scene) {
@@ -15,7 +19,7 @@ export class Locomotion {
     this.base = null; // the session's local-floor reference space
     this.m = new THREE.Matrix4(); // physical (room) -> world
     this.moved = false;
-    this.turnHeld = [false, false];
+    this.turnHeld = false;
     this.enabled = false;
 
     // Landing marker for teleports: a glowing ring on the floor.
@@ -28,7 +32,7 @@ export class Locomotion {
       new THREE.CircleGeometry(0.06, 24),
       new THREE.MeshBasicMaterial({ color: 0xffd08a, transparent: true, opacity: 0.8, depthTest: false }),
     );
-    for (const m of [ring, dot]) (m.rotation.x = -Math.PI / 2), (m.renderOrder = 30), this.marker.add(m);
+    for (const m of [ring, dot]) (m.rotation.x = -Math.PI / 2), (m.renderOrder = LAYER.TELEPORT_MARKER), this.marker.add(m);
     this.marker.position.y = 0.01;
     this.marker.visible = false;
     scene.add(this.marker);
@@ -60,20 +64,20 @@ export class Locomotion {
   _apply() {
     if (!this.base || !window.XRRigidTransform) return;
     // The offset space's origin, expressed in the base space, is the inverse of physical -> world.
-    const inv = this.m.clone().invert();
-    const p = new THREE.Vector3(), q = new THREE.Quaternion(), s = new THREE.Vector3();
+    const inv = tmpM1.copy(this.m).invert();
+    const p = tmpP, q = tmpQ, s = tmpS;
     inv.decompose(p, q, s);
     const t = new XRRigidTransform({ x: p.x, y: p.y, z: p.z, w: 1 }, { x: q.x, y: q.y, z: q.z, w: q.w });
     this.renderer.xr.setReferenceSpace(this.base.getOffsetReferenceSpace(t));
   }
 
   _head() {
-    return this.camera.getWorldPosition(new THREE.Vector3());
+    return this.camera.getWorldPosition(tmpHead);
   }
 
   /** Moves you by a world-space offset (y ignored). */
   translate(dx, dz) {
-    this.m.premultiply(new THREE.Matrix4().makeTranslation(dx, 0, dz));
+    this.m.premultiply(tmpM1.makeTranslation(dx, 0, dz));
     this.moved = true;
     this._apply();
   }
@@ -81,9 +85,9 @@ export class Locomotion {
   /** Turns you in place, around your head. */
   turn(angle) {
     const h = this._head();
-    const t = new THREE.Matrix4().makeTranslation(h.x, 0, h.z);
-    const r = new THREE.Matrix4().makeRotationY(angle);
-    const tInv = new THREE.Matrix4().makeTranslation(-h.x, 0, -h.z);
+    const t = tmpM1.makeTranslation(h.x, 0, h.z);
+    const r = tmpM2.makeRotationY(angle);
+    const tInv = tmpM3.makeTranslation(-h.x, 0, -h.z);
     this.m.premultiply(tInv).premultiply(r).premultiply(t);
     this.moved = true;
     this._apply();
@@ -129,15 +133,14 @@ export class Locomotion {
       if (src.handedness === "left") {
         // Walk where you're looking (flattened), strafe sideways.
         if (Math.hypot(x, y) < 0.15) continue;
-        const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(this.camera.getWorldQuaternion(new THREE.Quaternion())).setY(0).normalize();
-        const right = new THREE.Vector3(-fwd.z, 0, fwd.x);
+        const fwd = tmpFwd.set(0, 0, -1).applyQuaternion(this.camera.getWorldQuaternion(tmpQ)).setY(0).normalize();
+        const right = tmpRight.set(-fwd.z, 0, fwd.x);
         const move = fwd.multiplyScalar(-y).add(right.multiplyScalar(x)).multiplyScalar(SPEED * dt);
         this.translate(move.x, move.z);
       } else if (src.handedness === "right") {
         // Snap turn: one step per push.
-        const i = 1;
-        if (Math.abs(x) > 0.7 && !this.turnHeld[i]) (this.turnHeld[i] = true), this.turn(x > 0 ? -SNAP : SNAP);
-        if (Math.abs(x) < 0.3) this.turnHeld[i] = false;
+        if (Math.abs(x) > 0.7 && !this.turnHeld) (this.turnHeld = true), this.turn(x > 0 ? -SNAP : SNAP);
+        if (Math.abs(x) < 0.3) this.turnHeld = false;
       }
     }
   }

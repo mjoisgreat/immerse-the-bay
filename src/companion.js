@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { LAYER } from "./layers.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import * as SkeletonUtils from "three/addons/utils/SkeletonUtils.js";
 import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
@@ -373,7 +374,7 @@ export class Companion {
     );
     this.bubble.scale.set(0.9, 0.3, 1);
     this.bubble.position.y = this.height + 0.26;
-    this.bubble.renderOrder = 25; // always readable, even in front of a window's caption
+    this.bubble.renderOrder = LAYER.SPEECH_BUBBLE; // always readable, even in front of a window's caption
     this.bubble.visible = false;
     this.root.add(this.bubble);
 
@@ -392,7 +393,7 @@ export class Companion {
       new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(glowCanvas), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }),
     );
     this.aimGlow.scale.setScalar(this.height * 1.25);
-    this.aimGlow.renderOrder = 3;
+    this.aimGlow.renderOrder = LAYER.COMPANION_GLOW;
     this.aimGlow.visible = false;
     this.scene.add(this.aimGlow);
 

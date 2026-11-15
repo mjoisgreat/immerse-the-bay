@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { LAYER } from "./layers.js";
 
 // The "how do I do things with my hands" card shown at the start of a headset session: one row per
 // action, with the gesture that does it. Pinch the ✕ in its top-right corner (or wait) to dismiss it.
@@ -34,7 +35,7 @@ export class GestureCard {
       new THREE.PlaneGeometry(width, (width * canvas.height) / canvas.width),
       new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthTest: false }),
     );
-    this.mesh.renderOrder = 30;
+    this.mesh.renderOrder = LAYER.GESTURE_CARD;
     this.mesh.userData.gestureCard = true;
     this.mesh.visible = false;
 
@@ -45,7 +46,7 @@ export class GestureCard {
       new THREE.MeshBasicMaterial({ map: closeTexture(false), transparent: true, depthTest: false }),
     );
     this.closeButton.position.set(width / 2 - r - 0.025, height / 2 - r - 0.025, 0.004);
-    this.closeButton.renderOrder = 31;
+    this.closeButton.renderOrder = LAYER.GESTURE_CARD + 1;
     this.closeButton.userData.cardClose = true;
     this.mesh.add(this.closeButton);
     this._hoverTex = [closeTexture(false), closeTexture(true)];
