@@ -1361,9 +1361,9 @@ const HUB = (() => {
   const id = q.get("backdrop") || q.get("world");
   return id && id !== "moon" ? id : "moon";
 })();
-// The world button cycles: your room → the Moon → Stanford's golden-hour Main Quad → your room.
-// (A world picked in the URL comes first in the cycle; `?backdrop=stanford-church` for Memorial Church.)
-const WORLD_CYCLE = [...new Set([HUB, "moon", "stanford-golden"])];
+// The world button cycles: your room → the Moon → Stanford's Memorial Church → your room.
+// (A world picked in the URL comes first in the cycle.)
+const WORLD_CYCLE = [...new Set([HUB, "moon", "stanford-church"])];
 const worldInfo = (id) =>
   id === "moon"
     ? { label: "Moon", bar: "Moon", icon: "🌕", name: "the Moon", on: "on" }
@@ -1383,7 +1383,7 @@ async function toggleBackdrop() {
   }
   const info = worldInfo(next);
   const quality = splatQuality(renderer);
-  const light = next !== "moon" && quality === "low" ? " (light version)" : "";
+  const light = next !== "moon" && quality === "low" && backdrop.worlds.hasLight(next) ? " (light version)" : "";
   showLoading(next === "moon" ? "Flying to the Moon…" : `Loading ${info.name}${light}…`, next === "moon" ? null : 0);
   const ok = await backdrop
     .show(next, {

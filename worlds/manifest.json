@@ -42,8 +42,8 @@
         "Stanford church"
       ],
       "spz": "/worlds/stanford-church.spz",
-      "spzLow": "/worlds/stanford-church-low.spz",
       "thumb": "/worlds/stanford-church.jpg",
+      "sky": "/worlds/stanford-church-sky.jpg",
       "scale": 4.1002302169799805,
       "ground": 2.3317787647247314,
       "marble": "https://marble.worldlabs.ai/world/0c7be052-30e3-4df8-84db-a66bd9de89c3",
