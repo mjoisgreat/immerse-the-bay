@@ -9,7 +9,7 @@ import { state } from "./state.js";
 import { ROOM, send } from "./room.js";
 import { buzz, flash } from "./feedback.js";
 import { ASK, askWorld, clearAsk, refreshCards } from "./story.js";
-import { sides } from "./wide.js";
+import { sides, stopSides } from "./wide.js";
 
 // ---------- Step inside ----------
 export const immersion = new Immersion(scene, camera, {
@@ -131,9 +131,10 @@ addEventListener("pagehide", () => {
   for (const side of ["L", "R"]) sides[side]?.closeOnUnload();
 });
 
-/** Exiting VR: stop every window's video stream (so credits aren't spent while you are out of the headset). */
+/** Exiting VR: close every Orbis stream (each window's, and the wide view's side views), so no credits are spent out of the headset. The page stays open. */
 export function closeAllStreams() {
   for (const p of portals.values()) p.stream.close();
+  stopSides();
 }
 export function retire(text = `Your room “${ROOM}” is now playing in another tab or device.`) {
   // Stop our streams so credits aren't spent twice.
