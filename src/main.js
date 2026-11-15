@@ -1345,9 +1345,9 @@ const HUB = (() => {
   const id = q.get("backdrop") || q.get("world");
   return id && id !== "moon" ? id : "moon";
 })();
-// The world button cycles: your room → the Moon → Stanford's Memorial Church → your room.
-// (A world picked in the URL comes first in the cycle.)
-const WORLD_CYCLE = [...new Set([HUB, "moon", "stanford-church"])];
+// The world button cycles: your room → the Moon → Stanford's golden-hour Main Quad → your room.
+// (A world picked in the URL comes first in the cycle; `?backdrop=stanford-church` for Memorial Church.)
+const WORLD_CYCLE = [...new Set([HUB, "moon", "stanford-golden"])];
 const worldInfo = (id) =>
   id === "moon"
     ? { label: "Moon", bar: "Moon", icon: "🌕", name: "the Moon", on: "on" }
@@ -1801,14 +1801,45 @@ function desktopWalk(dt) {
 
 // ---------- Enter mixed reality ----------
 const enterBtn = $("#enter");
+// The start screen asks to use the camera on phones and computers (not in the headset's browser,
+// which has the real see-through). Starting from this tap lets iPhones ask for motion access too.
+function offerCamera(xrOk) {
+  const quest = /OculusBrowser|Quest/i.test(navigator.userAgent);
+  if (quest || !navigator.mediaDevices?.getUserMedia) return;
+  const phone = CameraView.touch;
+  const btn = Object.assign(document.createElement("button"), {
+    id: "camEnter",
+    textContent: phone ? "📷 Look through your camera" : "📷 Use your webcam",
+    className: xrOk || !phone ? "ghost" : "",
+  });
+  btn.onclick = async () => {
+    $("#overlay").hidden = true;
+    await toggleCamera();
+    if (camView.on) setButtonsHidden(false, false); // Talk, Step inside and the rest within reach
+  };
+  enterBtn.after(btn);
+  const why = Object.assign(document.createElement("p"), {
+    id: "camNote",
+    textContent: phone
+      ? "Your camera shows your real surroundings and the story's windows appear in them. Move your phone to look around. You'll be asked to allow the camera" +
+        (typeof globalThis.DeviceOrientationEvent?.requestPermission === "function" ? " and motion." : ".")
+      : "Your webcam fills the background and the windows float over it. You'll be asked to allow the camera.",
+  });
+  btn.after(why);
+}
+
 async function setupXR() {
   const cfg = await fetch("/api/config").then((r) => r.json()).catch(() => ({}));
   maxPortals = cfg.maxPortals || maxPortals;
-  if (!navigator.xr || !(await navigator.xr.isSessionSupported("immersive-ar").catch(() => false))) {
+  const xrOk = Boolean(navigator.xr) && (await navigator.xr.isSessionSupported("immersive-ar").catch(() => false));
+  offerCamera(xrOk);
+  if (!xrOk) {
     // No mixed reality here: offer the desktop preview, and say where the real thing runs.
     enterBtn.textContent = "Explore the preview";
+    enterBtn.className = CameraView.touch ? "ghost" : ""; // on a phone the camera is the main way in
     enterBtn.onclick = () => ($("#overlay").hidden = true);
-    enterBtn.insertAdjacentHTML("afterend", `<p id="note">To step into mixed reality, open this page in the Meta Quest browser.</p>`);
+    if (CameraView.touch) ($("#camNote") ?? $("#camEnter"))?.after(enterBtn); // camera first on a phone
+    enterBtn.insertAdjacentHTML("afterend", `<p id="note">For full mixed reality, open this page in the Meta Quest browser.</p>`);
     return;
   }
   enterBtn.onclick = async () => {
