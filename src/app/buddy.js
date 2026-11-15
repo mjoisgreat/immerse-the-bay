@@ -35,6 +35,12 @@ export function buddyIdle() {
   buddy.react({ gesture: "none", move: "none" });
   buddy.say("");
 }
+/** She says a short line of her own (not a director reply): the bubble over her head, and out loud. */
+export function buddySay(line, ms = 4000) {
+  buddy.say(line, ms);
+  speak(line, BUDDY.name, BUDDY.voice, buddy.root, { onStart: () => buddy.speaking(true), onEnd: () => buddy.speaking(false) });
+}
+
 /** The companion's part of a direction: gesture, maybe move, and say the line out loud. */
 export function buddyReply({ reply, gesture, move, emotion }, announce) {
   clearTimeout(state.buddyWait);
@@ -82,12 +88,12 @@ buddy.physicsEnv = () => {
 const pick = (list) => list[Math.floor(Math.random() * list.length)];
 buddy.onPhysics = (event, amount) => {
   if (event === "grab") buzz(0.4, 40);
-  if (event === "throw" && amount > 1.5) chime("whee"), buddy.say(pick(["Wheeeee!", "I can flyyy!", "Woooah!"]), 2500);
+  if (event === "throw" && amount > 1.5) chime("whee"), buddySay(pick(["Wheeeee!", "I can flyyy!", "Woooah!"]), 2500);
   if (event === "bounce") chime("bounce");
   if (event === "landed" && amount > 1.2) {
     const hard = amount > 4;
     buddy.gesture(hard ? "no" : "jump");
-    buddy.say(hard ? pick(["Oof. I'm okay!", "Bunnies bounce. Mostly."]) : pick(["Again! Again!", "Ta-da!", "Nice throw!"]), 3500);
+    buddySay(hard ? pick(["Oof. I'm okay!", "Bunnies bounce. Mostly."]) : pick(["Again! Again!", "Ta-da!", "Nice throw!"]), 3500);
   }
 };
 
@@ -106,7 +112,7 @@ export function buddyChangesWorld(world) {
 export function toggleBuddyFollow() {
   buddy.setFollowing(!buddy.following);
   buddy.gesture(buddy.following ? "thumbs_up" : "wave");
-  buddy.say(buddy.following ? "Lead the way! I'm right beside you." : "Okay, I'll wait here!", 4000);
+  buddySay(buddy.following ? "Lead the way! I'm right beside you." : "Okay, I'll wait here!", 4000);
   flash(
     buddy.following
       ? `${BUDDY.name} is following you. ${renderer.xr.isPresenting ? "Pinch" : CameraView.touch ? "Tap" : "Click"} ${BUDDY.name} again (or say “stay”) to stop.`
@@ -139,12 +145,31 @@ export function callBuddy() {
   if (!buddy.visible) return placeBuddy();
   buddy.summon(renderer.xr.isPresenting ? 1.4 : 3.0, { side: flatSide() });
   buddy.gesture("wave");
-  buddy.say("Coming!", 3000);
+  buddySay("Coming!", 3000);
 }
 // (The button used to send her away too; she now always stays.)
 export function toggleBuddy() {
   callBuddy();
 }
+// "Hi! I'm Bonnie...": the bubble at once, her voice as soon as the browser allows sound: straight away in
+// the headset (putting it on counts), on a flat page after your first tap or key press.
+let helloPending = false;
+function hello() {
+  const line = `Hi! I'm ${BUDDY.name}. Ask me for ideas any time, or just talk to me!`;
+  if (renderer.xr.isPresenting) return buddySay(line, 6000);
+  buddy.say(line, 6000);
+  if (helloPending) return;
+  helloPending = true;
+  const once = () => {
+    removeEventListener("pointerdown", once, true);
+    removeEventListener("keydown", once, true);
+    helloPending = false;
+    if (buddy.visible) buddySay(line, 6000);
+  };
+  addEventListener("pointerdown", once, true);
+  addEventListener("keydown", once, true);
+}
+
 /** Put Bonnie in front of you, sized for the headset or a flat screen. `greet`: say hello and explain her. */
 function placeBuddy({ greet = true } = {}) {
   const xr = renderer.xr.isPresenting;
@@ -161,7 +186,7 @@ function placeBuddy({ greet = true } = {}) {
     }
   }
   syncBuddy(true);
-  buddy.say(`Hi! I'm ${BUDDY.name}. Ask me for ideas any time, or just talk to me!`, 6000);
+  hello();
   if (!greet) return;
   const touchUi = !xr && CameraView.touch;
   flash(

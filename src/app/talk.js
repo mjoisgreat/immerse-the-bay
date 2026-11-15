@@ -87,17 +87,25 @@ export async function stopTalking() {
 
 // Characters speak their lines aloud, from their window (or all around you when you're inside it).
 let voice = null;
+const voiceCache = new Map(); // key -> decoded audio
 let voiceEnd = null; // onEnd of the line playing now
 /** Speaks a line in a character's voice, from `anchor` (an object in the room) or all around you. */
 export async function speak(line, speaker, style, anchor = null, { onStart, onEnd } = {}) {
   try {
-    const r = await fetch("/api/voice", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ room: ROOM, cred: credFor(ROOM), text: line, speaker, voice: style }),
-    });
-    if (!r.ok) throw new Error(`voice ${r.status}`);
-    const buf = await listener.context.decodeAudioData(await r.arrayBuffer());
+    // Lines she says again and again ("Ta-da!", "Coming!") are fetched once and then play at once.
+    const key = `${speaker}|${style}|${line}`;
+    let buf = voiceCache.get(key);
+    if (!buf) {
+      const r = await fetch("/api/voice", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ room: ROOM, cred: credFor(ROOM), text: line, speaker, voice: style }),
+      });
+      if (!r.ok) throw new Error(`voice ${r.status}`);
+      buf = await listener.context.decodeAudioData(await r.arrayBuffer());
+      voiceCache.set(key, buf);
+      if (voiceCache.size > 60) voiceCache.delete(voiceCache.keys().next().value);
+    }
     if (listener.context.state === "suspended") await listener.context.resume();
     // A new line interrupts the previous one; let its speaker know it stopped.
     const interrupted = voiceEnd;
