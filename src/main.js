@@ -904,6 +904,11 @@ function showLoading(text, fraction = null) {
   $("#loadingBar").style.width = `${Math.round((fraction ?? 0) * 100)}%`;
   flash(text, 120000); // in the headset the toast is the loading state
 }
+// The hub world: the Moon by default; `?world=stanford` brings back the Stanford Quad splat.
+const HUB = new URLSearchParams(location.search).get("world") === "stanford" ? "stanford" : "moon";
+const HUB_NAME = HUB === "moon" ? "the Moon" : "Stanford's Main Quad";
+const HUB_LABEL = HUB === "moon" ? "Moon" : "Stanford";
+const HUB_ICON = HUB === "moon" ? "🌕" : "🏛";
 async function toggleBackdrop() {
   if (backdrop.on) {
     backdrop.hide();
@@ -911,14 +916,14 @@ async function toggleBackdrop() {
   }
   if (backdrop.loading) return;
   const quality = splatQuality(renderer);
-  const light = quality === "low" ? " (light version)" : "";
-  showLoading(`Loading Stanford's Main Quad${light}…`, 0);
+  const light = HUB !== "moon" && quality === "low" ? " (light version)" : "";
+  showLoading(HUB === "moon" ? "Flying to the Moon…" : `Loading ${HUB_NAME}${light}…`, HUB === "moon" ? null : 0);
   const ok = await backdrop
-    .show("stanford", {
+    .show(HUB, {
       quality,
       onProgress: ({ stage, fraction }) =>
         stage === "download"
-          ? showLoading(`Loading Stanford's Main Quad${light}… ${Math.round(fraction * 100)}%`, fraction)
+          ? showLoading(`Loading ${HUB_NAME}${light}… ${Math.round(fraction * 100)}%`, fraction)
           : showLoading(`Building the world${light}… hold still, this can take a moment.`),
     })
     .catch(() => false);
@@ -926,7 +931,7 @@ async function toggleBackdrop() {
   const how = renderer.xr.isPresenting
     ? "Walk, use the left thumbstick, or point at the ground and pinch to jump there."
     : "Use W/A/S/D or the arrow keys to walk around.";
-  flash(ok ? `You're standing in Stanford's Main Quad. ${how} Press See-through to return to your room.` : "Couldn't load the 3D world.", 9000);
+  flash(ok ? `You're standing ${HUB === "moon" ? "on" : "in"} ${HUB_NAME}. ${how} Press See-through to return to your room.` : "Couldn't load the 3D world.", 9000);
 }
 
 // ---------- Buttons (floating panel in the headset, bar at the bottom on desktop) ----------
@@ -1080,7 +1085,7 @@ const toolbar = new Toolbar(camera, [
   { id: "step", icon: "🚪", label: "Step inside", press: toggleStep },
   { id: "close", icon: "✕", label: "Close window", press: closeFocused },
   { id: "buddy", icon: BUDDY.icon, label: BUDDY.name, press: toggleBuddy },
-  { id: "world", icon: "🏛", label: "Stanford", press: toggleBackdrop },
+  { id: "world", icon: HUB_ICON, label: HUB_LABEL, press: toggleBackdrop },
   { id: "newstory", icon: "✨", label: "New story", press: newStoryPressed },
   { id: "reset", icon: "↺", label: "Reset story", press: resetPressed },
   { id: "hide", icon: "▾", label: "Hide buttons", press: () => setButtonsHidden(true) },
@@ -1121,8 +1126,8 @@ function updateToolbar() {
   syncButtons();
 }
 function syncButtons() {
-  toolbar.set("world", { label: backdrop.on ? "See-through" : "Stanford", icon: backdrop.on ? "👓" : "🏛" });
-  bar.world.textContent = backdrop.on ? "See-through" : "Stanford Quad";
+  toolbar.set("world", { label: backdrop.on ? "See-through" : HUB_LABEL, icon: backdrop.on ? "👓" : HUB_ICON });
+  bar.world.textContent = backdrop.on ? "See-through" : HUB === "moon" ? "Moon" : "Stanford Quad";
   toolbar.set("talk", { state: talking ? "active" : "idle", label: talking ? "Listening…" : "Hold to talk" });
   toolbar.set("step", { label: immersion.inside ? "Step out" : "Step inside", icon: immersion.inside ? "↩" : "🚪" });
   toolbar.set("reset", { state: armed === "reset" ? "warn" : "idle", label: armed === "reset" ? "Tap again to confirm" : "Reset story" });
