@@ -10,6 +10,7 @@ export function gestureRows(name = "Bonnie") {
     ["🎙", "Talk", `Hand to your mouth like a microphone (${name} comes to listen); lower it to send`],
     ["👍", "Talk hands-free", "Thumbs up to start, thumbs up again to send"],
     ["＋", "Open a window", "Pinch and draw a square in the air"],
+    ["❤️", `Send ${name} love`, `Pinch and draw a heart in the air: ${name} answers with hearts`],
     ["🐰", `Ask ${name} for a window`, `Say "${name}, open a window onto a snowy village": she walks over and opens it`],
     ["✋", "Move a window", "Pinch it and drag"],
     ["↔", "Resize a window", "Pinch it with both hands, then move your hands apart or together"],

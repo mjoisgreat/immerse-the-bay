@@ -5,6 +5,8 @@ import { XRHandModelFactory } from "three/addons/webxr/XRHandModelFactory.js";
 import { PORTAL_SIZE } from "../portal.js";
 import { resizedScale, carriedPosition } from "../portalresize.js";
 import { analyzeStroke, strokeHint } from "../drawportal.js";
+import { analyzeHeart } from "../heartshape.js";
+import { heartsFor } from "./hearts.js";
 import { HandGestures } from "../gestures.js";
 import { camera, renderer, scene } from "./stage.js";
 import { state } from "./state.js";
@@ -178,9 +180,13 @@ function finishTap(ctrl) {
     if (ctrl.userData.isHand) return flash("Pinch and draw a square in the air to open a window.", 4000);
     return openPortal(t.origin, t.dir);
   }
+  // A heart drawn in the air: Bonnie answers with hearts (inside a world too: she comes along).
+  const eyeNow = camera.getWorldPosition(new THREE.Vector3()).toArray();
+  const heart = analyzeHeart(stroke, eyeNow);
+  if (heart.heart) return trail.end("heart"), buzz(0.5, 60), heartsFor(heart.center);
   if (immersion.inside) return trail.cancel();
   // Moved while pinching: was it a window frame drawn in the air?
-  const r = analyzeStroke(stroke, camera.getWorldPosition(new THREE.Vector3()).toArray());
+  const r = analyzeStroke(stroke, eyeNow);
   if (r.ok) {
     trail.end(true);
     buzz(0.5, 60);

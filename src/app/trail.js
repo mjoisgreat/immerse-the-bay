@@ -43,8 +43,9 @@ export const trail = (() => {
       geo.setDrawRange(0, n);
       geo.attributes.position.needsUpdate = true;
     },
+    /** ok: true (it worked), false (it didn't), or "heart" (a heart: it flashes pink). */
     end(ok) {
-      mat.color.set(ok ? 0xfff0c0 : 0xff8a7a);
+      mat.color.set(ok === "heart" ? 0xff5c8a : ok ? 0xfff0c0 : 0xff8a7a);
       fadeFrom = performance.now();
     },
     cancel() {

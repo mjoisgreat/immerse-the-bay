@@ -145,11 +145,21 @@ export function toggleBuddyFollow() {
     5000,
   );
 }
+/** How far to the side she stands on a flat screen: nearly straight ahead on a narrow (portrait) one, so she's in view. */
+function flatSide() {
+  return renderer.xr.isPresenting ? 0.4 : innerWidth / innerHeight < 1 ? 0.08 : 0.3;
+}
+/** Is she on screen (flat screens only; in the headset you just turn your head)? */
+export function buddyInView() {
+  if (renderer.xr.isPresenting || !buddy.visible) return true;
+  const p = buddy.centerWorld(new THREE.Vector3()).project(camera);
+  return p.z < 1 && Math.abs(p.x) < 0.85 && Math.abs(p.y) < 0.9;
+}
 /** The Bonnie button, or a phone double-tap on empty space: Bonnie hops back over to you. */
 export function callBuddy() {
   if (!buddy.ready) return flash(`${BUDDY.name} is still waking up…`);
   if (!buddy.visible) return placeBuddy();
-  buddy.summon(renderer.xr.isPresenting ? 1.4 : 3.0);
+  buddy.summon(renderer.xr.isPresenting ? 1.4 : 3.0, { side: flatSide() });
   buddy.gesture("wave");
   buddy.say("Coming!", 3000);
 }
@@ -165,7 +175,7 @@ function placeBuddy({ greet = true } = {}) {
   if (xr) buddy.summon(1.4);
   else {
     // On a flat screen: 3 m away and a slight downward tilt, so it and the windows stay in frame.
-    buddy.summon(3.0);
+    buddy.summon(3.0, { side: flatSide() });
     if (greet && !camView.orienting) {
       state.pitch = Math.min(state.pitch, -0.2);
       camera.rotation.set(state.pitch, state.yaw, 0, "YXZ");

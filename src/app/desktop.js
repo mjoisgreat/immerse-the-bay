@@ -3,6 +3,8 @@ import * as THREE from "three";
 import { MAX_SCALE, MIN_SCALE } from "../portalresize.js";
 import { TouchGestureRecognizer } from "../touchgestures.js";
 import { analyzeStroke, strokeHint } from "../drawportal.js";
+import { analyzeHeart } from "../heartshape.js";
+import { heartsFor } from "./hearts.js";
 import { CameraView, headingOf } from "../cameraview.js";
 import { camera, renderer, scene } from "./stage.js";
 import { state } from "./state.js";
@@ -152,7 +154,7 @@ const touch = new TouchGestureRecognizer({
     drawing = [ray.at(DRAW_AT, new THREE.Vector3()).toArray()];
     trail.start(drawing[0]);
     haptic(20);
-    flash("Draw a rectangle where the window should go, then lift your finger.", 4000);
+    flash("Draw a rectangle where the window should go (or a heart for Bonnie), then lift your finger.", 4000);
     return true;
   },
   onHoldMove(x, y) {
@@ -173,6 +175,9 @@ const touch = new TouchGestureRecognizer({
     const stroke = drawing;
     drawing = null;
     if (cancelled) return trail.cancel();
+    // A heart drawn with your finger: Bonnie answers with hearts.
+    const heart = analyzeHeart(stroke, camera.getWorldPosition(new THREE.Vector3()).toArray());
+    if (heart.heart) return trail.end("heart"), haptic(40), heartsFor(heart.center);
     const r = analyzeStroke(stroke, camera.getWorldPosition(new THREE.Vector3()).toArray());
     if (r.ok) return trail.end(true), haptic(40), openPortal(null, null, { at: r.position, scale: r.scale });
     trail.end(false);

@@ -503,7 +503,7 @@ export class Companion {
   }
 
   /** Appear in front of you (further away on a flat screen, so it fits in view). */
-  summon(distance = 1.4) {
+  summon(distance = 1.4, { side = 0.4 } = {}) {
     const eye = this._eye();
     const fwd = _fwd.set(0, 0, -1).applyQuaternion(this.camera.getWorldQuaternion(_q1));
     fwd.y = 0;
@@ -513,7 +513,7 @@ export class Companion {
     this._endPhysics();
     this.returnAt = 0;
     this.strayT = 0;
-    this.root.position.set(eye.x + fwd.x * distance + left.x * distance * 0.4, 0, eye.z + fwd.z * distance + left.z * distance * 0.4);
+    this.root.position.set(eye.x + fwd.x * distance + left.x * distance * side, 0, eye.z + fwd.z * distance + left.z * distance * side);
     this.root.lookAt(eye.x, 0, eye.z);
     this.root.visible = true;
     this.mode = "idle";
@@ -713,6 +713,9 @@ export class Companion {
         if (facing.dot(to.divideScalar(d)) > 0.6) this.root.position.addScaledVector(to, Math.min(d, speed * dt));
       }
     } else if (this.mode !== "walk" && !this.emoting && moving()) this.rig.play("Idle");
+    // Standing still between wanders: turn back to face you (otherwise she stayed facing wherever she last
+    // walked, often with her back to you).
+    if (this.mode === "idle" && !this.emoting) this._turnTowards(toUser, dt, 1.5);
   }
 
   // ---------- Grab and throw ----------

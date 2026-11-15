@@ -12,6 +12,7 @@ import { closePortal, exitOrb, immersion, portals, retire, setFocus, stepInside,
 import { applyDirection, askWorld, clearAsk, resetLocal, showChoices, updateRipples } from "./app/story.js";
 import { ptt } from "./app/talk.js";
 import { trail } from "./app/trail.js";
+import { heartsFor, updateHearts } from "./app/hearts.js";
 import { updateSides } from "./app/wide.js";
 import { backdrop, loco, locoRays } from "./app/world.js";
 import { checkWalking, gestures, pollButtons, updateResize, updateStrokes } from "./app/xrinput.js";
@@ -156,6 +157,7 @@ renderer.setAnimationLoop(() => {
   updateSides();
   updateStrokes();
   trail.update();
+  updateHearts();
   updateCradle();
   buddy.highlight(renderer.xr.isPresenting && !buddy.held && aimedAtBuddy());
   buddy.update(dt);
@@ -176,4 +178,4 @@ renderer.setAnimationLoop(() => {
 });
 
 // `?debug`: the app's objects on `window.lw`, for poking at it from the browser console.
-if (new URLSearchParams(location.search).has("debug")) window.lw = { THREE, renderer, scene, camera, portals, immersion, backdrop, buddy, buddyOpensWindow, ptt, openInFront, stepInside, stepOut };
+if (new URLSearchParams(location.search).has("debug")) window.lw = { THREE, renderer, scene, camera, portals, immersion, backdrop, buddy, buddyOpensWindow, heartsFor, ptt, openInFront, stepInside, stepOut };
