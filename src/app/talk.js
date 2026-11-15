@@ -10,6 +10,7 @@ import { buzz, chime, flash } from "./feedback.js";
 import { buddy, buddyIdle } from "./buddy.js";
 import { immersion, portals } from "./portals.js";
 import { answerWorld } from "./story.js";
+import { gestures } from "./xrinput.js";
 
 // ---------- Voice ----------
 export const ptt = new PushToTalk();
@@ -33,7 +34,14 @@ export async function startTalking(gesture = false) {
     state.talking = true;
     chime("talk");
     buzz(0.5, 60);
-    flash(byGesture ? "Listening… lower your hand when you're done" : "Listening… let go when you're done", 60000);
+    flash(
+      !byGesture
+        ? "Listening… let go when you're done"
+        : gestures.detector.talkBy === "thumb"
+          ? "Listening… 👍 thumbs up again when you're done"
+          : "Listening… lower your hand when you're done",
+      60000,
+    );
   } catch (e) {
     state.wantTalk = false;
     buddy.attend(false);
