@@ -74,7 +74,7 @@ export async function stopTalking() {
     }
     if (state.asking) {
       if (talkingToBuddy) buddy.react({ gesture: "none", move: "none" });
-      return answerWorld(text);
+      return answerWorld(text, { toBuddy: talkingToBuddy });
     }
     flash(`“${text}”`, 4000);
     // Everything you say goes to the same mind: it steers the story and answers as the companion.

@@ -57,19 +57,19 @@ The window (this matters):
 - There is exactly one window, with one story: its world is \`window.world\`, in the person's own
   words. Everything you write (the prompt, the bible, the narration, the choices, a character's
   speech) belongs to that world.
-- An event of type "world_asked" means the window just opened and is asking the person "what
-  world is behind this window?". You are the one who helps: put one vivid idea (or two, at most)
-  into your reply, in your own voice and attitude, and end by inviting them to say yes or to name
-  their own. Make each idea fresh and surprising (a place, a time of day, a mood in a few words),
-  and never repeat one from your recent conversation. Examples of the kind of thing to offer: a
-  lantern-lit fishing village on a misty mountain lake at dusk; a giant's overgrown library where
-  the bookshelves are mossy cliffs; a tiny moon base of tin cans and string lights with Earth
-  rising; an underwater city of glowing coral towers. Invent new ones rather than reusing these.
-  For this event set prompt to null, narration to an empty string, choices to an empty list,
-  speech to null and companion.world to null (the window only gets a world once they answer).
-  If they then answer yes (or "sure", "that one") to what you offered, set companion.world to
-  exactly the world you offered, written as a short vivid description, and say you are on it.
-  If they name their own world, set companion.world to theirs.
+- Suggestions for the window's world: the person may ask you for an idea while the window is asking
+  "what world is behind this window?" ("Bonnie, any ideas?", "surprise me", "suggest something").
+  Never offer one unasked. Then put one vivid idea (two at most) into your reply, in your own voice
+  and attitude, and invite them to say yes or name their own. Make each idea fresh and surprising (a
+  place, a time of day, a mood in a few words) and never repeat one from your recent conversation.
+  Examples of the kind of thing to offer: a lantern-lit fishing village on a misty mountain lake at
+  dusk; a giant's overgrown library where the bookshelves are mossy cliffs; a tiny moon base of tin
+  cans and string lights with Earth rising; an underwater city of glowing coral towers. Invent new
+  ones rather than reusing these. While you only offer, set prompt to null, narration to an empty
+  string, choices to an empty list, speech to null and companion.world to null (the window only gets
+  a world once they answer). If they then say yes (or "sure", "that one") to what you offered, set
+  companion.world to exactly the world you offered, written as a short vivid description, and say
+  you are on it. If they name their own world, set companion.world to theirs.
 - An event of type "world" means the window has just been given its world: the event's
   \`world\` is the person's answer to "what world is behind this window?" (or a new landscape
   they asked for, which replaces the old one). Write its opening shot (an establishing view of
@@ -358,7 +358,6 @@ let choiceTurn = 0;
 
 // Works without Claude (no key, no credits): each event steers the window's *current* scene, so
 // speaking changes what happens in it instead of cutting back to the opening setting.
-const IDEAS = ["a lantern village on a misty lake", "a giant's mossy library", "a tin-can moon base", "a glowing coral city"];
 function fallback({ event, story, window, immersed = false, companion = null }) {
   const name = personaOf(companion).name;
   const named = new RegExp(`\\b${name}\\b[,!.]?\\s*`, "ig");
@@ -378,10 +377,6 @@ function fallback({ event, story, window, immersed = false, companion = null }) 
     companion: addressed ? { reply: "Fine, fine. Watch the window, I'm working.", gesture: "thumbs_up", move: "none" } : null,
   };
   const scene = sceneOf(window?.prompt, story.seed);
-  if (event.type === "world_asked") {
-    const idea = IDEAS[Math.floor(Math.random() * IDEAS.length)];
-    return { narration: "", bible: story.bible, prompt: null, choices: [], speech: null, companion: { reply: `What world should it show? How about ${idea}? Say yes, or name your own.`, gesture: "think", move: "none", world: null } };
-  }
   if (event.type === "step_inside") {
     return { ...extra, narration: "You step through, and the world closes around you.", bible: story.bible, prompt: `${scene} ${IMMERSIVE}` };
   }

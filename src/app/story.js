@@ -14,7 +14,6 @@ import { syncButtons, toolbar } from "./buttons.js";
 import { NARRATOR, guide } from "./guide.js";
 import { closeWindow, getWindow, immersion, setWorld } from "./portals.js";
 import { playVoice, speak } from "./talk.js";
-import { PRESETS } from "../presets.js";
 import { liveViewers } from "./livecast.js";
 import { steerSides } from "./wide.js";
 
@@ -243,19 +242,12 @@ $("#choices").addEventListener("click", (e) => {
 export const ASK = { story: "What world is this story set in?", window: "What world is behind this window?" };
 export function askWorld(kind) {
   state.asking = { kind };
-  // Three random starter worlds for a new window, as chips to tap.
-  const ideas = kind === "window" ? [...PRESETS].sort(() => Math.random() - 0.5).slice(0, 3) : [];
   $("#askQ").textContent = ASK[kind];
-  $("#askIdeas").innerHTML = ideas.map(([label, seed]) => `<button type="button" class="ghost" data-seed="${seed.replace(/"/g, "&quot;")}">${label}</button>`).join("");
   $("#ask").hidden = false;
   const xr = renderer.xr.isPresenting;
   if (kind === "window") getWindow()?.portal.setCaption(ASK.window, "status");
   flash(`${ASK[kind]} ${xr ? "Raise a hand to your mouth (or hold A) and say it." : CameraView.touch ? "Type it, or hold 🎙 and say it." : "Type it, or hold Space and say it."}`, 600000);
-  // Bonnie, when she's here, asks it herself and offers an idea (the director answers this message).
-  if (kind === "window" && buddy.visible) {
-    state.asking.offered = true;
-    send({ t: "world_asked" });
-  } else if (xr) speak(ASK[kind], ...NARRATOR);
+  if (xr) speak(ASK[kind], ...NARRATOR);
   if (!xr && $("#overlay").hidden) $("#askText").focus();
 }
 export function clearAsk(quiet = false) {
@@ -265,13 +257,16 @@ export function clearAsk(quiet = false) {
   $("#askText").value = "";
   if (quiet) flash("", 1);
 }
+const ASK_BONNIE = /\b(bonnie|pip|suggest\w*|ideas?|surprise me|inspire|any thoughts|you choose|you pick|help me)\b/i;
 const YES = /^\s*(yes|yeah|yep|yup|sure|ok|okay|please|do it|go for it|sounds good|that one|why not)\b[\s.!,]*(please|bonnie)?[\s.!]*$/i;
-export function answerWorld(text) {
+export function answerWorld(text, { toBuddy = false } = {}) {
   const a = state.asking;
   text = String(text || "").trim();
   if (!a || !text) return;
-  // "Yes" to Bonnie's idea goes to her (she knows what she offered and sets the world), not in as the world.
-  if (a.offered && YES.test(text)) {
+  // Words for Bonnie (asking her for ideas, or "yes" to one she offered) go to her, and the question stays open:
+  // she suggests, and sets the world once they say yes.
+  if (buddy.visible && (toBuddy || ASK_BONNIE.test(text) || (a.offered && YES.test(text)))) {
+    a.offered = true;
     send({ t: "utterance", text, addressed: true });
     return flash(`“${text}”`, 4000);
   }
@@ -289,10 +284,6 @@ $("#ask").addEventListener("submit", (e) => {
   answerWorld($("#askText").value);
 });
 $("#askSkip").onclick = skipWorld;
-$("#askIdeas").addEventListener("click", (e) => {
-  const b = e.target.closest("button[data-seed]");
-  if (b) answerWorld(b.dataset.seed);
-});
 
 // ---------- Reset and New story ----------
 // One tap arms the button, which then reads "Tap again to confirm" until you do (or press any

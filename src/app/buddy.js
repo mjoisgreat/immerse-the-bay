@@ -162,7 +162,7 @@ function placeBuddy({ greet = true } = {}) {
     }
   }
   syncBuddy(true);
-  buddy.say(`Hi! I'm ${BUDDY.name}. Talk to me any time!`, 6000);
+  buddy.say(`Hi! I'm ${BUDDY.name}. Ask me for ideas any time, or just talk to me!`, 6000);
   if (!greet) return;
   const touchUi = !xr && CameraView.touch;
   flash(

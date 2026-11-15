@@ -31,7 +31,7 @@ export function initialState() {
 }
 
 /** Who may send which message. Roles come from the room's credentials (see api.js). */
-const OWNER_ONLY = new Set(["hello", "window_sync", "window_opened", "window_closed", "window_status", "heartbeat", "immerse", "touch", "companion", "world_asked"]);
+const OWNER_ONLY = new Set(["hello", "window_sync", "window_opened", "window_closed", "window_status", "heartbeat", "immerse", "touch", "companion"]);
 const CONSOLE = new Set(["close_window", "manual_prompt", "set_seed", "set_meta", "use_suggestion", "dismiss_suggestion", "reset_story"]);
 const NARRATE = new Set(["utterance", "choose"]);
 const ANYONE = new Set(["whoami", "suggest", "vote", "here", "rtc"]);
@@ -224,11 +224,6 @@ function step(s, m, ctx) {
       director = { type: "touch", image: image.slice("data:image/jpeg;base64,".length) };
       break;
     }
-    case "world_asked":
-      // The window is asking "what world is behind this window?": the companion offers an idea or two.
-      if (!s.window || s.story.seed || !s.companion?.present) break;
-      director = { type: "world_asked", addressed: true };
-      break;
     case "companion":
       // The headset says which companion it has and whether it is in the room right now.
       s.companion = { id: m.id === "pip" ? "pip" : "bunny", present: Boolean(m.present) };

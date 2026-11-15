@@ -292,7 +292,7 @@ Director console (console.html) ── /ws ─────► └─────
    reconnects, and watching the credit dashboard.
 3. **AI/voice:** `server/director.js`, `src/voice.js`. Prompt quality and
    latency, and story-director tuning.
-4. **Pitch:** demo script, Devpost, backup recording, story seeds (`src/console.js` PRESETS).
+4. **Pitch:** demo script, Devpost, backup recording, story seeds.
 
 ## Rules to remember
 
