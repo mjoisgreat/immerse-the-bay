@@ -132,6 +132,10 @@ of you (without the "hole in the wall" effect, since there's no real wall), step
 live video (the Quad hides while you're inside and comes back when you step out), and Bonnie comes along. The splat
 renderer is only downloaded the first time you press the button.
 
+The button shows the **golden-hour** Main Quad (`stanford-golden`, the first Marble world). Casimir's photo-based
+Inner Quad (`stanford`) is still in `worlds/manifest.json` for the director's world matching; add `?backdrop=stanford`
+to the headset URL to use it as the background instead.
+
 **Loading and weak hardware:** pressing the button shows a loading state (download percentage, then "Building the
 world…"). Headsets, phones, software rendering and small machines get a light version of the splat
 (`public/worlds/stanford-low.spz`, 150 000 of the 500 000 splats, made with `node scripts/decimate-spz.mjs`); a device

@@ -998,6 +998,8 @@ function showLoading(text, fraction = null) {
   $("#loadingBar").style.width = `${Math.round((fraction ?? 0) * 100)}%`;
   flash(text, 120000); // in the headset the toast is the loading state
 }
+// The background world: the golden-hour Main Quad by default; ?backdrop=stanford picks the photo-based one.
+const BACKDROP_WORLD = new URLSearchParams(location.search).get("backdrop") || "stanford-golden";
 async function toggleBackdrop() {
   if (backdrop.on) {
     backdrop.hide();
@@ -1008,7 +1010,7 @@ async function toggleBackdrop() {
   const light = quality === "low" ? " (light version)" : "";
   showLoading(`Loading Stanford's Main Quad${light}…`, 0);
   const ok = await backdrop
-    .show("stanford", {
+    .show(BACKDROP_WORLD, {
       quality,
       onProgress: ({ stage, fraction }) =>
         stage === "download"
