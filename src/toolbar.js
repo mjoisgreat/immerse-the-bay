@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { hueOf } from "./chat.js";
 
 // The menu: one small button that rests in the lower left of your view, like the casting symbol. It
 // holds still while you look around inside a small dead zone, and glides to its spot again once you
@@ -7,7 +8,8 @@ import * as THREE from "three";
 // Sizes in metres. The button is the anchor; the list rises above it.
 const MW = 0.05, MH = 0.05; // the button: a small circle you can still aim at with a controller ray or a pinch
 const RW = 0.25, RH = 0.042, RG = 0.008; // list rows, stacked above the button
-const CW_TOTAL = 0.9, CH = 0.075, GAP = 0.01; // "what happens next" cards, above the button while the list is shut
+const CW = 0.46, CH = 0.06, GAP = 0.006; // "what happens next" lines, a chat column above the button while the list is shut
+const HH = 0.026; // the column's "AUDIENCE CHAT" header
 const DIST = 0.7; // it rests this far ahead of you...
 const LEFT = 0.2, DROP = 0.16; // ...this far to the left of your gaze and this far below it
 const DEAD = 0.45; // radians (about 26°): while you look within this, it stays still
@@ -79,6 +81,32 @@ function drawEntry(canvas, { icon, label, state }) {
   g.fillText(label ? `${icon}  ${label}` : icon, w / 2, h / 2 + 2, w - 36);
 }
 
+/**
+ * Word-wraps text between x0 and x1 on a canvas, the first line starting `indent` further in (after
+ * a name). At most `max` lines; the last one ends in "…" when the text is longer.
+ */
+function wrap(g, text, x0, x1, max, indent = 0) {
+  const words = text.split(/\s+/).filter(Boolean), lines = [];
+  const room = () => x1 - x0 - (lines.length ? 0 : indent);
+  let line = "", i = 0;
+  for (; i < words.length; i++) {
+    const t = line ? `${line} ${words[i]}` : words[i];
+    if (!line || g.measureText(t).width <= room()) {
+      line = t;
+      continue;
+    }
+    if (lines.length === max - 1) break; // out of lines: the rest is cut below
+    lines.push(line);
+    line = words[i];
+  }
+  if (i < words.length || g.measureText(line).width > room()) {
+    while (line.length > 1 && g.measureText(`${line}…`).width > room()) line = line.slice(0, -1);
+    line = `${line.trimEnd()}…`;
+  }
+  lines.push(line);
+  return lines.map((l, k) => ({ text: l, x: k === 0 ? x0 + indent : x0 }));
+}
+
 function texturedPlane(w, h, canvas, renderOrder = 20) {
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
@@ -128,14 +156,19 @@ export class Toolbar {
     // The list, stacked above the button. Rows are made as the list needs them (see setItems).
     this.rows = [];
 
-    // "What happens next?" cards in a row above the button. They step aside while the list is open.
+    // "What happens next?" as a Twitch-style chat column above the button: a header, then one line
+    // per idea (oldest on top, newest at the bottom). It steps aside while the list is open.
     this.choiceMeshes = [];
     this.choices = [];
-    const CW = (CW_TOTAL - 2 * GAP) / 3;
+    this.chatCanvas = Object.assign(document.createElement("canvas"), { width: 1024, height: 58 });
+    const head = texturedPlane(CW, HH, this.chatCanvas);
+    this.chatHead = head.mesh;
+    this.chatTex = head.tex;
+    this.chatHead.visible = false;
+    this.group.add(this.chatHead);
     for (let i = 0; i < 3; i++) {
-      const canvas = Object.assign(document.createElement("canvas"), { width: 512, height: 140 });
+      const canvas = Object.assign(document.createElement("canvas"), { width: 1024, height: 134 });
       const { mesh, tex } = texturedPlane(CW, CH, canvas);
-      mesh.position.set(-CW_TOTAL / 2 + CW / 2 + i * (CW + GAP), MH / 2 + GAP + CH / 2, 0);
       mesh.userData.choice = i;
       mesh.userData.canvas = canvas;
       mesh.userData.tex = tex;
@@ -213,7 +246,31 @@ export class Toolbar {
 
   _layout() {
     this.rows.forEach((row) => (row.mesh.visible = this.open && Boolean(row.item)));
-    this.choiceMeshes.forEach((m, i) => (m.visible = !this.open && Boolean(this.choices[i])));
+    // Stack the lines upwards from the button: the last one sits just above it, the header on top.
+    const n = this.choices.length;
+    this.choiceMeshes.forEach((m, i) => {
+      m.visible = !this.open && Boolean(this.choices[i]);
+      m.position.set(0, MH / 2 + GAP + CH / 2 + (n - 1 - i) * (CH + GAP), 0);
+    });
+    const crowd = this.choices.some((c) => typeof c === "object" && c);
+    this.chatHead.visible = !this.open && crowd;
+    this.chatHead.position.set(0, MH / 2 + GAP + n * (CH + GAP) + HH / 2, 0);
+  }
+
+  _drawChatHead() {
+    const g = this.chatCanvas.getContext("2d"), w = 1024, h = 58;
+    const n = this.choices.filter((c) => typeof c === "object" && c).length;
+    g.clearRect(0, 0, w, h);
+    g.fillStyle = "rgba(24,24,27,0.92)";
+    g.beginPath();
+    g.roundRect(2, 2, w - 4, h - 4, 12);
+    g.fill();
+    g.textBaseline = "middle";
+    g.textAlign = "center";
+    g.font = "700 26px system-ui, sans-serif";
+    g.fillStyle = "#efeff1";
+    g.fillText(`AUDIENCE CHAT  ·  ${n}`, w / 2, h / 2 + 1);
+    this.chatTex.needsUpdate = true;
   }
 
   /**
@@ -226,53 +283,61 @@ export class Toolbar {
       m.userData.hovered = false;
       if (this.choices[i]) this._drawChoice(m);
     });
+    this._drawChatHead();
     this._layout();
   }
 
   _drawChoice(m) {
     const item = this.choices[m.userData.choice];
     const crowd = typeof item === "object" && item !== null;
-    const text = crowd ? item.text : item;
     const hovered = m.userData.hovered;
     const g = m.userData.canvas.getContext("2d");
-    const w = 512, h = 140;
+    const w = 1024, h = 134, pad = 30;
     g.clearRect(0, 0, w, h);
-    g.fillStyle = hovered ? "rgba(255,154,90,0.95)" : crowd ? "rgba(20,34,52,0.92)" : "rgba(40,30,60,0.9)";
-    g.strokeStyle = "#ffd08a";
-    g.lineWidth = 5;
+    // A chat line: dark like Twitch, warm when you point at it (a pinch uses the idea).
+    g.fillStyle = hovered ? "rgba(255,154,90,0.96)" : crowd && item.top ? "rgba(46,36,30,0.94)" : "rgba(24,24,27,0.9)";
     g.beginPath();
-    g.roundRect(4, 4, w - 8, h - 8, 28);
+    g.roundRect(2, 2, w - 4, h - 4, 14);
     g.fill();
-    g.stroke();
-    // An audience idea carries who suggested it and how many people want it.
-    let top = 0;
-    if (crowd) {
-      g.textBaseline = "middle";
-      g.font = "700 26px system-ui, sans-serif";
-      g.textAlign = "left";
-      g.fillStyle = hovered ? "#1b1206" : "#ffb36b";
-      // With several windows open the card also says which one the idea will steer.
-      const right = `${item.to ? `→ WINDOW ${item.to}   ` : ""}▲ ${item.votes ?? 0}`;
-      g.fillText((item.by || "A friend").toUpperCase(), 28, 34, w - 80 - g.measureText(right).width);
-      g.textAlign = "right";
-      g.fillStyle = hovered ? "#1b1206" : "#ffd08a";
-      g.fillText(right, w - 28, 34);
-      top = 26;
+    if (crowd && item.top && !hovered) {
+      g.fillStyle = "#ffb36b"; // the top idea: an accent bar down the left, like a highlighted message
+      g.fillRect(2, 14, 8, h - 28);
     }
-    g.fillStyle = hovered ? "#1b1206" : "#fff3e0";
-    g.textAlign = "center";
-    g.textBaseline = "middle";
-    g.font = `italic 500 ${crowd ? 30 : 34}px Georgia, serif`;
-    const words = String(text || "").split(/\s+/), lines = [];
-    let line = "";
-    for (const wd of words) {
-      const t = line ? `${line} ${wd}` : wd;
-      if (g.measureText(t).width > w - 50 && line) lines.push(line), (line = wd);
-      else line = t;
+    g.textBaseline = "alphabetic";
+    g.textAlign = "left";
+    const ink = hovered ? "#1b1206" : "#efeff1";
+    if (!crowd) {
+      // The director's own option (desktop only): an italic line, no name.
+      g.font = "italic 500 40px Georgia, serif";
+      g.fillStyle = ink;
+      wrap(g, `→ ${item}`, pad, w - pad, 2).forEach((l, i, a) => g.fillText(l.text, l.x, h / 2 + 14 + (i - (a.length - 1) / 2) * 50));
+      m.userData.tex.needsUpdate = true;
+      return;
     }
-    lines.push(line);
-    const gap = crowd ? 34 : 40;
-    lines.slice(0, 2).forEach((l, i, a) => g.fillText(l, w / 2, h / 2 + top / 2 + (i - (a.length - 1) / 2) * gap));
+    // Votes (and, with several windows open, which one it steers) in a pill on the right.
+    g.font = "700 30px system-ui, sans-serif";
+    const pill = `${item.to ? `→ ${item.to}  ` : ""}▲ ${item.votes ?? 0}`;
+    const pw = g.measureText(pill).width + 28;
+    g.fillStyle = hovered ? "rgba(27,18,6,0.18)" : item.top ? "#ffb36b" : "#2f2f35";
+    g.beginPath();
+    g.roundRect(w - pad - pw, h / 2 - 22, pw, 44, 8);
+    g.fill();
+    g.fillStyle = hovered ? "#1b1206" : item.top ? "#1b1206" : "#adadb8";
+    g.fillText(pill, w - pad - pw + 14, h / 2 + 11);
+    // "🔥 Name: the idea", wrapped onto two lines at most.
+    const name = item.by || "Someone";
+    const lead = `${item.top ? "🔥 " : ""}${name}`;
+    g.font = "700 38px system-ui, sans-serif";
+    const nw = g.measureText(`${lead}: `).width;
+    g.font = "500 38px system-ui, sans-serif";
+    const lines = wrap(g, String(item.text || ""), pad + 8, w - pad - pw - 20, 2, nw);
+    const y0 = h / 2 + 13 - ((lines.length - 1) * 46) / 2;
+    g.font = "700 38px system-ui, sans-serif";
+    g.fillStyle = hovered ? "#1b1206" : `hsl(${hueOf(name)} 85% 66%)`;
+    g.fillText(`${lead}:`, pad + 8, y0);
+    g.font = "500 38px system-ui, sans-serif";
+    g.fillStyle = ink;
+    lines.forEach((l, i) => g.fillText(l.text, l.x, y0 + i * 46));
     m.userData.tex.needsUpdate = true;
   }
 
