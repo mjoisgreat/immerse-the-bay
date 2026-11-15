@@ -2,7 +2,7 @@ import QRCode from "qrcode";
 import { createLink } from "./link.js";
 import { urlRoom, cleanRoom, esc } from "./identity.js";
 import { peopleSummary, startPresence } from "./people.js";
-import { hueOf, topIdeaOf, nextIdeaOf, countdownHtml, countdownBar, startCountdowns } from "./chat.js";
+import { hueOf, topIdeaOf, nextIdeaOf, storyFeed, countdownHtml, countdownBar, startCountdowns } from "./chat.js";
 
 // Full-screen spectator view for a TV or projector next to the headset (no controls, just the show).
 const $ = (s) => document.querySelector(s);
@@ -104,6 +104,7 @@ function start() {
     $("#inside").hidden = !s.immersed;
     renderChoices(s.choices || []);
     renderChat(s);
+    renderFeed(s);
     renderSnaps();
   }
 
@@ -111,6 +112,8 @@ function start() {
   const seenIdeas = new Set();
   let firstIdeas = true;
   startCountdowns();
+  // The story so far, under the audience chat: who said what, newest on top (the same look as the watch page).
+  const renderFeed = storyFeed($("#feed"), $("#feedJump"), { empty: "The story starts when the storyteller speaks." });
   function renderChat(s) {
     const sug = s.suggestions || [];
     const crowd = Boolean(s.meta?.crowd);

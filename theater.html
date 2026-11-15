@@ -49,6 +49,8 @@
       .qr img { max-width: min(220px, 22vh) !important; }
       .qr img { width: 100%; max-width: 220px; border-radius: 10px; background: #fff; padding: 8px; }
       .qr p { margin: .5rem 0 0; font-size: clamp(.8rem, 1vw, 1rem); }
+      /* Short screens (720p): a smaller QR card leaves room for both chats. */
+      @media (max-height: 820px) { .qr { padding: .6rem; } .qr h2 { margin-bottom: .3rem; } .qr img { max-width: 15vh !important; padding: 5px; } .qr p { display: none; } }
       /* Audience ideas as a Twitch-style chat overlay: newest at the top, older lines fade out at the bottom. */
       .chat { flex: 1; min-height: 8rem; display: flex; flex-direction: column; background: #18181bdd; border: 1px solid #2f2f35; border-radius: 16px;
         overflow: hidden; backdrop-filter: blur(8px); color: #efeff1; font: clamp(.82rem, 1.02vw, 1.15rem)/1.45 Inter, system-ui, -apple-system, sans-serif; }
@@ -71,6 +73,11 @@
         font-size: .78em; font-weight: 700; white-space: nowrap; }
       .msg.is-top .vote, .pinned .vote { background: var(--warm); color: #1b1206; }
       .chip { display: inline-block; margin-right: .3rem; font-size: .85em; }
+      /* The story so far: the same chat look, newest line on top; narration keeps its storybook italic. */
+      .msg .ts { display: none; } /* no clock on the big screen */
+      .chip.role { display: inline-grid; place-items: center; width: 1.3em; height: 1.3em; border-radius: 4px; vertical-align: -.2em; font-size: .8em; }
+      .msg.narr .text { font: italic 1.05em/1.4 Georgia, serif; color: #ffe9c7; }
+      .msg .note { display: none; }
       .chatWelcome { color: #adadb8; font-style: italic; padding: .2rem .9rem; }
       .chatNote { margin: 0; padding: .35rem .9rem .55rem; font-size: .72em; color: #adadb8; border-top: 1px solid #2f2f35; }
       .chatNote:empty { display: none; }
@@ -116,6 +123,8 @@
           <div class="chat"><h2>Audience chat <span class="count" id="suggCount"></span></h2>
             <div class="pinned" id="pinned" hidden></div>
             <div class="chatLog" id="ideas"></div></div>
+          <div class="chat story"><h2>The story so far</h2>
+            <div class="chatLog" id="feed"></div><button type="button" id="feedJump" hidden></button></div>
           <div class="card qr"><h2>Join the story</h2><img id="qr" alt="QR code to the watch page" /><p>Scan to suggest and vote on what happens next</p></div>
         </aside>
       </div>
