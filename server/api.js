@@ -69,6 +69,8 @@ export async function relayPost(store, body) {
   const { event, snapshot } = await store.withLock(room, async () => {
     const s = await store.getState(room);
     const { events, director: ev } = reduce(s, body, ctx);
+    // Number each director request, so a slow reply can't overwrite a newer one.
+    if (ev) ev.seq = s.directorSeq = (s.directorSeq || 0) + 1;
     await store.setState(room, s);
     await store.pushEvents(room, events);
     await store.touchPublic(room, s.meta.shared);
@@ -80,7 +82,7 @@ export async function relayPost(store, body) {
     const out = await askDirector(director, snapshot, event);
     await store.withLock(room, async () => {
       const fresh = await store.getState(room); // others may have changed it while the director thought
-      const more = applyDirection(fresh, out, Date.now() - started);
+      const more = applyDirection(fresh, out, Date.now() - started, event.seq);
       await store.setState(room, fresh);
       await store.pushEvents(room, more);
     });

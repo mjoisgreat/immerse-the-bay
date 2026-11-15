@@ -1,0 +1,20 @@
+{
+  "worlds": [
+    {
+      "id": "stanford",
+      "title": "Stanford University Main Quad, Inner Quad",
+      "description": "Stanford University Main Quad, standing in the centre of the Inner Quad on a clear day, facing Memorial Church with its gold mosaic gable; tan paved courtyard enclosed by sandstone arcades with round arches and red tile roofs, raised circular planting beds with tall palms, empty of people",
+      "keywords": [
+        "Stanford",
+        "Main Quad",
+        "Memorial Church"
+      ],
+      "spz": "/worlds/stanford.spz",
+      "thumb": "/worlds/stanford.jpg",
+      "scale": 3.1958162784576416,
+      "ground": 1.7969460487365723,
+      "marble": "https://marble.worldlabs.ai/world/211f0578-3ffc-4177-a347-9f31d8bfc88e",
+      "caption": "The scene is a grand university courtyard on a clear, sunny day, rendered in a photorealistic style that captures the serene and monumental atmosphere of the academic setting. The overall tone is one of tranquility and academic grandeur, befitting a historic institution. The vast rectangular courtyard is paved with warm tan-brown stone, extending uniformly in all directions, creating an expansive central space. On all four sides, continuous one-story buff sandstone arcades enclose the courtyard, each featuring numerous round Romanesque arches supported by short columns and topped with red clay tile roofs. Behind these arcades stand two-story sandstone buildings, their facades reflecting the same architectural style. Eight large circular raised planting beds are symmetrically arranged within the courtyard, each filled with mature palm trees, various other trees, and lush shrubs, providing verdant focal points against the stone. Behind the viewer, an arched gateway pierces through the arcade, leading to areas beyond the Inner Quad. To the left of this gateway, and visible rising above the arcade, stands the iconic Hoover Tower, its distinctive silhouette marking the campus skyline. The arcades form a continuous walkway, offering shaded passage around the entire perimeter of the quad. "
+    }
+  ]
+}

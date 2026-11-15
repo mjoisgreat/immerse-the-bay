@@ -6,6 +6,8 @@ import { Immersion } from "./immersion.js";
 import { Toolbar } from "./toolbar.js";
 import { HandGestures } from "./gestures.js";
 import { Companion, BunnyRig, RobotRig } from "./companion.js";
+import { Backdrop } from "./backdrop.js";
+import { Locomotion } from "./locomotion.js";
 import { OrbisStream } from "./orbis.js";
 import { PushToTalk } from "./voice.js";
 import { createLink, speechHeaders } from "./link.js";
@@ -41,7 +43,8 @@ scene.add(rimLight);
 const previewRoom = new THREE.Group();
 previewRoom.add(new THREE.GridHelper(20, 40, 0x334466, 0x1c2233));
 scene.add(previewRoom);
-scene.background = new THREE.Color(0x0b0e16);
+const DESKTOP_BG = new THREE.Color(0x0b0e16);
+scene.background = DESKTOP_BG;
 
 addEventListener("resize", () => {
   camera.aspect = innerWidth / innerHeight;
@@ -177,7 +180,13 @@ async function resolveRoom() {
   return new Promise(() => {}); // page is leaving
 }
 const ROOM = await resolveRoom();
-history.replaceState(null, "", `?room=${ROOM}`);
+{
+  // Normalise the address to this room, keeping other settings such as ?companion=pip.
+  const q = new URLSearchParams(location.search);
+  q.set("room", ROOM);
+  q.delete("invite");
+  history.replaceState(null, "", `?${q}`);
+}
 showRoomCard();
 
 function showRoomCard() {
@@ -241,7 +250,7 @@ const link = createLink(ROOM, {
 // names the idea and who suggested it: inside a world the cards are hidden, so this is the only
 // place the storyteller sees a friend's idea arrive.
 setInterval(() => {
-  if (retired || !roomState?.meta?.crowd || !roomState.suggestions?.length || !portals.size) return;
+  if (retired || talking || wantTalk || !roomState?.meta?.crowd || !roomState.suggestions?.length || !portals.size) return;
   const top = [...roomState.suggestions].sort((a, b) => b.voters.length - a.voters.length || a.at - b.at)[0];
   roomState.suggestions = roomState.suggestions.filter((x) => x.id !== top.id);
   send({ t: "use_suggestion", id: top.id }); // by id, so the message names the idea actually used
@@ -292,22 +301,33 @@ function applyDirection({ narration, updates, choices, speech }) {
 // ---------- Voice ----------
 const ptt = new PushToTalk();
 let talking = false;
+let wantTalk = false; // the button is held (the mic may still be starting)
 let talkingToBuddy = false;
 async function startTalking() {
-  if (talking) return;
+  if (talking || wantTalk) return;
+  wantTalk = true;
   talkingToBuddy = buddy.isLookedAt(); // look at the companion while you talk and your words go to it
   if (talkingToBuddy) buddy.listen();
   try {
     await ptt.begin();
+    if (!wantTalk) {
+      // Released before the mic was ready: treat it as a cancelled press.
+      await ptt.end({}).catch(() => {});
+      if (talkingToBuddy) buddy.react({ gesture: "none", move: "none" });
+      return;
+    }
     talking = true;
     micOrb.material.emissive.set(0xff3300);
     micOrb.scale.setScalar(1.4);
     flash("Listening… let go when you're done", 60000);
   } catch (e) {
+    wantTalk = false;
+    if (talkingToBuddy) buddy.react({ gesture: "none", move: "none" });
     flash(`Microphone unavailable: ${e.message}`);
   }
 }
 async function stopTalking() {
+  wantTalk = false;
   if (!talking) return;
   talking = false;
   micOrb.material.emissive.set(0x442200);
@@ -320,7 +340,9 @@ async function stopTalking() {
       return flash("Didn't catch that. Hold the orb and speak.");
     }
     flash(`“${text}”`, 4000);
-    if (talkingToBuddy) chatWithBuddy(text);
+    // To the companion if you were looking at it, or if you said its name; otherwise to the story.
+    const named = buddy.visible && new RegExp(`\\b${BUDDY.name}\\b`, "i").test(text);
+    if (talkingToBuddy || named) chatWithBuddy(text);
     else send({ t: "utterance", text });
   } catch (e) {
     if (talkingToBuddy) buddy.react({ gesture: "none", move: "none" });
@@ -420,6 +442,9 @@ function onSelectStart(ctrl) {
   }
   // Inside a world, pointing at it and pulling the trigger touches it.
   if (immersion.inside) return touchWorld(ray.origin.clone(), ray.direction.clone());
+  // In a 3D world, pointing at the ground and pinching (or the trigger) teleports you there.
+  const floor = loco.enabled && loco.floorHit(ray);
+  if (floor) return loco.teleport(floor), buzz(0.3, 30);
   openPortal(ray.origin.clone(), ray.direction.clone());
 }
 
@@ -625,6 +650,7 @@ $("#choices").addEventListener("click", (e) => {
 
 // Characters speak their lines aloud, from their window (or all around you when you're inside it).
 let voice = null;
+let voiceEnd = null; // onEnd of the line playing now
 async function playVoice({ speaker, line, voice: style, portal_id }) {
   const target = portals.get(portal_id) || portals.get(focusId);
   target?.portal.setCaption(`${speaker}: “${line}”`, "story");
@@ -643,16 +669,22 @@ async function speak(line, speaker, style, anchor = null, { onStart, onEnd } = {
     if (!r.ok) throw new Error(`voice ${r.status}`);
     const buf = await listener.context.decodeAudioData(await r.arrayBuffer());
     if (listener.context.state === "suspended") await listener.context.resume();
+    // A new line interrupts the previous one; let its speaker know it stopped.
+    const interrupted = voiceEnd;
+    voiceEnd = null;
     voice?.stop?.();
     voice?.removeFromParent();
+    interrupted?.();
     voice = anchor ? new THREE.PositionalAudio(listener) : new THREE.Audio(listener);
     if (anchor) voice.setRefDistance(2), anchor.add(voice);
     else scene.add(voice);
     voice.setBuffer(buf);
     voice.setVolume(1.4);
     const mine = voice;
+    voiceEnd = onEnd || null;
     voice.onEnded = () => {
       mine.isPlaying = false;
+      if (voiceEnd === onEnd) voiceEnd = null;
       onEnd?.();
     };
     voice.play();
@@ -797,6 +829,38 @@ function toggleBuddy() {
   flash(`Meet ${BUDDY.name}! Look at ${BUDDY.name} while you talk to chat. Pinch, or say “follow me”, and ${BUDDY.name} comes with you.`, 8000);
 }
 
+// ---------- Room background: see-through (your real room) or a 3D world around you ----------
+// The story windows are unaffected; stepping inside a window still shows its live video.
+const backdrop = new Backdrop(scene, renderer, camera);
+const loco = new Locomotion(renderer, camera, scene);
+const aimRay = new THREE.Raycaster();
+// Pointing rays of the controllers/hands, skipping any that point at a button, window or Bunny.
+function locoRays() {
+  if (!loco.enabled) return [];
+  const hitTargets = targets();
+  return [0, 1].map((i) => {
+    const c = renderer.xr.getController(i);
+    if (!c.visible) return null;
+    tmpMat.identity().extractRotation(c.matrixWorld);
+    aimRay.ray.origin.setFromMatrixPosition(c.matrixWorld);
+    aimRay.ray.direction.set(0, 0, -1).applyMatrix4(tmpMat);
+    return aimRay.intersectObjects(hitTargets, false).length ? null : aimRay.ray.clone();
+  });
+}
+async function toggleBackdrop() {
+  if (backdrop.on) {
+    backdrop.hide();
+    return flash("Back to your room.", 3000);
+  }
+  if (backdrop.loading) return;
+  flash("Loading Stanford's Main Quad…", 20000);
+  const ok = await backdrop.show("stanford").catch(() => false);
+  const how = renderer.xr.isPresenting
+    ? "Walk, use the left thumbstick, or point at the ground and pinch to jump there."
+    : "Use W/A/S/D or the arrow keys to walk around.";
+  flash(ok ? `You're standing in Stanford's Main Quad. ${how} Press See-through to return to your room.` : "Couldn't load the 3D world.", 9000);
+}
+
 // ---------- Buttons (floating panel in the headset, bar at the bottom on desktop) ----------
 function openInFront() {
   const origin = camera.getWorldPosition(new THREE.Vector3());
@@ -840,6 +904,7 @@ const toolbar = new Toolbar(camera, [
   { id: "step", icon: "🚪", label: "Step inside", press: toggleStep },
   { id: "close", icon: "✕", label: "Close window", press: closeFocused },
   { id: "buddy", icon: BUDDY.icon, label: BUDDY.name, press: toggleBuddy },
+  { id: "world", icon: "🏛", label: "Stanford", press: toggleBackdrop },
   { id: "reset", icon: "↺", label: "Reset story", press: resetPressed },
   { id: "hide", icon: "▾", label: "Hide buttons", press: () => setButtonsHidden(true) },
 ]);
@@ -871,6 +936,8 @@ function updateToolbar() {
   syncButtons();
 }
 function syncButtons() {
+  toolbar.set("world", { label: backdrop.on ? "See-through" : "Stanford", icon: backdrop.on ? "👓" : "🏛" });
+  bar.world.textContent = backdrop.on ? "See-through" : "Stanford Quad";
   const armed = Date.now() < resetArmed;
   toolbar.set("talk", { state: talking ? "active" : "idle", label: talking ? "Listening…" : "Hold to talk" });
   toolbar.set("step", { label: immersion.inside ? "Step out" : "Step inside", icon: immersion.inside ? "↩" : "🚪" });
@@ -918,6 +985,7 @@ bar.close.onclick = closeFocused;
 bar.reset.onclick = resetPressed;
 bar.info.onclick = () => ($("#overlay").hidden = !$("#overlay").hidden);
 bar.hide.onclick = () => setButtonsHidden(true);
+bar.world.onclick = toggleBackdrop;
 bar.buddy.onclick = toggleBuddy;
 bar.buddy.textContent = BUDDY.name;
 $("#showbar").onclick = () => setButtonsHidden(false);
@@ -959,7 +1027,33 @@ addEventListener("keydown", (e) => {
   if (e.code === "Escape") stepOut();
   if (e.code === "KeyH" && !/INPUT|TEXTAREA/.test(e.target.tagName)) setButtonsHidden(!toolbar.collapsed);
 });
-addEventListener("keyup", (e) => e.code === "Space" && stopTalking());
+addEventListener("keyup", (e) => {
+  if (e.code === "Space") stopTalking();
+  keysDown.delete(e.code);
+});
+// W/A/S/D or arrow keys walk around a 3D world background in the desktop preview.
+const keysDown = new Set();
+addEventListener("keydown", (e) => {
+  if (!/INPUT|TEXTAREA/.test(e.target.tagName) && /^(Key[WASD]|Arrow(Up|Down|Left|Right))$/.test(e.code)) {
+    keysDown.add(e.code);
+    if (backdrop.on && e.code.startsWith("Arrow")) e.preventDefault();
+  }
+});
+addEventListener("blur", () => keysDown.clear());
+function desktopWalk(dt) {
+  if (renderer.xr.isPresenting) return;
+  if (!backdrop.on) {
+    // Back in the preview room: return to the starting spot once the world has faded out.
+    if (backdrop.opacity === 0 && (camera.position.x || camera.position.z)) camera.position.set(0, 1.6, 0);
+    return;
+  }
+  const f = (keysDown.has("KeyW") || keysDown.has("ArrowUp") ? 1 : 0) - (keysDown.has("KeyS") || keysDown.has("ArrowDown") ? 1 : 0);
+  const r = (keysDown.has("KeyD") || keysDown.has("ArrowRight") ? 1 : 0) - (keysDown.has("KeyA") || keysDown.has("ArrowLeft") ? 1 : 0);
+  if (!f && !r) return;
+  const fwd = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw));
+  const right = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
+  camera.position.addScaledVector(fwd, f * 2 * dt).addScaledVector(right, r * 2 * dt);
+}
 
 // ---------- Enter mixed reality ----------
 const enterBtn = $("#enter");
@@ -982,11 +1076,13 @@ async function setupXR() {
     });
     renderer.xr.setReferenceSpaceType("local-floor");
     await renderer.xr.setSession(session);
+    loco.start();
     scene.background = null;
     previewRoom.visible = false;
     $("#overlay").hidden = true;
     session.addEventListener("end", () => {
       immersion.reset();
+      loco.stop();
       scene.background = new THREE.Color(0x0b0e16);
       previewRoom.visible = true;
       $("#overlay").hidden = false;
@@ -1007,7 +1103,15 @@ renderer.setAnimationLoop(() => {
   for (const { portal } of portals.values()) portal.update(t);
   checkWalking();
   immersion.update(t, dt);
-  previewRoom.visible = !renderer.xr.isPresenting && !immersion.active;
+  backdrop.update(dt, { inside: immersion.active });
+  // Moving around: only in a 3D world, not inside a window. Back to see-through puts you back
+  // where your real room is, so windows line up with your walls again.
+  loco.enabled = backdrop.on && !immersion.active && renderer.xr.isPresenting;
+  if (!backdrop.on && backdrop.opacity === 0) loco.reset();
+  loco.update(dt, locoRays());
+  desktopWalk(dt);
+  scene.background = backdrop.background(renderer.xr.isPresenting ? null : DESKTOP_BG);
+  previewRoom.visible = !renderer.xr.isPresenting && !immersion.active && !backdrop.on;
   exitOrb.visible = immersion.inside && renderer.xr.isPresenting && !toolbar.collapsed;
   updateToolbar();
   gestures.update();
@@ -1016,7 +1120,8 @@ renderer.setAnimationLoop(() => {
   updateTitle();
   for (const { portal, stream } of portals.values()) {
     // The "hole in the wall" only makes sense over passthrough, not inside a world.
-    portal.mask.visible = renderer.xr.isPresenting && !immersion.active;
+    // ...nor over a 3D world background (there's no real wall to cut into).
+    portal.mask.visible = renderer.xr.isPresenting && !immersion.active && backdrop.opacity === 0;
     if (guideStep === 0 && stream.status === "streaming") guide(1);
   }
   if (!renderer.xr.isPresenting) syncButtons();

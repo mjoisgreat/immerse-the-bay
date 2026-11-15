@@ -17,6 +17,10 @@ How Orbis prompts work (follow these strictly):
   materials, atmosphere. Present tense, concrete visual language, 40-90 words.
 - When steering an already-running portal, keep the same scene and describe what
   changes. Changes should read as gradual cinematography, not a hard cut.
+- Continuity matters most: keep the same location, characters, time of day and camera
+  unless the person clearly asks to go somewhere else. "A fox appears" means the fox walks
+  into the current shot, not a new shot of a fox. Rewrite the whole prompt each time (the
+  scene plus the change), never just the change.
 - Never put text, captions, logos or UI in the picture. No real people or brands.
 - Keep every recurring character described with the same words in every prompt
   (same name, clothing, colors) so they stay recognisable across portals.
@@ -134,45 +138,88 @@ export function createDirector() {
 const IMMERSIVE =
   "First-person view from standing eye level through a 20 mm wide-angle lens, no fisheye, horizon level across the middle of the frame, sharp detail, an almost still camera, one continuous take.";
 
-// Works with no Claude key: the words go straight to the focused portal.
+const STYLE = "Cinematic, one continuous unbroken take, slow gentle camera drift, soft volumetric light, rich detail.";
+const RIPPLE = "A soft ripple of golden light spreads from one spot, and the scene gently stirs.";
+
+const ALREADY = " Already in the scene: ";
+const NOW = " Now, in the same continuous shot: ";
+
+/**
+ * Splits a portal prompt into its lasting setting and the last few things that happened in it,
+ * dropping anything this fallback appended before (style and camera notes, touch ripples), so
+ * repeated events never pile up.
+ */
+export function parseScene(prompt, seed) {
+  let p = ` ${String(prompt || "").trim()} `;
+  for (const tail of [STYLE, IMMERSIVE, RIPPLE]) p = p.split(tail).join(" ");
+  const [before, now = ""] = p.split(NOW);
+  const [settingRaw, alreadyRaw = ""] = before.split(ALREADY);
+  const recent = alreadyRaw.split(";").map((x) => x.trim().replace(/[.\s]*$/, "")).filter(Boolean);
+  const current = now.replace(/, happening gradually\.?/, "").trim().replace(/[.\s]*$/, "");
+  if (current) recent.push(current);
+  let setting = settingRaw.replace(/\s+/g, " ").trim();
+  if (!setting) setting = seed;
+  // Keep the setting to a few sentences so the prompt stays in Orbis's sweet spot.
+  if (setting.length > 380) {
+    const cut = setting.slice(0, 380);
+    setting = cut.slice(0, Math.max(cut.lastIndexOf(". ") + 1, 200)).trim();
+  }
+  return { setting: setting.replace(/[.\s]*$/, "."), recent };
+}
+
+/** The setting plus the last two things that happened, ready for a new change or a style note. */
+export function sceneOf(prompt, seed) {
+  const { setting, recent } = parseScene(prompt, seed);
+  const keep = recent.slice(-2);
+  return keep.length ? `${setting}${ALREADY}${keep.join("; ")}.` : setting;
+}
+
+const CHOICES = [
+  ["Something magical appears nearby", "The weather slowly changes", "A curious stranger arrives"],
+  ["A hidden path is revealed", "Night begins to fall", "Music drifts in from somewhere"],
+  ["An animal comes to investigate", "The light turns golden", "Something sparkles in the distance"],
+];
+let choiceTurn = 0;
+
+// Works without Claude (no key, no credits): each event steers the portal's *current* scene, so
+// speaking changes what happens in it instead of cutting back to the opening setting.
 function fallback({ event, story, portals, focusId, immersedId = null }) {
-  const style =
-    "Cinematic, one continuous unbroken take, slow gentle camera drift, soft volumetric light, rich detail.";
-  const extra = { choices: [], speech: null };
+  const extra = { choices: CHOICES[choiceTurn++ % CHOICES.length], speech: null };
+  const find = (id) => portals.find((x) => x.id === id);
   if (event.type === "step_inside") {
-    const p = portals.find((x) => x.id === event.portal_id);
-    const base = (p?.prompt || story.seed).replace(style, "");
     return {
       ...extra,
       narration: "You step through, and the world closes around you.",
       bible: story.bible,
-      updates: [{ portal_id: event.portal_id, prompt: `${base} ${IMMERSIVE}` }],
+      updates: [{ portal_id: event.portal_id, prompt: `${sceneOf(find(event.portal_id)?.prompt, story.seed)} ${IMMERSIVE}` }],
     };
   }
   if (event.type === "touch") {
-    const p = portals.find((x) => x.id === event.portal_id);
+    const look = event.portal_id === immersedId ? IMMERSIVE : STYLE;
     return {
       ...extra,
       narration: "Where you touch, the world shimmers and wakes.",
       bible: story.bible,
-      updates: [{ portal_id: event.portal_id, prompt: `${p?.prompt || story.seed} A soft ripple of golden light spreads from one spot, and the scene gently stirs.` }],
+      updates: [{ portal_id: event.portal_id, prompt: `${sceneOf(find(event.portal_id)?.prompt, story.seed)} ${RIPPLE} ${look}` }],
     };
   }
   if (event.type === "portal_added") {
-    const base = story.beats.at(-1) || story.seed;
+    const base = story.beats.at(-1) ? `${story.seed}. ${story.beats.at(-1)}` : story.seed;
     return {
       ...extra,
       narration: "A new window opens onto the story.",
       bible: story.bible,
-      updates: [{ portal_id: event.portal_id, prompt: `${base}. A different corner of the same world. ${style}` }],
+      updates: [{ portal_id: event.portal_id, prompt: `${sceneOf(base, story.seed)} A different corner of the same world. ${STYLE}` }],
     };
   }
   const target = focusId || portals[0]?.id;
-  const look = target && target === immersedId ? IMMERSIVE : style;
+  const look = target && target === immersedId ? IMMERSIVE : STYLE;
+  const scene = sceneOf(find(target)?.prompt, story.seed);
+  const change = String(event.text || "").trim().replace(/[.!?\s]*$/, "");
   return {
     ...extra,
     narration: event.text,
     bible: story.bible,
-    updates: target ? [{ portal_id: target, prompt: `${story.seed}. ${event.text}. ${look}` }] : [],
+    updates: target ? [{ portal_id: target, prompt: `${scene}${NOW}${change}, happening gradually. ${look}` }] : [],
   };
 }
