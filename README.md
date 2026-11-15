@@ -168,22 +168,20 @@ fallback. Besides pointing and pinching (open, move, tap to touch, press buttons
 
 | Gesture | Does | Controller fallback |
 |---|---|---|
-| Raise a hand to your mouth, like a microphone | Talk; lower it to send. A red mic badge floats by that hand while it records | Hold A / X |
+| Raise a hand to your mouth, like a microphone | Talk; lower it to send. A red mic badge floats by that hand while it records. Bonnie, if she is in the room, runs over and faces you while you talk | Hold A / X |
 | Part both hands, like opening curtains | Step into the focused window | B / Y |
 | Bring both hands back together | Step back out | B / Y |
 | Shake both hands in front of you, like wiping something away | Close the focused window (inside a world: step back out) | Grip while pointing at it |
 | Turn your left palm toward your face and hold | Show / hide the buttons | Thumbstick click |
-| Snap your fingers (either hand) | Call the companion: Bonnie appears, or hops back over to you if she is already here | The **Bonnie** button |
 | Pinch a window and drag | Move it (a quick tap touches the world instead) | Trigger on it, drag |
 | Pinch the same window with your other hand, then move your hands apart or together | Pick it up with both hands: it is carried by the midpoint of your hands and resized by the distance between them (40 % to 250 %) | n/a |
 | Pinch the companion with both hands | Pick her up and carry her between your hands; let go to drop or throw her (one hand still works as before) | n/a |
 
 Every gesture answers so you know it registered: your palms glow, a short tone plays, and controllers buzz.
 The two-hand gestures share a 1.5 s cooldown and are ignored while you talk; parting has to end with the hands
-held apart for a moment, so a shake never reads as an opening motion. A snap is a thumb-to-middle-fingertip
-touch followed by a fast flick apart (under about 160 ms), at most once per 1.5 s, and it is ignored while you
-talk or are inside a world. On hands, a middle-finger pinch no longer counts as a "grip", so a snap can't close
-the window you happen to be pointing at. Tuning constants sit at the top of `src/gestures.js`; the resize math
+held apart for a moment, so a shake never reads as an opening motion. There is no snap gesture (it was removed;
+to bring Bonnie in, use the **Bonnie** button, double-tap empty space on a phone, or just start talking). On hands, a middle-finger pinch does not
+count as a "grip", so it can't close the window you happen to be pointing at. Tuning constants sit at the top of `src/gestures.js`; the resize math
 is in `src/portalresize.js`.
 
 ## Controls in the headset
@@ -208,7 +206,6 @@ to bring them back.
 | Focus and move a portal | Pinch on it, drag, release | Trigger on it, drag, release |
 | Pick up and throw Bonnie | Pinch and hold on Bonnie (near her is enough: she glows when you can), swing, release | Trigger and hold on Bonnie, swing, release |
 | Resize a portal | Pinch it with both hands, then move the hands apart / together | n/a |
-| Call Bonnie | Snap your fingers | The **Bonnie** button |
 | Talk | Raise a hand to your mouth (or press and hold **Hold to talk** on the panel) | Hold A or X |
 | Close a portal | Shake both hands | Grip while pointing at it |
 | Step inside a portal | Part your hands like curtains, walk through it, or pinch it and pull it toward you | Walk through it, or press B / Y |
