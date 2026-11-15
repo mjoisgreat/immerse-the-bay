@@ -1,7 +1,7 @@
 // Story state machine: permissions, rooms, choices, touch, reset.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { initialState, reduce, allowed, applyDirection } from "../server/core.js";
+import { initialState, reduce, allowed, applyDirection, CROWD_ROUND_MS } from "../server/core.js";
 
 const owner = { role: "owner" };
 /** A room with the window open onto a lake world (pass `null` to leave it without a world yet). */
@@ -299,4 +299,22 @@ test("live viewing: STUN always, TURN only when it's fully configured", () => {
   assert.equal(iceServers({ TURN_URL: "turn:x:3478" }).length, 1); // no credentials: not used
   const both = iceServers({ TURN_URL: "turn:x:3478, turns:x:5349", TURN_USERNAME: "u", TURN_CREDENTIAL: "p" });
   assert.deepEqual(both[1], { urls: ["turn:x:3478", "turns:x:5349"], username: "u", credential: "p" });
+});
+
+test("Crowd Mode counts down to the next idea, and a used idea starts a fresh round", () => {
+  const s = start();
+  const viewer = { role: "viewer", voter: "v1" };
+  reduce(s, { t: "suggest", text: "A whale" }, viewer);
+  assert.ok(!s.crowdAt, "no countdown while Crowd Mode is off");
+  const before = Date.now();
+  reduce(s, { t: "set_meta", crowd: true }, owner);
+  assert.ok(s.crowdAt >= before + CROWD_ROUND_MS && s.crowdAt - s.crowdFrom === CROWD_ROUND_MS);
+  const due = s.crowdAt;
+  reduce(s, { t: "suggest", text: "A storm" }, viewer);
+  assert.equal(s.crowdAt, due, "a new idea doesn't restart a running round");
+  s.crowdAt = s.crowdFrom = 1; // the round ran out...
+  reduce(s, { t: "use_suggestion", id: "top" }, owner);
+  assert.ok(s.crowdAt > Date.now(), "...and using the idea starts the next one");
+  reduce(s, { t: "set_meta", crowd: false }, owner);
+  assert.equal(s.crowdAt, 0);
 });

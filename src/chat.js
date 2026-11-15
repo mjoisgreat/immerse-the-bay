@@ -42,3 +42,42 @@ export function stickyLog(log, jump) {
     first = false;
   };
 }
+
+/** The idea Crowd Mode plays next: the most-voted one, the oldest on a tie (the server's own pick). */
+export function nextIdeaOf(sug) {
+  return [...sug].sort((a, b) => b.voters.length - a.voters.length || a.at - b.at)[0] || null;
+}
+
+/** Seconds left until Crowd Mode plays the next idea (0 once it's due). */
+export const secondsLeft = (at) => Math.max(0, Math.ceil((at - Date.now()) / 1000));
+
+/**
+ * A Crowd Mode countdown: "⏭ Up next in 7s" with a bar that drains over the round. Markup only; the
+ * ticker below keeps every countdown on the page current, so the chat isn't redrawn every second.
+ */
+export function countdownHtml(s) {
+  if (!s.meta?.crowd || !s.crowdAt) return "";
+  return `<span class="cd" data-at="${s.crowdAt}" data-from="${s.crowdFrom || s.crowdAt - 10000}"></span>`; // filled in by the ticker
+}
+export function countdownBar(s) {
+  if (!s.meta?.crowd || !s.crowdAt) return "";
+  return `<div class="cdbar" data-at="${s.crowdAt}" data-from="${s.crowdFrom || s.crowdAt - 10000}"><i></i></div>`;
+}
+let ticking = false;
+export function startCountdowns() {
+  if (ticking) return;
+  ticking = true;
+  const tick = () => {
+    for (const el of document.querySelectorAll(".cd[data-at]")) {
+      const left = secondsLeft(Number(el.dataset.at));
+      el.textContent = left ? `${left}s` : "now…";
+    }
+    for (const el of document.querySelectorAll(".cdbar[data-at]")) {
+      const at = Number(el.dataset.at), from = Number(el.dataset.from);
+      const share = Math.max(0, Math.min(1, (at - Date.now()) / Math.max(1, at - from)));
+      el.firstElementChild.style.width = `${(share * 100).toFixed(1)}%`;
+    }
+    requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+}

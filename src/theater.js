@@ -2,7 +2,7 @@ import QRCode from "qrcode";
 import { createLink } from "./link.js";
 import { urlRoom, cleanRoom, esc } from "./identity.js";
 import { peopleSummary, startPresence } from "./people.js";
-import { hueOf, topIdeaOf } from "./chat.js";
+import { hueOf, topIdeaOf, nextIdeaOf, countdownHtml, countdownBar, startCountdowns } from "./chat.js";
 
 // Full-screen spectator view for a TV or projector next to the headset (no controls, just the show).
 const $ = (s) => document.querySelector(s);
@@ -110,10 +110,12 @@ function start() {
   // ---------- Audience ideas as a Twitch-style chat overlay (read-only: the TV just shows the stream) ----------
   const seenIdeas = new Set();
   let firstIdeas = true;
+  startCountdowns();
   function renderChat(s) {
     const sug = s.suggestions || [];
-    const top = topIdeaOf(sug);
-    const label = s.meta?.crowd ? "⏭ Up next" : "📌 Top idea";
+    const crowd = Boolean(s.meta?.crowd);
+    const top = crowd ? nextIdeaOf(sug) : topIdeaOf(sug); // in Crowd Mode: the idea the countdown will play
+    const label = crowd ? `⏭ Up next in ${countdownHtml(s)}` : "📌 Top idea";
     $("#suggCount").textContent = sug.length ? `· ${sug.length}` : "";
     const line = (x) => `<b class="who">${esc(x.by || "Someone")}</b>: ${esc(x.text)}<span class="vote">▲ ${x.voters.length}</span>`;
     setHtml("#ideas", sug.length
@@ -128,7 +130,7 @@ function start() {
       : `<div class="chatWelcome">Scan the code below to suggest what happens next. Ideas show up here.</div>`);
     for (const x of sug) seenIdeas.add(x.id);
     firstIdeas = false;
-    setHtml("#pinned", top ? `<div class="pinLabel">${label}</div><div style="--hue:${hueOf(top.by || "Someone")}">${line(top)}</div>` : "");
+    setHtml("#pinned", top ? `<div class="pinLabel">${label}</div>${countdownBar(s)}<div style="--hue:${hueOf(top.by || "Someone")}">${line(top)}</div>` : "");
     $("#pinned").hidden = !top;
   }
 

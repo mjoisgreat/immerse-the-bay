@@ -269,8 +269,27 @@ export class Toolbar {
     g.textAlign = "center";
     g.font = "700 26px system-ui, sans-serif";
     g.fillStyle = "#efeff1";
-    g.fillText(`AUDIENCE CHAT  ·  ${n}`, w / 2, h / 2 + 1);
+    const left = this.crowdAt ? Math.max(0, Math.ceil((this.crowdAt - Date.now()) / 1000)) : null;
+    g.fillText(`AUDIENCE CHAT  ·  ${n}`, w / 2 - (left === null ? 0 : 120), h / 2 + 1);
+    if (left !== null) {
+      // Crowd Mode: the countdown to the next idea, and a bar along the bottom that drains over the round.
+      g.textAlign = "right";
+      g.fillStyle = "#ffb36b";
+      g.fillText(left ? `NEXT IN ${left}s` : "NEXT: NOW", w - 24, h / 2 + 1);
+      const share = Math.max(0, Math.min(1, (this.crowdAt - Date.now()) / 10000));
+      g.fillStyle = "#9147ff";
+      g.fillRect(14, h - 8, (w - 28) * share, 4);
+    }
     this.chatTex.needsUpdate = true;
+  }
+
+  /** Crowd Mode's countdown in the chat header (0: none). Redrawn at most a few times a second. */
+  setCountdown(at) {
+    const now = Date.now();
+    if (at === this.crowdAt && (!at || now - (this._cdDrawn || 0) < 200)) return;
+    this.crowdAt = at;
+    this._cdDrawn = now;
+    if (this.chatHead.visible || !at) this._drawChatHead();
   }
 
   /**

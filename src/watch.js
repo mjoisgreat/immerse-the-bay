@@ -3,7 +3,7 @@ import { createLink, speechHeaders } from "./link.js";
 import { urlRoom, voterId, esc } from "./identity.js";
 import { PushToTalk, micMessage } from "./voice.js";
 import { myName, peopleSummary, startPresence, thisDeviceKind } from "./people.js";
-import { hueOf, clock, topIdeaOf, stickyLog } from "./chat.js";
+import { hueOf, clock, topIdeaOf, nextIdeaOf, stickyLog, countdownHtml, countdownBar, startCountdowns } from "./chat.js";
 
 const $ = (s) => document.querySelector(s);
 const room = urlRoom;
@@ -44,7 +44,7 @@ function render(s) {
   $("#people").hidden = !here;
   $("#people").textContent = `here: ${here}`;
   $("#crowdNote").textContent = s.meta?.crowd
-    ? "Crowd Mode is on: the top-voted idea becomes the next scene every 20 seconds."
+    ? "Crowd Mode is on: when the countdown runs out, the top-voted idea becomes the next scene. Vote fast!"
     : "The storyteller picks from the most-voted ideas.";
 
   const choices = s.choices || [];
@@ -117,10 +117,13 @@ function voteButton(x, votes, voted, yours) {
   return `<button class="vote${voted ? " on" : ""}" ${yours ? `disabled title="Your idea always keeps your vote"` : `data-vote="${esc(x.id)}"`} aria-pressed="${voted}" aria-label="${yours ? "Your idea keeps your vote" : voted ? "Remove your vote" : "Vote for this idea"} (${votes})">▲ ${votes}</button>`;
 }
 const updateLog = stickyLog($("#suggs"), $("#jump"));
+startCountdowns();
 function renderIdeas(s) {
   const sug = s.suggestions || [];
-  const topIdea = topIdeaOf(sug);
-  const label = s.meta?.crowd ? "⏭ Up next" : "📌 Top idea";
+  // In Crowd Mode the pinned idea is the one that plays when the countdown runs out; otherwise the clear leader.
+  const crowd = Boolean(s.meta?.crowd);
+  const topIdea = crowd ? nextIdeaOf(sug) : topIdeaOf(sug);
+  const label = crowd ? `⏭ Up next in ${countdownHtml(s)}` : "📌 Top idea";
   $("#suggCount").textContent = sug.length ? `· ${sug.length}` : "";
 
   const line = (x) => {
@@ -128,14 +131,14 @@ function renderIdeas(s) {
     const name = x.by || "Someone";
     const fresh = !firstIdeas && !seenIdeas.has(x.id) ? " fresh" : "";
     return `<div class="msg${yours ? " is-mine" : ""}${x === topIdea ? " is-top" : ""}${fresh}" style="--hue:${hueOf(name)}">
-      <span class="ts">${clock(x.at)}</span>${x === topIdea ? `<span class="chip top" title="${label}">${s.meta?.crowd ? "⏭" : "🔥"}</span>` : ""}${yours ? `<span class="chip mine" title="Your idea">★</span>` : ""}<b class="who">${esc(name)}</b><span class="colon">:</span> <span class="text">${esc(x.text)}</span>${voteButton(x, votes, voted, yours)}</div>`;
+      <span class="ts">${clock(x.at)}</span>${x === topIdea ? `<span class="chip top" title="${crowd ? "Up next" : "Top idea"}">${s.meta?.crowd ? "⏭" : "🔥"}</span>` : ""}${yours ? `<span class="chip mine" title="Your idea">★</span>` : ""}<b class="who">${esc(name)}</b><span class="colon">:</span> <span class="text">${esc(x.text)}</span>${voteButton(x, votes, voted, yours)}</div>`;
   };
   const html = sug.length
     ? [...sug].sort((a, b) => a.at - b.at).map(line).join("")
     : `<div class="chatWelcome">Welcome to the chat! Suggest what happens next in the story, and vote ▲ on the ideas you like.</div>`;
 
   const pin = topIdea
-    ? `<div class="pinLabel">${label} · ${topIdea.voters.length} votes</div>
+    ? `<div class="pinLabel">${label} · ${topIdea.voters.length} vote${topIdea.voters.length === 1 ? "" : "s"}</div>${countdownBar(s)}
        <div class="pinBody" style="--hue:${hueOf(topIdea.by || "Someone")}"><b class="who">${esc(topIdea.by || "Someone")}</b><span class="colon">:</span> <span class="text">${esc(topIdea.text)}</span>${voteButton(topIdea, topIdea.voters.length, topIdea.voters.includes(voterId), topIdea.voters[0] === voterId)}</div>`
     : "";
   if (pin !== pinnedHtml) {

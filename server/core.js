@@ -2,6 +2,7 @@
 // State is plain JSON so it can live in memory or in Redis.
 
 const MAX_SUGGESTIONS = 25;
+export const CROWD_ROUND_MS = 10_000; // Crowd Mode: the top-voted idea plays this often
 const MAX_BEATS = 20;
 const MAX_PROMPTS = 12;
 
@@ -292,7 +293,10 @@ function step(s, m, ctx) {
     case "set_meta":
       if (typeof m.title === "string") s.meta.title = m.title.trim().slice(0, 60);
       if (typeof m.shared === "boolean") s.meta.shared = m.shared;
-      if (typeof m.crowd === "boolean") s.meta.crowd = m.crowd;
+      if (typeof m.crowd === "boolean" && m.crowd !== s.meta.crowd) {
+        s.meta.crowd = m.crowd;
+        armCrowd(s, true);
+      }
       break;
 
     // ---- community ----
@@ -303,6 +307,7 @@ function step(s, m, ctx) {
       if (s.suggestions.some((x) => x.text.toLowerCase() === text.toLowerCase())) break;
       const by = cleanName(m.name);
       s.suggestions.push({ id: rid(), text, voters: [ctx.voter], at: Date.now(), ...(by && { by }) });
+      armCrowd(s); // the first idea starts the countdown (one already running keeps going)
       if (s.suggestions.length > MAX_SUGGESTIONS) {
         // Drop the least-voted, oldest idea.
         s.suggestions.sort(byVotes);
@@ -327,6 +332,7 @@ function step(s, m, ctx) {
       if (!x || !s.window) break; // no window to steer: the idea stays on the list
       s.suggestions = s.suggestions.filter((y) => y.id !== x.id);
       director = tell(s, x.text, "crowd");
+      armCrowd(s, true); // a fresh round for the next idea
       break;
     }
   }
@@ -346,6 +352,18 @@ const cleanName = (v) =>
     .trim()
     .slice(0, 20)
     .trim();
+
+/**
+ * Crowd Mode's shared countdown: the next idea plays at s.crowdAt (the round began at s.crowdFrom), so
+ * every screen counts down to the same moment and the headset plays the idea when it arrives. Starts
+ * a round when none is running, or a fresh one when `restart`; off when Crowd Mode is off.
+ */
+function armCrowd(s, restart = false, now = Date.now()) {
+  if (!s.meta?.crowd) return void (s.crowdAt = s.crowdFrom = 0);
+  if (!restart && s.crowdAt > now) return;
+  s.crowdFrom = now;
+  s.crowdAt = now + CROWD_ROUND_MS;
+}
 
 const byVotes = (a, b) => b.voters.length - a.voters.length || a.at - b.at;
 function topSuggestion(s) {
