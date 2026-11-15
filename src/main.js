@@ -1345,9 +1345,9 @@ const HUB = (() => {
   const id = q.get("backdrop") || q.get("world");
   return id && id !== "moon" ? id : "moon";
 })();
-// The world button cycles: your room → the Moon → Stanford's golden-hour Main Quad → your room.
-// (A world picked in the URL comes first in the cycle; `?backdrop=stanford-church` for Memorial Church.)
-const WORLD_CYCLE = [...new Set([HUB, "moon", "stanford-golden"])];
+// The world button cycles: your room → the Moon → Stanford's Memorial Church → your room.
+// (A world picked in the URL comes first in the cycle.)
+const WORLD_CYCLE = [...new Set([HUB, "moon", "stanford-church"])];
 const worldInfo = (id) =>
   id === "moon"
     ? { label: "Moon", bar: "Moon", icon: "🌕", name: "the Moon", on: "on" }
