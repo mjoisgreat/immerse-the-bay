@@ -43,7 +43,22 @@
       #bar button.warn { background: #c8483a; border-color: #ff8a7a; }
       #showbar { display: none; position: fixed; right: 1rem; bottom: 1rem; font: 600 .85rem system-ui, sans-serif; padding: .5rem .9rem;
         background: rgba(16, 20, 34, .7); color: #fff3e0; border: 1px solid #ffb36b55; }
-      body.clean #bar, body.clean #choices { display: none; }
+      body.clean #bar { display: none; }
+      p.tagline { font-size: 1.25rem; opacity: 1; color: #ffd08a; margin-bottom: .4rem; }
+      #demo { margin-top: 1.1rem; display: flex; flex-wrap: wrap; gap: .5rem; justify-content: center; align-items: center; }
+      #demo select { font: .85rem system-ui, sans-serif; padding: .45rem .6rem; border-radius: 999px; background: #10141f; color: #f3ead8; border: 1px solid #ffb36b55; max-width: 100%; }
+      #demo .small { flex-basis: 100%; margin: 0; opacity: .65; }
+      #ask { padding: .7rem .9rem; border-radius: 1rem; background: rgba(12, 14, 24, .9); border: 1px solid #ffd08a; text-align: center; width: min(34rem, 100%); box-sizing: border-box; }
+      #ask[hidden], #loading[hidden] { display: none; }
+      #ask label { display: block; font-style: italic; font-size: 1.1rem; color: #ffd08a; margin-bottom: .5rem; }
+      #ask div { display: flex; gap: .4rem; }
+      #ask input { flex: 1; min-width: 0; font: .95rem system-ui, sans-serif; padding: .5rem .8rem; border-radius: 999px; border: 1px solid #ffb36b77; background: #10141f; color: #fff3e0; }
+      #ask button { font-size: .9rem; padding: .45rem 1rem; }
+      #loading { padding: .55rem .95rem; border-radius: 1rem; background: rgba(12, 14, 24, .9); border: 1px solid #6aa8ff; font: .9rem system-ui, sans-serif; width: min(26rem, 100%); box-sizing: border-box; text-align: center; }
+      #loading div { height: .35rem; margin-top: .45rem; border-radius: 999px; background: #1c2233; overflow: hidden; }
+      #loading i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, #6aa8ff, #ffd08a); transition: width .2s; }
+      #loading.busy i { width: 40% !important; animation: slide 1.1s linear infinite; }
+      @keyframes slide { from { margin-left: -40%; } to { margin-left: 100%; } }
       body.clean #showbar { display: block; }
       body.clean #hud { padding-bottom: 3.6rem; }
       #choices { display: flex; gap: .45rem; flex-wrap: wrap; justify-content: center; }
@@ -65,14 +80,26 @@
     <div id="overlay">
       <div class="card">
         <h1>Living Window</h1>
-        <p>Tell a story out loud, and your room becomes it, live.</p>
+        <p class="tagline">A campfire story you can step into.</p>
+        <p>One person speaks, the room becomes the story, and everyone watching shapes what happens next, live.</p>
         <button id="enter">Enter Living Window</button>
-        <div id="hint">Click empty space to open a window · drag to look · hold Space to talk · double-click a window to step inside · H hides the buttons</div>
+        <div id="hint">Click empty space to open a window · drag to look · hold Space to talk · double-click a window to step inside · H shows or hides the buttons</div>
+        <form id="demo">
+          <select id="demoSeed" aria-label="Demo world"></select>
+          <button class="ghost" id="prepare">Prepare demo</button>
+          <div class="small" id="demoStatus">Starts a fresh story in this world and opens its first window now, so it is already live when the headset goes on (a window takes 20–30 s to reach video).</div>
+        </form>
         <div id="roominfo">Setting up your room…</div>
       </div>
     </div>
     <div id="hud">
       <div id="choices"></div>
+      <form id="ask" hidden>
+        <label for="askText" id="askQ"></label>
+        <div><input id="askText" autocomplete="off" maxlength="400" placeholder="e.g. a lantern-lit village on a misty lake" />
+        <button>Begin</button><button type="button" class="ghost" id="askSkip">Skip</button></div>
+      </form>
+      <div id="loading" hidden><span id="loadingText"></span><div><i id="loadingBar"></i></div></div>
       <div id="status"></div>
       <div id="bar" hidden>
       <button data-act="talk">Hold to talk</button>
@@ -81,6 +108,7 @@
       <button data-act="close">Close window</button>
       <button data-act="buddy">Bunny</button>
       <button data-act="world">Stanford Quad</button>
+      <button data-act="newstory">New story</button>
       <button data-act="reset">Reset story</button>
       <button data-act="info">Room info</button>
       <button data-act="hide">Hide buttons</button>

@@ -89,6 +89,8 @@ function start() {
     if (key !== choicesKey) (choicesKey = key), renderChoices(s.choices || []);
     const ideas = [...(s.suggestions || [])].sort((a, b) => b.voters.length - a.voters.length || a.at - b.at).slice(0, 3);
     $("#ideasCard").hidden = !ideas.length;
+    // Ideas steer the window the storyteller is looking at; say which when there are several.
+    $("#ideasTitle").textContent = (s.portals || []).length > 1 && s.focusId ? `Audience ideas → window ${s.focusId}` : "Audience ideas";
     $("#ideas").innerHTML = ideas
       .map((x) => `<div><em>▲ ${x.voters.length}</em><span>${esc(x.text)}${x.by ? ` <small>· ${esc(x.by)}</small>` : ""}</span></div>`)
       .join("");

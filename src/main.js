@@ -7,10 +7,12 @@ import { Toolbar } from "./toolbar.js";
 import { HandGestures } from "./gestures.js";
 import { Companion, BunnyRig, RobotRig } from "./companion.js";
 import { Backdrop } from "./backdrop.js";
+import { splatQuality } from "./worlds.js";
 import { Locomotion } from "./locomotion.js";
 import { OrbisStream } from "./orbis.js";
 import { PushToTalk } from "./voice.js";
 import { createLink, speechHeaders } from "./link.js";
+import { PRESETS, TAGLINE } from "./presets.js";
 import { urlRoom, urlInvite, owned, lastOwnedRoom, newRoomCode, makeOwnerCreds, credFor, voterId } from "./identity.js";
 
 const $ = (s) => document.querySelector(s);
@@ -115,8 +117,15 @@ function placeInFront(obj, origin, dir, dist = 1.8) {
   obj.lookAt(eye.x, obj.position.y, eye.z); // stay upright, face the viewer
 }
 
+/**
+ * Opens a window. Every window is its own story, so unless a world was chosen ahead of time
+ * (New story, Prepare demo, the console) it asks "what world is behind this window?".
+ */
 function openPortal(origin, dir) {
   if (portals.size >= maxPortals) return flash(`At most ${maxPortals} portals. Close one first.`);
+  const hasWorld = Boolean(pendingSeed || roomState?.nextSeed);
+  pendingSeed = "";
+  if (roomState) roomState.nextSeed = "";
   const id = nextId();
   const portal = new Portal(id, listener);
   placeInFront(portal.group, origin, dir);
@@ -133,7 +142,9 @@ function openPortal(origin, dir) {
   });
   portals.set(id, { portal, stream });
   setFocus(id);
-  send({ t: "portal_added", id }); // server asks the director for this portal's first scene
+  send({ t: "portal_added", id }); // with a world chosen ahead, the server asks the director for its first scene
+  if (hasWorld) clearAsk();
+  else askWorld("portal", id);
 }
 
 function closePortal(id) {
@@ -143,6 +154,7 @@ function closePortal(id) {
   p.stream.close();
   p.portal.dispose();
   portals.delete(id);
+  if (asking?.id === id) clearAsk();
   send({ t: "portal_removed", id });
   if (focusId === id) setFocus(portals.keys().next().value ?? null);
 }
@@ -151,10 +163,11 @@ function setFocus(id, tell = true) {
   focusId = id;
   for (const [pid, p] of portals) p.portal.setFocused(pid === id);
   if (tell && id) send({ t: "focus", id });
+  refreshCards(); // idea cards say which window they will steer
 }
 
 const labelFor = (s) =>
-  ({ connecting: "Opening a window…", retrying: "Waiting for a free world…", reconnecting: "Reconnecting…", closed: "" })[s] ??
+  ({ asking: ASK.portal, connecting: "Opening a window…", retrying: "Waiting for a free world…", reconnecting: "Reconnecting…", closed: "" })[s] ??
   s;
 
 addEventListener("pagehide", () => portals.forEach((p) => p.stream.closeOnUnload()));
@@ -239,10 +252,13 @@ const link = createLink(ROOM, {
     if (m.t === "direction") applyDirection(m);
     else if (m.t === "state") {
       roomState = m;
-      showChoices(m.choices || []); // also refreshes the audience's ideas and votes on the cards
+      // Someone else (the console, a co-narrator) named the world we were asking about.
+      if (asking?.kind === "portal" && m.threads?.[asking.id]?.seed) clearAsk(true);
+      showChoices(m.choices || []); // the focused window's options, plus the audience's ideas and votes
       if (m.focusId && m.focusId !== focusId && portals.has(m.focusId)) setFocus(m.focusId, false);
     } else if (m.t === "close_portal") closePortal(m.id);
-    else if (m.t === "reset") resetLocal();
+    else if (m.t === "reset") resetLocal(m);
+    else if (m.t === "open_portal") openInFront();
     else if (m.t === "takeover" && m.rid !== RID && !retired) retire();
   },
 });
@@ -251,7 +267,8 @@ const link = createLink(ROOM, {
 // names the idea and who suggested it: inside a world the cards are hidden, so this is the only
 // place the storyteller sees a friend's idea arrive.
 setInterval(() => {
-  if (retired || talking || wantTalk || !roomState?.meta?.crowd || !roomState.suggestions?.length || !portals.size) return;
+  if (retired || talking || wantTalk || asking || !roomState?.meta?.crowd || !roomState.suggestions?.length) return;
+  if (!roomState.threads?.[focusId]?.seed) return; // the idea steers the focused window, which needs a world first
   const top = [...roomState.suggestions].sort((a, b) => b.voters.length - a.voters.length || a.at - b.at)[0];
   roomState.suggestions = roomState.suggestions.filter((x) => x.id !== top.id);
   send({ t: "use_suggestion", id: top.id }); // by id, so the message names the idea actually used
@@ -279,7 +296,7 @@ setInterval(() => {
   }
 }, 3000);
 
-function applyDirection({ narration, updates, choices, speech, companion }) {
+function applyDirection({ portal_id, narration, updates, choices, speech, companion }) {
   if (guideStep === 1 && roomState?.log?.some((l) => ["voice", "choice", "guest", "crowd"].includes(l.kind))) setTimeout(() => guide(2), 6000);
   showChoices(choices || []);
   // The companion and the story are one mind: the same answer may carry its reply. One voice at a time.
@@ -294,7 +311,8 @@ function applyDirection({ narration, updates, choices, speech, companion }) {
     else p.stream.steer(u.prompt);
   }
   if (narration) {
-    const target = portals.get(focusId) || portals.values().next().value;
+    // The line belongs to the window whose story it is, which may not be the focused one any more.
+    const target = portals.get(portal_id) || portals.get(focusId) || portals.values().next().value;
     if (target) {
       target.portal._lastStory = narration;
       if (target.stream.status === "streaming") target.portal.setCaption(narration, "story");
@@ -343,6 +361,10 @@ async function stopTalking() {
     if (!text) {
       if (talkingToBuddy) buddy.react({ gesture: "none", move: "none" });
       return flash("Didn't catch that. Hold the orb and speak.");
+    }
+    if (asking) {
+      if (talkingToBuddy) buddy.react({ gesture: "none", move: "none" });
+      return answerWorld(text);
     }
     flash(`“${text}”`, 4000);
     // Everything you say goes to the same mind: it steers the story and answers as the companion.
@@ -429,6 +451,7 @@ function onSelectStart(ctrl) {
   if (hit?.object.userData.exit) return stepOut();
   if (hit?.object.userData.button) {
     ctrl.userData.button = hit.object.userData.button;
+    if (ctrl.userData.button !== armed) disarm(); // any other button cancels a pending confirm
     return toolbar.press(ctrl.userData.button, ctrl);
   }
   if (hit?.object.userData.choice !== undefined) return pickChoice(hit.object.userData.choice);
@@ -620,19 +643,20 @@ function refreshCards() {
   const crowd = [...(roomState?.suggestions || [])]
     .sort((a, b) => b.voters.length - a.voters.length || a.at - b.at)
     .slice(0, MAX_CROWD_CARDS)
-    .map((x) => ({ kind: "crowd", id: x.id, text: x.text, by: x.by || "", votes: x.voters.length }));
+    // With more than one window open, each idea card says which window it will steer: the focused one.
+    .map((x) => ({ kind: "crowd", id: x.id, text: x.text, by: x.by || "", votes: x.voters.length, to: portals.size > 1 ? focusId : null }));
   const director = directorChoices.map((text, index) => ({ kind: "choice", index, text }));
   const next = [...crowd, ...director].slice(0, 3);
   const key = JSON.stringify(next);
   if (key === cardsKey) return; // state arrives often; only redraw when something changed
   cardsKey = key;
   cards = next;
-  toolbar.setChoices(cards.map((c) => (c.kind === "crowd" ? { text: c.text, by: c.by, votes: c.votes } : c.text)));
+  toolbar.setChoices(cards.map((c) => (c.kind === "crowd" ? { text: c.text, by: c.by, votes: c.votes, to: c.to } : c.text)));
   const clean = (s) => String(s).replace(/[&<>"]/g, "");
   $("#choices").innerHTML = cards
     .map((c, i) =>
       c.kind === "crowd"
-        ? `<button data-choice="${i}" class="crowd"><small>${clean(c.by || "A friend")} · ▲ ${c.votes}</small>${clean(c.text)}</button>`
+        ? `<button data-choice="${i}" class="crowd"><small>${clean(c.by || "A friend")} · ▲ ${c.votes}${c.to ? ` · → window ${clean(c.to)}` : ""}</small>${clean(c.text)}</button>`
         : `<button data-choice="${i}">${clean(c.text)}</button>`,
     )
     .join("");
@@ -642,6 +666,7 @@ function pickChoice(i) {
   if (!c) return;
   if (c.kind === "crowd") {
     // Hide it now; the server removes it and the director turns it into the next beat.
+    if (!portals.has(focusId)) return flash("Open a window first: an idea steers the window you're looking at.");
     if (roomState) roomState.suggestions = (roomState.suggestions || []).filter((x) => x.id !== c.id);
     showChoices([]);
     send({ t: "use_suggestion", id: c.id });
@@ -723,7 +748,7 @@ const titleCanvas = Object.assign(document.createElement("canvas"), { width: 140
   g.shadowBlur = 0;
   g.fillStyle = "#f3ead8";
   g.font = "italic 52px Georgia, serif";
-  g.fillText("Tell a story out loud, and your room becomes it.", 700, 360);
+  g.fillText(TAGLINE, 700, 360);
 }
 const titleTex = new THREE.CanvasTexture(titleCanvas);
 titleTex.colorSpace = THREE.SRGBColorSpace;
@@ -844,14 +869,37 @@ function locoRays() {
     return aimRay.intersectObjects(hitTargets, false).length ? null : aimRay.ray.clone();
   });
 }
+// A real loading state: the splat file is several MB and building it can hold the page for a
+// while on weak hardware, so the download shows a percentage and the build says what is going on
+// (painted before the heavy part starts; it cannot be updated while the page is busy).
+function showLoading(text, fraction = null) {
+  const el = $("#loading");
+  el.hidden = !text;
+  if (!text) return;
+  $("#loadingText").textContent = text;
+  el.classList.toggle("busy", fraction === null);
+  $("#loadingBar").style.width = `${Math.round((fraction ?? 0) * 100)}%`;
+  flash(text, 120000); // in the headset the toast is the loading state
+}
 async function toggleBackdrop() {
   if (backdrop.on) {
     backdrop.hide();
     return flash("Back to your room.", 3000);
   }
   if (backdrop.loading) return;
-  flash("Loading Stanford's Main Quad…", 20000);
-  const ok = await backdrop.show("stanford").catch(() => false);
+  const quality = splatQuality(renderer);
+  const light = quality === "low" ? " (light version)" : "";
+  showLoading(`Loading Stanford's Main Quad${light}…`, 0);
+  const ok = await backdrop
+    .show("stanford", {
+      quality,
+      onProgress: ({ stage, fraction }) =>
+        stage === "download"
+          ? showLoading(`Loading Stanford's Main Quad${light}… ${Math.round(fraction * 100)}%`, fraction)
+          : showLoading(`Building the world${light}… hold still, this can take a moment.`),
+    })
+    .catch(() => false);
+  showLoading("");
   const how = renderer.xr.isPresenting
     ? "Walk, use the left thumbstick, or point at the ground and pinch to jump there."
     : "Use W/A/S/D or the arrow keys to walk around.";
@@ -875,25 +923,133 @@ function closeFocused() {
   if (id) closePortal(id);
   else flash("No window to close.");
 }
-// Reset asks twice (no pop-up dialogs in the headset): first tap arms it for 3 seconds.
-let resetArmed = 0;
-function resetPressed() {
-  if (Date.now() < resetArmed) {
-    resetArmed = 0;
-    send({ t: "reset_story" });
-    flash("Resetting the story…");
-  } else {
-    resetArmed = Date.now() + 3000;
-    flash("Tap Reset again to start the story over (closes all windows).", 3000);
-  }
+// ---------- The world question ----------
+// "What world is this story set in?" (New story) and "What world is behind this window?" (every
+// new window). Answer by voice (hold to talk) or by typing; skip it and the first thing you say
+// defines the world instead. Nothing is ever taken from an earlier story.
+const ASK = { story: "What world is this story set in?", portal: "What world is behind this window?" };
+let asking = null; // { kind: "story" | "portal", id }
+let pendingSeed = ""; // a world chosen ahead of time for the next window (also kept by the server)
+function askWorld(kind, id = null) {
+  asking = { kind, id };
+  $("#askQ").textContent = ASK[kind];
+  $("#ask").hidden = false;
+  const xr = renderer.xr.isPresenting;
+  if (id) portals.get(id)?.portal.setCaption(ASK.portal, "status");
+  flash(`${ASK[kind]} ${xr ? "Raise a hand to your mouth, or hold A, and say it." : "Type it, or hold Space and say it."}`, 600000);
+  if (xr) speak(ASK[kind], ...NARRATOR);
+  else if ($("#overlay").hidden) $("#askText").focus();
 }
-// The server confirmed a reset: close everything and start fresh.
-function resetLocal() {
+function clearAsk(quiet = false) {
+  if (!asking) return;
+  asking = null;
+  $("#ask").hidden = true;
+  $("#askText").value = "";
+  if (quiet) flash("", 1);
+}
+function answerWorld(text) {
+  const a = asking;
+  text = String(text || "").trim();
+  if (!a || !text) return;
+  clearAsk();
+  flash(`“${text}”`, 5000);
+  if (a.kind === "portal" && portals.has(a.id)) {
+    portals.get(a.id).portal.setCaption("The world is forming…", "status");
+    return send({ t: "set_seed", id: a.id, seed: text });
+  }
+  // A new story: its first window opens onto the world just named.
+  for (const id of [...portals.keys()]) closePortal(id);
+  send({ t: "set_seed", seed: text });
+  pendingSeed = text;
+  openInFront();
+}
+function skipWorld() {
+  if (!asking) return;
+  clearAsk();
+  flash("No world chosen. The first thing you say will become the world.", 7000);
+}
+$("#ask").addEventListener("submit", (e) => {
+  e.preventDefault();
+  answerWorld($("#askText").value);
+});
+$("#askSkip").onclick = skipWorld;
+
+// ---------- Reset and New story ----------
+// One tap arms the button, which then reads "Tap again to confirm" until you do (or press any
+// other button, or Esc). No timer: a toast that vanishes is easy to miss in the headset.
+let armed = null; // "reset" | "newstory"
+function confirmTap(what) {
+  if (armed === what || !portals.size) return (armed = null), syncButtons(), true; // nothing open: nothing to lose
+  armed = what;
+  syncButtons(); // show the confirm state right away, not on the next frame
+  flash(`This closes every window and forgets the story. Tap ${what === "reset" ? "Reset story" : "New story"} again to confirm.`, 600000);
+  return false;
+}
+function disarm() {
+  if (!armed) return;
+  armed = null;
+  syncButtons();
+  flash("Cancelled.", 1500);
+}
+/** Reset: every window closes and every story, idea and seed is forgotten. */
+function resetPressed() {
+  if (!confirmTap("reset")) return;
+  clearAsk();
+  send({ t: "reset_story" });
+  flash("Clearing the story…", 4000);
+}
+/** New story: a reset, then "what world is this story set in?". */
+function newStoryPressed() {
+  if (!confirmTap("newstory")) return;
+  clearAsk();
+  send({ t: "reset_story", ask: true });
+  flash("Starting a new story…", 4000);
+}
+// The server confirmed a reset: close everything. Nothing of the old story is kept, its seed included.
+function resetLocal({ ask = false, open = false, seed = "" } = {}) {
+  armed = null;
+  syncButtons();
   immersion.reset();
+  clearAsk();
   showChoices([]);
   for (const id of [...portals.keys()]) closePortal(id);
-  flash("Story reset. Open a window to begin again.", 5000);
+  pendingSeed = seed;
+  if (open) return openInFront(), flash(seed ? `A new story begins: ${seed}` : "A new story begins.", 6000);
+  if (ask) return askWorld("story");
+  flash(seed ? `New story: ${seed}. Open a window to begin.` : "Story cleared. Open a window to begin a new one.", 8000);
 }
+
+// ---------- Prepare demo ----------
+// One tap before the headset goes on: a fresh story in a chosen world with its first window
+// already opening, because a window needs 20-30 s to reach video.
+let demoWatch = 0;
+function prepareDemo(seed) {
+  armed = null;
+  clearAsk();
+  send({ t: "reset_story", seed, open: true });
+  const el = $("#demoStatus");
+  const began = performance.now();
+  clearInterval(demoWatch);
+  demoWatch = setInterval(() => {
+    const p = portals.values().next().value;
+    const secs = Math.round((performance.now() - began) / 1000);
+    if (p?.stream.status === "streaming") {
+      clearInterval(demoWatch);
+      el.textContent = `Demo ready: window ${p.portal.id} is live (took ${secs} s). Put the headset on and enter.`;
+    } else el.textContent = `Preparing the demo… ${p ? labelFor(p.stream.status === "idle" ? "connecting" : p.stream.status) || "starting" : "resetting the room"} (${secs} s)`;
+  }, 500);
+}
+$("#demoSeed").innerHTML =
+  PRESETS.map(([label, seed]) => `<option value="${seed.replace(/"/g, "&quot;")}">${label}</option>`).join("") + `<option value="">Ask me (no world chosen)</option>`;
+$("#demo").addEventListener("submit", (e) => {
+  e.preventDefault();
+  if (listener.context.state === "suspended") listener.context.resume();
+  const seed = $("#demoSeed").value;
+  if (seed) return prepareDemo(seed);
+  // No world chosen: a clean room that asks for one.
+  send({ t: "reset_story", ask: true });
+  $("#demoStatus").textContent = "Room cleared. The headset will ask what world the story is set in.";
+});
 
 const toolbar = new Toolbar(camera, [
   { id: "talk", icon: "🎙", label: "Hold to talk", press: () => startTalking(), release: () => stopTalking() },
@@ -902,15 +1058,24 @@ const toolbar = new Toolbar(camera, [
   { id: "close", icon: "✕", label: "Close window", press: closeFocused },
   { id: "buddy", icon: BUDDY.icon, label: BUDDY.name, press: toggleBuddy },
   { id: "world", icon: "🏛", label: "Stanford", press: toggleBackdrop },
+  { id: "newstory", icon: "✨", label: "New story", press: newStoryPressed },
   { id: "reset", icon: "↺", label: "Reset story", press: resetPressed },
   { id: "hide", icon: "▾", label: "Hide buttons", press: () => setButtonsHidden(true) },
 ]);
 // Hide / show the buttons (the orb and ring hide with them; A/X and B/Y still work).
+// They start hidden (less to take in on a first visit: H, the ☰ handle, a thumbstick click or
+// your left palm brings them out) and after that stay the way you last left them.
 let autoHidden = false;
-function setButtonsHidden(on) {
+const BAR_KEY = "lw:bar";
+function setButtonsHidden(on, remember = true) {
   toolbar.setCollapsed(on);
   autoHidden = false;
   document.body.classList.toggle("clean", on);
+  if (remember) {
+    try {
+      localStorage.setItem(BAR_KEY, on ? "hidden" : "shown");
+    } catch {}
+  }
 }
 scene.add(toolbar.group);
 const hoverRay = new THREE.Raycaster();
@@ -935,15 +1100,18 @@ function updateToolbar() {
 function syncButtons() {
   toolbar.set("world", { label: backdrop.on ? "See-through" : "Stanford", icon: backdrop.on ? "👓" : "🏛" });
   bar.world.textContent = backdrop.on ? "See-through" : "Stanford Quad";
-  const armed = Date.now() < resetArmed;
   toolbar.set("talk", { state: talking ? "active" : "idle", label: talking ? "Listening…" : "Hold to talk" });
   toolbar.set("step", { label: immersion.inside ? "Step out" : "Step inside", icon: immersion.inside ? "↩" : "🚪" });
-  toolbar.set("reset", { state: armed ? "warn" : "idle", label: armed ? "Tap again" : "Reset story" });
+  toolbar.set("reset", { state: armed === "reset" ? "warn" : "idle", label: armed === "reset" ? "Tap again to confirm" : "Reset story" });
+  toolbar.set("newstory", { state: armed === "newstory" ? "warn" : "idle", label: armed === "newstory" ? "Tap again to confirm" : "New story" });
+  toolbar.set("world", { state: backdrop.loading ? "active" : "idle" });
   bar.talk.classList.toggle("on", talking);
   bar.talk.textContent = talking ? "Listening…" : "Hold to talk";
   bar.step.textContent = immersion.inside ? "Step out" : "Step inside";
-  bar.reset.textContent = armed ? "Click again to reset" : "Reset story";
-  bar.reset.classList.toggle("warn", armed);
+  bar.reset.textContent = armed === "reset" ? "Tap again to confirm" : "Reset story";
+  bar.reset.classList.toggle("warn", armed === "reset");
+  bar.newstory.textContent = armed === "newstory" ? "Tap again to confirm" : "New story";
+  bar.newstory.classList.toggle("warn", armed === "newstory");
 }
 
 // Hand gestures: mic to the mouth, clap to step in or out, look at your left palm for the buttons.
@@ -980,6 +1148,9 @@ bar.new.onclick = openInFront;
 bar.step.onclick = toggleStep;
 bar.close.onclick = closeFocused;
 bar.reset.onclick = resetPressed;
+bar.newstory.onclick = newStoryPressed;
+// Any other button cancels a pending confirm (capture: runs before the button's own handler).
+$("#bar").addEventListener("click", (e) => e.target.closest("[data-act]")?.dataset.act !== armed && disarm(), true);
 bar.info.onclick = () => ($("#overlay").hidden = !$("#overlay").hidden);
 bar.hide.onclick = () => setButtonsHidden(true);
 bar.world.onclick = toggleBackdrop;
@@ -987,6 +1158,13 @@ bar.buddy.onclick = toggleBuddy;
 bar.buddy.textContent = BUDDY.name;
 $("#showbar").onclick = () => setButtonsHidden(false);
 $("#bar").hidden = false; // only clickable once everything is wired up
+{
+  let pref = null;
+  try {
+    pref = localStorage.getItem(BAR_KEY);
+  } catch {}
+  setButtonsHidden(pref !== "shown", false);
+}
 
 // ---------- Desktop controls (for building and testing without the headset) ----------
 let yaw = 0, pitch = 0, dragging = false, moved = 0;
@@ -1021,7 +1199,7 @@ addEventListener("keydown", (e) => {
   if (e.code === "Space" && !e.repeat && !/INPUT|TEXTAREA/.test(e.target.tagName)) (e.preventDefault(), startTalking());
   if (e.code === "Backspace" && focusId && !/INPUT|TEXTAREA/.test(e.target.tagName)) closePortal(focusId);
   if (e.code === "KeyE" && !/INPUT|TEXTAREA/.test(e.target.tagName)) immersion.inside ? stepOut() : stepInside(portals.get(focusId)?.portal);
-  if (e.code === "Escape") stepOut();
+  if (e.code === "Escape") stepOut(), disarm(), skipWorld();
   if (e.code === "KeyH" && !/INPUT|TEXTAREA/.test(e.target.tagName)) setButtonsHidden(!toolbar.collapsed);
 });
 addEventListener("keyup", (e) => {
@@ -1085,8 +1263,10 @@ async function setupXR() {
       $("#overlay").hidden = false;
     });
     showTitle();
-    if (!portals.size) setTimeout(() => guide(0), 4500);
-    else guideStep = 2; // already mid-story: no tutorial
+    // A world question that was waiting on the flat page is asked again, out loud.
+    if (asking) setTimeout(() => asking && askWorld(asking.kind, asking.id), 7000);
+    else if (!portals.size) setTimeout(() => guide(0), 4500);
+    else guideStep = 2; // already mid-story (or a prepared demo): no tutorial
   };
 }
 setupXR();

@@ -16,6 +16,8 @@
       .brand { display: flex; align-items: baseline; gap: 1rem; min-width: 0; }
       .brand h1 { margin: 0; font: 500 clamp(1.4rem, 2.6vw, 2.6rem) Georgia, serif; color: var(--warm2); text-shadow: 0 0 30px #ff9a5a66; white-space: nowrap; }
       .brand span { font: italic clamp(.9rem, 1.4vw, 1.4rem) Georgia, serif; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .brand .tagline { color: var(--warm2); opacity: .85; }
+      .brand #title:not(:empty) + .tagline::before { content: "· "; }
       .pills { display: flex; gap: .6rem; flex: none; }
       .pill { padding: .35rem .9rem; border-radius: 999px; background: #ffffff14; border: 1px solid #ffffff22; font-size: clamp(.75rem, 1vw, 1rem); }
       .pill.live { background: #7fd89a; color: #07080d; border-color: #7fd89a; font-weight: 700; }
@@ -72,24 +74,25 @@
     <form class="gate" id="gate" hidden>
       <div>
         <h1 style="font:500 2.4rem Georgia,serif;color:#ffd08a">Living Window Theater</h1>
-        <p style="color:#a9b0c6">Show a room's story full screen, for an audience or a judging table.</p>
+        <p style="font:italic 1.3rem Georgia,serif;color:#f3ead8;margin:.3rem 0">A campfire story you can step into.</p>
+        <p style="color:#a9b0c6;max-width:34rem;margin:.3rem auto 1.2rem">One person speaks, the room becomes the story, and everyone watching shapes what happens next, live.</p>
         <input id="gateRoom" placeholder="Room, e.g. amber-fox-42" autocomplete="off" /> <button>Show</button>
       </div>
     </form>
     <div class="stage" id="stage" hidden>
       <header>
-        <div class="brand"><h1>Living Window</h1><span id="title"></span></div>
+        <div class="brand"><h1>Living Window</h1><span id="title"></span><span class="tagline" id="tagline">A campfire story you can step into.</span></div>
         <div class="pills"><span class="pill" id="inside" hidden>Storyteller is inside the world</span><span class="pill" id="live">offline</span><button id="start" hidden>Full screen</button></div>
       </header>
       <div class="main">
         <div class="screen" id="screen">
           <img id="imgA" alt="" /><img id="imgB" alt="" />
-          <div class="empty" id="empty">Waiting for the storyteller to open a window…</div>
+          <div class="empty" id="empty"><div>A campfire story you can step into.<small style="display:block;font-size:.55em;margin-top:.8em;max-width:34em">One person speaks, the room becomes the story, and everyone watching shapes what happens next, live.</small><small style="display:block;font-size:.5em;margin-top:1.2em;opacity:.7">Waiting for the storyteller to open a window…</small></div></div>
           <div class="speech" id="speech"><b id="speaker"></b><q id="line"></q></div>
         </div>
         <aside>
           <div class="thumbs" id="thumbs"></div>
-          <div class="card ideas" id="ideasCard" hidden><h2>Audience ideas</h2><div id="ideas"></div></div>
+          <div class="card ideas" id="ideasCard" hidden><h2 id="ideasTitle">Audience ideas</h2><div id="ideas"></div></div>
           <div class="card qr"><h2>Join the story</h2><img id="qr" alt="QR code to the watch page" /><p>Scan to suggest and vote on what happens next</p></div>
         </aside>
       </div>

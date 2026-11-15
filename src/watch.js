@@ -38,6 +38,8 @@ function render(s) {
   $("#crowdNote").textContent = s.meta?.crowd
     ? "Crowd Mode is on: the top-voted idea becomes the next scene every 20 seconds."
     : "The storyteller picks from the most-voted ideas.";
+  // Each window is its own story; an idea steers the one the storyteller is looking at.
+  if ((s.portals || []).length > 1 && s.focusId) $("#crowdNote").textContent += ` Ideas steer window ${s.focusId}, the one the storyteller is looking at now.`;
 
   const choices = s.choices || [];
   $("#nextBox").hidden = !choices.length;
