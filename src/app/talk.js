@@ -123,7 +123,7 @@ export async function speak(line, speaker, style, anchor = null, { onStart, onEn
     if (anchor) voice.setRefDistance(4), voice.setRolloffFactor(0.5), anchor.add(voice);
     else scene.add(voice);
     voice.setBuffer(buf);
-    voice.setVolume(4);
+    voice.setVolume(3);
     const mine = voice;
     voiceEnd = onEnd || null;
     voice.onEnded = () => {
