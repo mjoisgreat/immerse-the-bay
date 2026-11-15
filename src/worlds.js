@@ -65,6 +65,55 @@ async function fetchBytes(url, onFraction) {
   return got === total ? out : out.slice(0, got);
 }
 
+/**
+ * The world's own 360° panorama (Marble's pano) on an opaque dome at infinity, behind the splats.
+ * In passthrough three.js clears to transparent whatever the background colour is, so without it
+ * your real room shows through every gap and at the edge of the splat world.
+ * Same tricks as the Moon's black sky: depth pinned to the far plane, drawn first in the opaque pass
+ * (a custom blend still lets it fade there). The panorama is looked up per pixel from the view
+ * direction: Marble's space is y-down, so the world's (x, y, z) is the pano's (x, -y, -z).
+ */
+async function skyDome(url) {
+  const map = await new THREE.TextureLoader().loadAsync(url);
+  map.colorSpace = THREE.SRGBColorSpace;
+  map.generateMipmaps = false; // no mip seam where the longitude wraps around
+  map.minFilter = THREE.LinearFilter;
+  map.wrapS = THREE.RepeatWrapping;
+  const m = new THREE.ShaderMaterial({
+    uniforms: { map: { value: map }, opacity: { value: 0 } },
+    vertexShader: /* glsl */ `
+      varying vec3 vDir;
+      void main() {
+        vDir = position;
+        vec4 clip = projectionMatrix * vec4(mat3(viewMatrix) * (mat3(modelMatrix) * position), 1.0);
+        clip.z = clip.w * 0.99999;
+        gl_Position = clip;
+      }`,
+    fragmentShader: /* glsl */ `
+      uniform sampler2D map;
+      uniform float opacity;
+      varying vec3 vDir;
+      void main() {
+        vec3 d = normalize(vDir);
+        vec2 uv = vec2(0.5 + atan(d.x, -d.z) / 6.28318530718, 0.5 + asin(clamp(d.y, -1.0, 1.0)) / 3.14159265359);
+        gl_FragColor = vec4(texture2D(map, uv).rgb, opacity);
+        #include <colorspace_fragment>
+      }`,
+    transparent: false,
+    blending: THREE.CustomBlending,
+    blendSrc: THREE.SrcAlphaFactor,
+    blendDst: THREE.OneMinusSrcAlphaFactor,
+    blendSrcAlpha: THREE.OneFactor,
+    blendDstAlpha: THREE.OneMinusSrcAlphaFactor,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+  });
+  const dome = new THREE.Mesh(new THREE.SphereGeometry(90, 48, 24), m);
+  dome.frustumCulled = false;
+  dome.renderOrder = -40; // before the step-inside world (-30) and the windows' wall masks (-20)
+  return dome;
+}
+
 export class SplatWorlds {
   constructor(scene, renderer) {
     this.scene = scene;
@@ -126,7 +175,27 @@ export class SplatWorlds {
     const holder = new THREE.Group();
     holder.rotation.y = THREE.MathUtils.degToRad(w.yaw ?? 0);
     holder.add(mesh);
-    holder.userData = { id: w.id, mesh, title: w.title || w.id };
+    const sky = w.sky ? await skyDome(w.sky).catch((e) => (console.warn(`[worlds] ${w.id} sky:`, e), null)) : null;
+    if (sky) holder.add(sky);
+    // Backdrop fades `userData.mesh.opacity`: the splats and the sky behind them together.
+    const fader = sky
+      ? {
+          get opacity() {
+            return mesh.opacity;
+          },
+          set opacity(v) {
+            mesh.opacity = v;
+            sky.material.uniforms.opacity.value = v;
+          },
+          dispose() {
+            mesh.dispose();
+            sky.material.uniforms.map.value.dispose();
+            sky.material.dispose();
+            sky.geometry.dispose();
+          },
+        }
+      : mesh;
+    holder.userData = { id: w.id, mesh: fader, title: w.title || w.id };
     return holder;
   }
 
