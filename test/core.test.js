@@ -229,7 +229,7 @@ test("small talk with the companion is spoken and logged but leaves the story al
   reduce(s, { t: "companion", id: "bunny", present: true, rid: "r1" }, owner);
   applyDirection(s, { narration: "n", bible: "b", updates: [], choices: ["Go left", "Go right"], speech: null, companion: null }, 10);
   const { director } = reduce(s, { t: "utterance", text: "Hi Bonnie", addressed: true }, owner);
-  assert.deepEqual(director, { type: "utterance", text: "Hi Bonnie", addressed: true });
+  assert.deepEqual(director, { type: "utterance", text: "Hi Bonnie", portal_id: "A", addressed: true });
   const [ev] = applyDirection(s, bunny("Hello!"), 10, 0, director);
   assert.deepEqual(ev.companion, { name: "Bonnie", reply: "Hello!", gesture: "wave", move: "none" });
   assert.deepEqual(s.story.beats, []);
