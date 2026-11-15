@@ -242,6 +242,7 @@ function stopSides() {
     immersion.setSide(side, null);
   }
   sides.for = null;
+  sides.leftAt = 0;
 }
 function steerSides(id, prompt) {
   if (sides.for !== id) return;
@@ -249,9 +250,18 @@ function steerSides(id, prompt) {
   sides.R?.steer(sidePrompt(prompt, "right"));
 }
 // Called every frame: start the side views when you're inside with Wide view on, stop them otherwise.
+// Stepping out keeps them for a little while, so stepping back in (or peeking out) doesn't mean
+// another 20-30 s wait for the side views.
+const SIDES_GRACE_MS = 15000;
 function updateSides() {
   const wantFor = wideOn && immersion.inside ? [...portals.entries()].find(([, x]) => x.portal === immersion.portal)?.[0] : null;
-  if (sides.for && sides.for !== wantFor) stopSides();
+  if (wantFor) sides.leftAt = 0;
+  if (sides.for && sides.for !== wantFor) {
+    const now = performance.now();
+    const outOnly = wideOn && !immersion.inside && portals.has(sides.for); // stepped out, not switched or closed
+    if (outOnly && !sides.leftAt) sides.leftAt = now;
+    if (!outOnly || now - sides.leftAt > SIDES_GRACE_MS) stopSides();
+  }
   if (wantFor && !sides.for && performance.now() - sides.triedAt > 2000) (sides.triedAt = performance.now()), startSides();
 }
 function toggleWide() {
