@@ -1,9 +1,10 @@
 // app/talk.js: push-to-talk, and characters speaking.
 import * as THREE from "three";
-import { PushToTalk } from "../voice.js";
+import { PushToTalk, micMessage } from "../voice.js";
+import { CameraView } from "../cameraview.js";
 import { speechHeaders } from "../link.js";
 import { credFor } from "../identity.js";
-import { listener, scene } from "./stage.js";
+import { listener, renderer, scene } from "./stage.js";
 import { state } from "./state.js";
 import { ROOM, send } from "./room.js";
 import { buzz, chime, flash } from "./feedback.js";
@@ -13,7 +14,17 @@ import { answerWorld } from "./story.js";
 import { gestures } from "./xrinput.js";
 
 // ---------- Voice ----------
-export const ptt = new PushToTalk();
+// On phones the mic is let go of shortly after each turn: while it's open, iPhones play everything
+// through the quiet "call" audio route, so the characters' voices would be hard to hear.
+export const ptt = new PushToTalk({ releaseAfterMs: CameraView.touch && !/OculusBrowser|Quest/i.test(navigator.userAgent) ? 8000 : 0 });
+const MAX_TALK_MS = 90000; // a held button (or a stuck press) still sends after this long
+let talkTimer = 0;
+/** How to talk on this device, for "didn't catch that". */
+function howToTalk() {
+  if (renderer.xr.isPresenting) return "Raise a hand to your mouth, give a 👍, or hold A, and speak.";
+  if (CameraView.touch) return "Hold 🎙 and speak, then let go.";
+  return "Hold Space (or the Hold to talk button) and speak, then let go.";
+}
 let talkingToBuddy = false;
 let byGesture = false; // this turn was started by raising a hand, not a button
 export async function startTalking(gesture = false) {
@@ -32,6 +43,8 @@ export async function startTalking(gesture = false) {
       return;
     }
     state.talking = true;
+    clearTimeout(talkTimer);
+    talkTimer = setTimeout(() => state.talking && stopTalking(), MAX_TALK_MS);
     chime("talk");
     buzz(0.5, 60);
     flash(
@@ -46,12 +59,13 @@ export async function startTalking(gesture = false) {
     state.wantTalk = false;
     buddy.attend(false);
     if (talkingToBuddy) buddy.react({ gesture: "none", move: "none" });
-    flash(`Microphone unavailable: ${e.message}`);
+    flash(micMessage(e), 8000);
   }
 }
 export async function stopTalking() {
   state.wantTalk = false;
   buddy.attend(false); // you've finished talking: she can go back to what she was doing
+  clearTimeout(talkTimer);
   if (!state.talking) return;
   state.talking = false;
   chime("send");
@@ -61,7 +75,7 @@ export async function stopTalking() {
     const text = await ptt.end(speechHeaders(ROOM));
     if (!text) {
       if (talkingToBuddy) buddy.react({ gesture: "none", move: "none" });
-      return flash("Didn't catch that. Raise a hand to your mouth (or hold A) and speak.");
+      return flash(`Didn't catch that. ${howToTalk()}`, 5000);
     }
     if (state.asking) {
       if (talkingToBuddy) buddy.react({ gesture: "none", move: "none" });
@@ -78,7 +92,7 @@ export async function stopTalking() {
     } else send({ t: "utterance", text });
   } catch (e) {
     if (talkingToBuddy) buddy.react({ gesture: "none", move: "none" });
-    flash(e.message);
+    flash(e.message, 6000);
   }
 }
 

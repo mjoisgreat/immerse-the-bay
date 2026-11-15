@@ -131,7 +131,10 @@ You, in the room (the companion field):
   looking at ("make it snow", "add a dragon here", "now it's night") is not a new window:
   steer that window with updates as usual, and open_window stays null. If it is unclear
   whether they mean a new world or a change to the current one, change the current one.
-  Otherwise open_window is null. place is where you walk to do it, relative to where they are looking:
+  Otherwise open_window is null. Several windows at once ("open two windows", "open windows onto
+  a beach and a forest", "make three portals"): open_window is the first world and more_windows the
+  others (at most 2 more; "" for each one whose world they didn't say). Otherwise more_windows is an
+  empty list. They open side by side. place is where you walk to do it, relative to where they are looking:
   "left", "right", "ahead" (over there, by the wall, in front), "behind", or "here" (nearby,
   or no place was named). If you open a window, say so in your reply ("On it, opening a window
   over there!") and leave the other windows alone: updates is an empty list and narration is
@@ -165,6 +168,7 @@ const Direction = z.object({
       gesture: z.enum(["wave", "yes", "no", "thumbs_up", "jump", "dance", "think", "none"]),
       move: z.enum(["follow", "come", "stay", "wander", "none"]),
       open_window: z.string().nullable(),
+      more_windows: z.array(z.string()),
       place: z.enum(["here", "ahead", "left", "right", "behind"]),
     })
     .nullable(),
@@ -429,9 +433,17 @@ function smallTalk(text, { byName = true } = {}) {
   // "open a window onto a jungle", "go over there to the left and open a portal".
   const place = /\bleft\b/i.test(text) ? "left" : /\bright\b/i.test(text) ? "right" : /\bbehind|\bback\b/i.test(text) ? "behind"
     : /\b(there|over|ahead|front|wall)\b/i.test(text) ? "ahead" : "here";
-  if (/\b(open|make|create)\b.*\b(window|portal)\b|\b(window|portal)\b.*\bopen\b/i.test(text)) {
-    const world = worldOnly(/\b(?:onto|into|of|with|showing|that shows|looking (?:at|onto))\s+(.+?)[.!?]*$/i.exec(text)?.[1] || "");
-    return { reply: world ? "On it! Opening a window." : "Sure! Opening a window. Tell me which world.", gesture: "thumbs_up", move: "none", open_window: world, place };
+  if (/\b(open|make|create)\b.*\b(windows?|portals?)\b|\b(windows?|portals?)\b.*\bopen\b/i.test(text)) {
+    const said = worldOnly(/\b(?:onto|into|of|with|showing|that shows|looking (?:at|onto))\s+(.+?)[.!?]*$/i.exec(text)?.[1] || "");
+    // Several at once: "open two windows", "windows onto a beach and a forest".
+    const n = { two: 2, "2": 2, three: 3, "3": 3, both: 2, couple: 2 }[/\b(two|three|2|3|both|couple)\b/i.exec(text)?.[1]?.toLowerCase()] || 1;
+    const listed = /\bwindows|portals\b/i.test(text) && said ? said.split(/\s*(?:,\s*(?:and\s+)?|\s+and\s+)\s*/i).filter(Boolean) : [said];
+    const worlds = Array.from({ length: Math.min(3, Math.max(n, listed.length)) }, (_, i) => listed[i] || "");
+    const many = worlds.length > 1;
+    return {
+      reply: many ? `On it! Opening ${worlds.length} windows.` : worlds[0] ? "On it! Opening a window." : "Sure! Opening a window. Tell me which world.",
+      gesture: "thumbs_up", move: "none", open_window: worlds[0], more_windows: worlds.slice(1), place,
+    };
   }
   // A new place or character proposed to her, no window mentioned: "let's go with Santa Claus", "take us to the
   // moon", "I want to meet a dragon". That is an adventure for a new window, so she opens one for it.

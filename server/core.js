@@ -365,6 +365,8 @@ export function applyDirection(s, out, ms, seq = 0, event = null) {
         // she goes to do it. Only present when she was asked, so ordinary replies are unchanged.
         ...(typeof out.companion.open_window === "string" && {
           open_window: cleanSeed(out.companion.open_window),
+          // Several at once: up to two more worlds ("" = ask which), opened side by side.
+          more_windows: (Array.isArray(out.companion.more_windows) ? out.companion.more_windows : []).slice(0, 2).map(cleanSeed),
           place: PLACES.includes(out.companion.place) ? out.companion.place : "here",
         }),
       }

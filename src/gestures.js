@@ -142,7 +142,8 @@ export class GestureDetector {
     // under the headset) keep listening for a while rather than cutting the speaker off.
     // Thumbs up starts (or, when it started the talk, ends) a hands-free talk. It needs re-arming: the
     // pose has to be let go of for a moment before it can fire again.
-    const thumbSide = ["right", "left"].find((side) => isThumbsUp(hands[side]?.fingers));
+    // A hand held at the mouth like a microphone is a fist with the thumb up too: that is never a thumbs up.
+    const thumbSide = ["right", "left"].find((side) => isThumbsUp(hands[side]?.fingers) && dMouth(hands[side], mouth) > MIC_OFF);
     if (thumbSide) {
       this.thumbOffSince = 0;
       this.thumbSince ||= now;
@@ -162,6 +163,14 @@ export class GestureDetector {
       this.thumbSince = 0;
       this.thumbOffSince ||= now;
       if (now - this.thumbOffSince >= THUMB_REARM_MS) this.thumbArmed = true;
+    }
+    // A hands-free talk whose hand then comes up to the mouth (the fist was read as a thumbs up on the way
+    // there) becomes an ordinary one: lowering that hand sends it.
+    const micSide = this.talkBy === "thumb" && this.talking && ["right", "left"].find((side) => dMouth(hands[side], mouth) < MIC_ON);
+    if (micSide) {
+      this.talkBy = "mouth";
+      this.talkHand = micSide;
+      events.push("talk-mouth");
     }
     if (this.talkBy === "thumb") {
       // Hands-free: lowering or losing the hand doesn't stop it; a second thumbs up does (or a minute).

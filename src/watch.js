@@ -1,7 +1,7 @@
 import "./site.css";
 import { createLink, speechHeaders } from "./link.js";
 import { urlRoom, voterId, esc } from "./identity.js";
-import { PushToTalk } from "./voice.js";
+import { PushToTalk, micMessage } from "./voice.js";
 
 const $ = (s) => document.querySelector(s);
 const room = urlRoom;
@@ -140,7 +140,8 @@ $("#coForm").addEventListener("submit", async (e) => {
   const r = await link.request({ t: "utterance", text });
   $("#coErr").textContent = r.error || "";
 });
-const ptt = new PushToTalk();
+// Viewers are mostly on phones: let go of the mic after each turn (iPhones play quietly while it's open).
+const ptt = new PushToTalk({ releaseAfterMs: matchMedia("(pointer: coarse)").matches ? 8000 : 0 });
 const mic = $("#mic");
 let held = false;
 async function micDown(e) {
@@ -152,7 +153,7 @@ async function micDown(e) {
     mic.textContent = "Listening…";
     if (!held) micUp(); // released while the mic permission/start was pending
   } catch (err) {
-    $("#coErr").textContent = `Microphone unavailable: ${err.message}`;
+    $("#coErr").textContent = micMessage(err);
   }
 }
 async function micUp() {
@@ -163,7 +164,7 @@ async function micUp() {
   try {
     const text = await ptt.end(speechHeaders(room));
     if (text) await link.request({ t: "utterance", text });
-    $("#coErr").textContent = text ? "" : "Didn't catch that.";
+    $("#coErr").textContent = text ? "" : "Didn't catch that. Hold the button while you speak, then let go.";
   } catch (err) {
     $("#coErr").textContent = err.message;
   }
@@ -171,3 +172,5 @@ async function micUp() {
 }
 mic.addEventListener("pointerdown", micDown);
 addEventListener("pointerup", micUp);
+addEventListener("pointercancel", micUp); // a phone took the touch (scroll, system gesture): send, don't keep recording
+mic.addEventListener("contextmenu", (e) => e.preventDefault()); // long-press is a hold, not a menu

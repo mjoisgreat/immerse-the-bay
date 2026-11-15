@@ -1,7 +1,7 @@
 // app/buddy.js: the companion (Bonnie / Pip): replies, physics, follow/call/toggle, aiming and cradle helpers.
 import * as THREE from "three";
 import { PORTAL_SIZE } from "../portal.js";
-import { spotFor, windowSpot } from "../errand.js";
+import { windowSlot } from "../errand.js";
 import { Companion, RobotRig, BunnyRig } from "../companion.js";
 import { CameraView } from "../cameraview.js";
 import { camera, renderer, scene } from "./stage.js";
@@ -97,21 +97,40 @@ buddy.onPhysics = (event, amount) => {
  * "Bonnie, go over there and open a window": she walks to the place (relative to where you look) and
  * opens a window just behind her. `open_window` is the world behind it, or "" to ask you which.
  */
-export function buddyOpensWindow({ open_window: world, place }) {
-  if (portals.size >= state.maxPortals) return buddy.say(`I'm holding all ${state.maxPortals} windows already. Close one first!`, 5000);
+// Several windows (asked for at once, or one after another) line up side by side on an arc around
+// you, each facing you, and Bonnie stands beside each one as she opens it rather than in front of it.
+// See windowSlot (errand.js).
+export function buddyOpensWindow({ open_window: world, place, more_windows: more = [] }) {
+  const free = state.maxPortals - portals.size;
+  if (free <= 0) return buddy.say(`I'm holding all ${state.maxPortals} windows already. Close one first!`, 5000);
+  const worlds = [world, ...(Array.isArray(more) ? more : [])].slice(0, free);
+  if (worlds.length < 1 + (more?.length || 0)) flash(`Room for ${free} more window${free === 1 ? "" : "s"}: opening ${free}.`, 4000);
+  // The arrangement is worked out from where you are and look now, so it stays tidy even if you turn.
   const eye = camera.getWorldPosition(new THREE.Vector3());
   const f = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.getWorldQuaternion(new THREE.Quaternion()));
   const l = Math.hypot(f.x, f.z);
   const fwd = l > 1e-3 ? { x: f.x / l, z: f.z / l } : { x: 0, z: -1 };
-  const spot = spotFor(place, eye, fwd, renderer.xr.isPresenting ? 2.0 : 3.0);
-  buddy.goTo(spot, () => {
-    if (!buddy.visible || portals.size >= state.maxPortals) return;
-    const now = camera.getWorldPosition(new THREE.Vector3());
-    const here = { x: buddy.root.position.x, z: buddy.root.position.z };
-    const y = Math.min(1.7, Math.max(1.1, now.y - 0.1));
-    openPortal(now, new THREE.Vector3(0, 0, -1), { at: windowSpot(here, now, y), world: world || null });
-    buddy.say(world ? "Ta-da! Here's your window." : "Ta-da! What world should it show?", 4000);
-  });
+  const xr = renderer.xr.isPresenting;
+  // Further away on a flat screen, so a row of windows fits the view; the gap keeps them from touching.
+  const r = xr ? 2.2 : 3.4;
+  const gapDeg = (2 * Math.atan((PORTAL_SIZE.W / 2 + 0.2) / r) * 180) / Math.PI;
+  const y = Math.min(1.7, Math.max(1.1, eye.y - 0.1));
+  const openNext = (i) => {
+    if (i >= worlds.length || !buddy.visible || portals.size >= state.maxPortals) return;
+    const existing = [...portals.values()].map(({ portal }) => portal.group.position);
+    const slot = windowSlot(place, eye, fwd, existing, { r, gapDeg, halfWidth: PORTAL_SIZE.W / 2 });
+    buddy.goTo(slot.stand, () => {
+      if (!buddy.visible || portals.size >= state.maxPortals) return;
+      openPortal(eye, new THREE.Vector3(0, 0, -1), { at: { x: slot.window.x, y, z: slot.window.z }, world: worlds[i] || null });
+      const last = i === worlds.length - 1;
+      buddy.say(
+        !worlds[i] ? "Ta-da! What world should it show?" : worlds.length > 1 ? (last ? "And that's all of them!" : `That's ${i + 1}…`) : "Ta-da! Here's your window.",
+        4000,
+      );
+      if (!last) setTimeout(() => openNext(i + 1), 700);
+    });
+  };
+  openNext(0);
 }
 
 // A quick pinch / tap on the companion toggles following you around.

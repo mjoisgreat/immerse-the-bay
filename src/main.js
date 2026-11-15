@@ -4,7 +4,7 @@ import { $, DESKTOP_BG, camera, listener, previewRoom, renderer, scene } from ".
 import { state } from "./app/state.js";
 import { RID, ROOM, handlers, link, send } from "./app/room.js";
 import { toastMesh } from "./app/feedback.js";
-import { aimedAtBuddy, buddy, syncBuddy, updateCradle } from "./app/buddy.js";
+import { aimedAtBuddy, buddy, buddyOpensWindow, syncBuddy, updateCradle } from "./app/buddy.js";
 import { openInFront, setStartScreen, syncButtons, updateToolbar } from "./app/buttons.js";
 import { camView, desktopWalk, seeThrough } from "./app/desktop.js";
 import { guide, showTitle, updateTitle } from "./app/guide.js";
@@ -156,4 +156,4 @@ renderer.setAnimationLoop(() => {
 });
 
 // `?debug`: the app's objects on `window.lw`, for poking at it from the browser console.
-if (new URLSearchParams(location.search).has("debug")) window.lw = { THREE, renderer, scene, camera, portals, immersion, backdrop, buddy, openInFront, stepInside, stepOut };
+if (new URLSearchParams(location.search).has("debug")) window.lw = { THREE, renderer, scene, camera, portals, immersion, backdrop, buddy, buddyOpensWindow, ptt, openInFront, stepInside, stepOut };
