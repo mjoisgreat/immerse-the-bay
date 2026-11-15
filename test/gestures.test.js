@@ -65,30 +65,10 @@ test("shaking your head with your hands held up is not a shake", () => {
 test("one hand pulling away from a still one (dragging a window) is not an opening motion", () => {
   assert.deepEqual(run([[10, both(0.12)], ...motion(15, (t) => ({ left: lHand(0.06), right: rHand(0.06 + 2 * t) })), [60, { left: lHand(0.06), right: rHand(0.54) }]]), []);
 });
-// Snap: thumb and middle fingertip touch, then spring apart. gap(t) = distance between the fingertips.
-const fingers = (gap) => ({ ...rest, right: { ...rest.right, thumb: [0.25, 1.0, -0.2], middle: [0.25 + gap, 1.0, -0.2] } });
-test("a snap (fingertips touch, then flick apart fast) calls once", () => {
-  assert.deepEqual(run([[10, fingers(0.08)], [4, fingers(0.01)], [1, fingers(0.06)], [20, fingers(0.09)]]), ["snap"]);
-});
-test("works with the left hand too", () => {
-  const l = (gap) => ({ ...rest, left: { ...rest.left, thumb: [-0.25, 1.0, -0.2], middle: [-0.25 - gap, 1.0, -0.2] } });
-  assert.deepEqual(run([[10, l(0.08)], [4, l(0.01)], [1, l(0.06)], [20, l(0.09)]]), ["snap"]);
-});
-test("letting go of a pinch slowly is not a snap", () => {
-  const slow = Array.from({ length: 40 }, (_, i) => [1, fingers(0.01 + i * 0.002)]); // ~0.6 s to open
-  assert.deepEqual(run([[10, fingers(0.08)], [4, fingers(0.01)], ...slow]), []);
-});
-test("fingers that never touch, or touch for a single frame, do not snap", () => {
-  assert.deepEqual(run([[10, fingers(0.08)], [10, fingers(0.04)], [10, fingers(0.09)]]), []);
-  assert.deepEqual(run([[10, fingers(0.08)], [1, fingers(0.01)], [1, fingers(0.07)], [10, fingers(0.09)]]), []);
-});
-test("snapping twice in a row is one call (cooldown); a later snap works again", () => {
-  const one = [[4, fingers(0.01)], [1, fingers(0.06)], [8, fingers(0.09)]];
-  assert.deepEqual(run([[5, fingers(0.08)], ...one, ...one]), ["snap"]);
-  assert.deepEqual(run([[5, fingers(0.08)], ...one, [120, fingers(0.09)], ...one]), ["snap", "snap"]);
-});
-test("hands without fingertip data never snap", () => {
-  assert.deepEqual(run([[40, rest]]), []);
+// There is no snap gesture any more: a thumb-and-middle-finger flick does nothing.
+test("snapping your fingers does nothing", () => {
+  const fingers = (gap) => ({ ...rest, right: { ...rest.right, thumb: [0.25, 1.0, -0.2], middle: [0.25 + gap, 1.0, -0.2] } });
+  assert.deepEqual(run([[10, fingers(0.08)], [4, fingers(0.01)], [1, fingers(0.06)], [20, fingers(0.09)]]), []);
 });
 
 test("losing the talking hand keeps listening, then sends; a half-made motion is dropped after a gap", () => {
@@ -111,4 +91,42 @@ test("left palm toggles once per raise", () => {
 });
 test("right palm is ignored", () => {
   assert.deepEqual(run([[60, { right: { palm: [0.05, 1.45, -0.35], palmNormal: [-0.05, 0.4, 0.9] } }]]), []);
+});
+
+// Thumbs up: a hand-sized fist (wrist → middle knuckle 9 cm) with the thumb pointing up, or not.
+const fist = (pose = "up", base = [0.25, 1.2, -0.35]) => {
+  const [x, y, z] = base;
+  const tipsCurled = [[x + 0.03, y + 0.04, z - 0.05], [x + 0.01, y + 0.04, z - 0.055], [x - 0.01, y + 0.035, z - 0.05], [x - 0.03, y + 0.03, z - 0.045]];
+  const tipsOpen = [[x + 0.03, y + 0.17, z], [x + 0.01, y + 0.18, z], [x - 0.01, y + 0.17, z], [x - 0.03, y + 0.15, z]];
+  const th = {
+    up: { thumbBase: [x + 0.04, y + 0.05, z - 0.03], thumbTip: [x + 0.045, y + 0.12, z - 0.03] },
+    side: { thumbBase: [x + 0.04, y + 0.05, z - 0.03], thumbTip: [x + 0.11, y + 0.055, z - 0.03] },
+    down: { thumbBase: [x + 0.04, y + 0.03, z - 0.03], thumbTip: [x + 0.045, y - 0.04, z - 0.03] },
+  }[pose === "open" ? "up" : pose];
+  return { palm: [x, y + 0.03, z], palmNormal: [-1, 0, 0], fingers: { wrist: [x, y - 0.03, z], knuckle: [x, y + 0.06, z - 0.01], ...th, tips: pose === "open" ? tipsOpen : tipsCurled } };
+};
+const thumbsUp = { ...rest, right: fist("up") };
+test("isThumbsUp: a fist with the thumb up, and not a thumb sideways, down or an open hand", async () => {
+  const { isThumbsUp } = await import("../src/gestures.js");
+  assert.equal(isThumbsUp(fist("up").fingers), true);
+  assert.equal(isThumbsUp(fist("side").fingers), false);
+  assert.equal(isThumbsUp(fist("down").fingers), false);
+  assert.equal(isThumbsUp(fist("open").fingers), false);
+  assert.equal(isThumbsUp(undefined), false);
+});
+test("thumbs up starts a hands-free talk; lowering the hand keeps it; thumbs up again sends", () => {
+  assert.deepEqual(run([[10, rest], [30, thumbsUp], [60, rest], [30, thumbsUp], [10, rest]]), ["talk-start", "talk-end"]);
+});
+test("holding the thumbs up doesn't toggle it on and off", () => {
+  assert.deepEqual(run([[10, rest], [200, thumbsUp]]), ["talk-start"]);
+});
+test("a thumbs up flashed for a moment is ignored", () => {
+  assert.deepEqual(run([[10, rest], [8, thumbsUp], [30, rest]]), []);
+});
+test("a thumbs up while talking into your hand doesn't end that talk", () => {
+  assert.deepEqual(run([[10, rest], [30, atMouth], [30, { ...atMouth, left: fist("up", [-0.25, 1.2, -0.35]) }]]), ["talk-start"]);
+});
+test("a hands-free talk sends by itself after a minute", () => {
+  const out = run([[10, rest], [30, thumbsUp], [3900, rest]]); // ~63 s
+  assert.deepEqual(out, ["talk-start", "talk-end"]);
 });

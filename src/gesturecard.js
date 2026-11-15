@@ -1,20 +1,21 @@
 import * as THREE from "three";
 
 // The "how do I do things with my hands" card shown at the start of a headset session: one row per
-// action, with the gesture that does it. Pinch the card (or wait) to dismiss it.
+// action, with the gesture that does it. Pinch the ✕ in its top-right corner (or wait) to dismiss it.
 
 /** [icon, action, gesture]. `name` is the companion's name. */
 export function gestureRows(name = "Bonnie") {
   return [
-    ["🎙", "Talk", "Raise a hand to your mouth like a microphone; lower it to send"],
+    ["🎙", "Talk", `Hand to your mouth like a microphone (${name} comes to listen); lower it to send`],
+    ["👍", "Talk hands-free", "Thumbs up to start, thumbs up again to send"],
     ["＋", "Open a window", "Pinch and draw a square in the air"],
+    ["🐰", `Ask ${name} for a window`, `Say "${name}, open a window onto a snowy village": she walks over and opens it`],
     ["✋", "Move a window", "Pinch it and drag"],
     ["↔", "Resize a window", "Pinch it with both hands, then move your hands apart or together"],
     ["🤲", `Pick up a window or ${name}`, "Pinch it with both hands and carry it; let go to drop (or throw)"],
     ["🚪", "Step inside", "Part both hands like curtains"],
     ["↩", "Step back out", "Bring both hands together"],
     ["✕", "Close a window", "Shake both hands, like wiping it away"],
-    ["👆", `Call ${name}`, "Snap your fingers"],
     ["☰", "Open / close the menu", "Turn your left palm toward your face and hold"],
   ];
 }
@@ -55,6 +56,25 @@ export class GestureCard {
     this.mesh.renderOrder = 30;
     this.mesh.userData.gestureCard = true;
     this.mesh.visible = false;
+
+    // Close button: a round ✕ in the top-right corner, just in front of the card.
+    const height = (width * canvas.height) / canvas.width, r = 0.042;
+    this.closeButton = new THREE.Mesh(
+      new THREE.CircleGeometry(r, 40),
+      new THREE.MeshBasicMaterial({ map: closeTexture(false), transparent: true, depthTest: false }),
+    );
+    this.closeButton.position.set(width / 2 - r - 0.025, height / 2 - r - 0.025, 0.004);
+    this.closeButton.renderOrder = 31;
+    this.closeButton.userData.cardClose = true;
+    this.mesh.add(this.closeButton);
+    this._hoverTex = [closeTexture(false), closeTexture(true)];
+  }
+
+  /** Highlight the ✕ while a hand / controller points at it. */
+  hoverClose(on) {
+    const t = this._hoverTex[on ? 1 : 0];
+    if (this.closeButton.material.map !== t) (this.closeButton.material.map = t), (this.closeButton.material.needsUpdate = true);
+    this.closeButton.scale.setScalar(on ? 1.15 : 1);
   }
 
   _draw(canvas) {
@@ -93,7 +113,7 @@ export class GestureCard {
     g.textAlign = "center";
     g.fillStyle = "#a9b0c6";
     g.font = "italic 28px Georgia, serif";
-    g.fillText("Pinch this card to close it", w / 2, h - FOOT / 2);
+    g.fillText("Pinch the ✕ in the corner to close this card", w / 2, h - FOOT / 2);
   }
 
   get visible() {
@@ -115,4 +135,26 @@ export class GestureCard {
   hide() {
     this.mesh.visible = false;
   }
+}
+
+function closeTexture(hover) {
+  if (typeof document === "undefined") return null;
+  const c = Object.assign(document.createElement("canvas"), { width: 128, height: 128 });
+  const g = c.getContext("2d");
+  g.fillStyle = hover ? "#ff9a5a" : "rgba(40,30,50,0.95)";
+  g.strokeStyle = "#ffd08a";
+  g.lineWidth = 6;
+  g.beginPath();
+  g.arc(64, 64, 58, 0, Math.PI * 2);
+  g.fill();
+  g.stroke();
+  g.strokeStyle = hover ? "#1b1206" : "#fff3e0";
+  g.lineWidth = 11;
+  g.lineCap = "round";
+  g.beginPath();
+  g.moveTo(42, 42), g.lineTo(86, 86), g.moveTo(86, 42), g.lineTo(42, 86);
+  g.stroke();
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
 }

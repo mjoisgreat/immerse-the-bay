@@ -23,7 +23,7 @@ const MENU = "__menu";
  *   armed:    "reset" when Reset is waiting for its second tap
  * Returns [{ id, icon, label, state? }]; main.js attaches what each one does.
  */
-export function menuFor({ inside = false, world = null, loading = false, armed = null } = {}) {
+export function menuFor({ inside = false, world = null, loading = false, armed = null, wideOn = false, cameraOn = false } = {}) {
   if (inside) {
     return [
       { id: "exitwin", icon: "↩", label: "Exit window" },
@@ -40,7 +40,9 @@ export function menuFor({ inside = false, world = null, loading = false, armed =
   const moon = world === "moon"
     ? { id: "exit-moon", icon: "↩", label: "Exit Moon" }
     : { id: "moon", icon: "🌙", label: "Moon", state };
-  return [resetEntry(armed), stanford, moon, { id: "cheat", icon: "?", label: "Cheat sheet" }, { id: "exitvr", icon: "⏏", label: "Exit VR" }];
+  const wide = { id: "wide", icon: "🔭", label: wideOn ? "Wide: on" : "Wide view" };
+  const camera = { id: "camera", icon: "📷", label: cameraOn ? "Camera: on" : "Camera" };
+  return [resetEntry(armed), stanford, moon, wide, camera, { id: "cheat", icon: "?", label: "Cheat sheet" }, { id: "exitvr", icon: "⏏", label: "Exit VR" }];
 }
 
 function resetEntry(armed) {

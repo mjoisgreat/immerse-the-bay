@@ -2,11 +2,19 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+    <meta name="theme-color" content="#0b0e16" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Living Window" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" href="/icons/icon-192.png" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
     <title>Living Window</title>
     <style>
       html, body { margin: 0; height: 100%; background: #0b0e16; color: #f3ead8; font-family: Georgia, serif; overflow: hidden; }
-      canvas { display: block; }
+      canvas { display: block; touch-action: none; } /* dragging looks around instead of scrolling or zooming the page */
       #overlay { position: fixed; inset: 0; display: grid; place-items: center; pointer-events: none; }
       .card { pointer-events: auto; max-width: 30rem; margin: 1rem; padding: 2rem; text-align: center;
         background: rgba(12, 14, 24, 0.82); border: 1px solid #ffb36b55; border-radius: 1.25rem; }
@@ -26,6 +34,8 @@
       #overlay { bottom: 4.5rem; }
       #overlay[hidden], #bar[hidden] { display: none; }
       #note { font: .85rem/1.5 system-ui, sans-serif; opacity: .7; margin: .6rem 0 0; }
+      #camEnter { margin-top: .6rem; }
+      #camNote { font: .8rem/1.5 system-ui, sans-serif; opacity: .65; margin: .4rem auto 0; max-width: 30rem; }
       /* Bottom HUD: choices, status and buttons stacked so they never overlap. */
       #hud { position: fixed; left: 0; right: 0; bottom: 0; display: flex; flex-direction: column; align-items: center; gap: .5rem;
         padding: 0 .75rem .85rem; pointer-events: none; }
@@ -68,6 +78,61 @@
         h1 { font-size: 1.6rem; }
         #overlay { place-items: start center; }
       }
+      #hintTouch { display: none; font-size: .85rem; opacity: .6; margin-top: 1rem; }
+
+      /* ---------- Phones and tablets: an app-style layout (body.mobile, set by main.js) ---------- */
+      body.mobile { --dock: 4.4rem; --safe-b: env(safe-area-inset-bottom, 0px); -webkit-tap-highlight-color: transparent;
+        -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; overscroll-behavior: none; }
+      body.mobile button { touch-action: manipulation; }
+      body.mobile #hint2 { display: none; }
+      body.mobile #hintTouch { display: block; }
+      body.mobile .card { margin-top: max(1rem, env(safe-area-inset-top)); }
+      body.mobile #overlay { bottom: 0; padding-bottom: var(--safe-b); }
+      body.mobile #hud { padding: 0 .75rem calc(var(--dock) + var(--safe-b) + .6rem); gap: .45rem; }
+      body.mobile #status { font: 500 .9rem/1.35 system-ui, sans-serif; padding: .55rem 1rem; border-radius: 1rem; background: rgba(12, 14, 24, .86);
+        -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); border: 1px solid #ffffff14; }
+      body.mobile #showbar { right: .9rem; bottom: calc(.9rem + var(--safe-b)); }
+      #dock { display: none; }
+      body.mobile #dock { display: grid; grid-template-columns: repeat(5, 1fr); align-items: end; position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
+        height: var(--dock); padding: 0 .4rem var(--safe-b); background: rgba(10, 12, 20, .88); -webkit-backdrop-filter: blur(16px);
+        backdrop-filter: blur(16px); border-top: 1px solid #ffb36b33; transition: transform .25s ease; }
+      body.mobile.clean #dock { transform: translateY(calc(100% + 1px)); }
+      body.mobile.clean #hud { padding-bottom: calc(var(--safe-b) + .9rem); }
+      #dock button { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .15rem; height: 100%;
+        background: none; color: #d9d2c4; padding: 0; border-radius: 0; font: 600 .68rem system-ui, sans-serif; letter-spacing: .01em; }
+      #dock button i { font-style: normal; font-size: 1.35rem; line-height: 1; }
+      #dock button.on { color: #ffb36b; }
+      #dock button:active { transform: scale(.94); }
+      #dock .mic { align-self: start; }
+      #dock .mic i { display: grid; place-items: center; width: 3.6rem; height: 3.6rem; margin-top: -1.3rem; border-radius: 50%; font-size: 1.5rem;
+        background: linear-gradient(135deg, #ffd08a, #ff9a5a); box-shadow: 0 6px 22px #ff9a5a55, 0 0 0 4px #0b0e16; transition: transform .15s, box-shadow .15s; }
+      #dock .mic.on i { background: linear-gradient(135deg, #ff6a4a, #ff3355); transform: scale(1.08); box-shadow: 0 0 0 4px #0b0e16, 0 0 0 10px #ff335544; }
+      #dock .mic span { color: #ffd08a; }
+
+      /* Bottom sheets: More, and the touch gesture guide */
+      .sheet { position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; max-height: 80%; overflow: auto; box-sizing: border-box;
+        padding: .6rem 1rem calc(1rem + var(--safe-b, 0px)); background: #10131e; border-top: 1px solid #ffb36b44;
+        border-radius: 1.25rem 1.25rem 0 0; box-shadow: 0 -12px 40px #0008; transform: translateY(105%); transition: transform .28s cubic-bezier(.2, .8, .2, 1); }
+      .sheet.open { transform: none; }
+      .sheet .grab { width: 2.5rem; height: .3rem; border-radius: 999px; background: #ffffff33; margin: 0 auto .7rem; }
+      .sheet h3 { margin: 0 0 .7rem; font: 600 1rem system-ui, sans-serif; color: #ffd08a; letter-spacing: .02em; }
+      #scrim { position: fixed; inset: 0; z-index: 25; background: #0007; opacity: 0; pointer-events: none; transition: opacity .25s; }
+      #scrim.open { opacity: 1; pointer-events: auto; }
+      body.mobile #bar, body.mobile.clean #bar { display: grid; grid-template-columns: repeat(auto-fill, minmax(8.5rem, 1fr)); gap: .5rem;
+        overflow: visible; mask-image: none; -webkit-mask-image: none; padding: 0; }
+      body.mobile #bar button { font: 600 .9rem system-ui, sans-serif; padding: .85rem .6rem; border-radius: .9rem; background: #1a1f2e; color: #fff3e0;
+        border: 1px solid #ffffff12; white-space: normal; }
+      body.mobile #bar button.on { background: #ff9a5a; color: #1b1206; }
+      body.mobile #bar button.warn { background: #c8483a; }
+      body.mobile #bar [data-act="talk"], body.mobile #bar [data-act="new"], body.mobile #bar [data-act="step"], body.mobile #bar [data-act="buddy"] { display: none; }
+      #gestList { list-style: none; margin: 0; padding: 0; font: .92rem/1.35 system-ui, sans-serif; }
+      #gestList li { display: flex; gap: .8rem; align-items: center; padding: .6rem 0; border-bottom: 1px solid #ffffff0d; }
+      #gestList b { flex: none; width: 2.2rem; height: 2.2rem; display: grid; place-items: center; border-radius: .7rem; background: #1a1f2e; font-size: 1.1rem; }
+      #gestList span { opacity: .9; } #gestList em { font-style: normal; color: #ffd08a; }
+      .sheet .done { width: 100%; margin-top: .9rem; font: 600 .95rem system-ui, sans-serif; }
+      body.mobile #ask { border-radius: 1.1rem; }
+      body.mobile #ask input { font-size: 1rem; } /* 16px: iOS doesn't zoom the page into the field */
+      body.mobile #choices button { font-size: .95rem; padding: .6rem 1rem; }
     </style>
   </head>
   <body>
@@ -79,7 +144,8 @@
         <button id="enter">Enter Living Window</button>
         <button class="ghost" id="cheat-toggle" aria-expanded="false" aria-controls="cheat">More info</button>
         <div id="cheat" hidden>
-          <div id="hint">In the headset, use your hands: pinch and draw a square to open a window · raise one to your mouth to talk · part both like curtains to step inside · shake both to close a window · snap to call Bonnie · pinch a window to move it, with both hands to resize it (A/X, B/Y and grip do the same)</div>
+        <div id="hint">In the headset, use your hands: pinch and draw a square to open a window, or ask Bonnie out loud: "Bonnie, open a window" · raise one to your mouth to talk (Bonnie comes to listen) · part both like curtains to step inside · shake both to close a window · pinch a window to move it, with both hands to resize it (A/X, B/Y and grip do the same)</div>
+        <div id="hintTouch">On your phone: hold 🎙 to talk · double-tap a window to step inside · press and hold empty space, then draw a rectangle, to open a window · double-tap empty space to call Bonnie · ⋯ More → Touch gestures for the rest</div>
           <div id="hint2">On desktop: click empty space to open a window · drag to look · hold Space to talk · double-click a window to step inside · H shows or hides the buttons</div>
           <div id="roominfo">Setting up your room…</div>
         </div>
@@ -100,13 +166,46 @@
       <button data-act="step">Step inside</button>
       <button data-act="hide">Hide buttons</button>
       <button data-act="buddy">Bonnie</button>
-      <button data-act="world">Stanford Quad</button>
+      <button data-act="world">Moon</button>
+      <button data-act="wide">Wide view</button>
+      <button data-act="camera">Camera</button>
       <button data-act="newstory">New story</button>
       <button data-act="reset">Reset story</button>
       <button data-act="info">Room info</button>
       <button data-act="close">Close window</button>
       </div>
     </div>
+    <nav id="dock" aria-label="Main controls">
+      <button data-dock="new"><i>＋</i><span>Window</span></button>
+      <button data-dock="step"><i>🚪</i><span>Step in</span></button>
+      <button data-dock="talk" class="mic" aria-label="Hold to talk"><i>🎙</i><span>Hold to talk</span></button>
+      <button data-dock="buddy"><i>🐰</i><span>Bonnie</span></button>
+      <button data-dock="more"><i>⋯</i><span>More</span></button>
+    </nav>
+    <div id="scrim"></div>
+    <section class="sheet" id="moreSheet" aria-label="More">
+      <div class="grab"></div>
+      <h3>More</h3>
+      <div id="sheetBody"></div>
+      <button class="ghost done" id="gestBtn">✋ Touch gestures</button>
+    </section>
+    <section class="sheet" id="gestSheet" aria-label="Touch gestures">
+      <div class="grab"></div>
+      <h3>Touch gestures</h3>
+      <ul id="gestList">
+        <li><b>🎙</b><span><em>Hold the mic</em> and speak: tell the story, or talk to Bonnie</span></li>
+        <li><b>👆</b><span><em>Tap a window</em> to pick it · tap it again to touch the world there</span></li>
+        <li><b>✌️</b><span><em>Double-tap a window</em>, or <em>spread two fingers</em>, to step inside · double-tap or pinch in to step out</span></li>
+        <li><b>✍️</b><span><em>Press and hold empty space</em>, then draw a rectangle, to open a window there</span></li>
+        <li><b>✊</b><span><em>Press and hold a window</em>, then drag, to move it</span></li>
+        <li><b>🤏</b><span><em>Pinch a window</em> with two fingers to resize it</span></li>
+        <li><b>☝️</b><span><em>Flick a window up</em> twice to close it</span></li>
+        <li><b>🐰</b><span><em>Double-tap empty space</em> to call Bonnie · <em>tap</em> her to follow or stay · <em>drag</em> to carry, let go to throw</span></li>
+        <li><b>📱</b><span>With the camera on, <em>move your phone</em> to look around · otherwise <em>drag</em></span></li>
+        <li><b>👐</b><span><em>Two-finger tap</em> hides or shows the buttons</span></li>
+      </ul>
+      <button class="done" id="gestDone">Got it</button>
+    </section>
     <script type="module" src="/src/main.js"></script>
   </body>
 </html>

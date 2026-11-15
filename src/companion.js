@@ -410,6 +410,7 @@ export class Companion {
     this.comeDistance = 0.8;
     this.following = false; // walks beside you wherever you go
     this.errand = null; // { point, done, until }: walking somewhere to do something (see goTo)
+    this.attendUntil = 0; // you are talking: she comes over and faces you until then (see attend)
     this.returnAt = 0; // when to walk back to you after a throw (0 = not pending)
     this.strayT = 0; // ms spent too far away
     rig.onFinished = () => {
@@ -547,6 +548,15 @@ export class Companion {
     this._face(0.25, 30000);
   }
 
+  /**
+   * You started (on) or stopped (off) talking. While you talk she comes over and faces you, whoever you
+   * are talking to: she is listening, not answering (that is `listen()`). Does nothing while she is held
+   * or flying, and gives up by itself after 90 s in case the "stopped" never arrives.
+   */
+  attend(on) {
+    this.attendUntil = on && this.visible && !this.phys ? performance.now() + 90000 : 0;
+  }
+
   /** Its reply arrived: gesture, maybe move, and talk while its voice plays. */
   react({ gesture, move }) {
     this.listening = false;
@@ -603,7 +613,13 @@ export class Companion {
     }
 
     let speed = WALK_SPEED;
-    if (this.listening || this.talking) {
+    const attending = now < this.attendUntil;
+    if (attending && !this.listening && !this.talking && distUser > this.comeDistance + 0.4) {
+      // You are talking and she is far: run over to just in front of you.
+      this.target = new THREE.Vector3(eye.x, 0, eye.z).addScaledVector(toUser.clone().normalize(), -this.comeDistance);
+      this.mode = "walk";
+      speed = RUN_SPEED;
+    } else if (this.listening || this.talking || attending) {
       this.mode = "talk";
       this._turnTowards(toUser, dt, 4);
       if (!this.emoting) this.rig.play("Idle");
@@ -689,7 +705,7 @@ export class Companion {
     this.aimGlow.visible = Boolean(on) && this.visible;
     if (this.aimGlow.visible) {
       this.centerWorld(this.aimGlow.position);
-      this.aimGlow.material.opacity = 0.75 + Math.sin(performance.now() / 120) * 0.25;
+      this.aimGlow.material.opacity = 0.85 + Math.sin(performance.now() / 400) * 0.1; // gentle, not flickering
     }
   }
 

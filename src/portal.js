@@ -9,7 +9,7 @@ attribute vec2 videoUv; attribute float front;
 varying vec2 vVideoUv; varying float vFront;
 void main() { vVideoUv = videoUv; vFront = front; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`;
 const tunnelFrag = /* glsl */ `
-uniform sampler2D map; uniform float hasVideo; uniform float reveal;
+uniform sampler2D map; uniform float hasVideo; uniform float reveal; uniform float fade;
 varying vec2 vVideoUv; varying float vFront;
 void main() {
   vec3 spill = texture2D(map, vVideoUv, 3.0).rgb;
@@ -17,7 +17,7 @@ void main() {
   vec3 lit = mix(vec3(0.25, 0.16, 0.10), spill, hasVideo);
   vec3 col = mix(lit * 0.75, dark, smoothstep(0.0, 1.0, vFront)); // bright near the picture, dark at the rim
   col += vec3(1.0, 0.7, 0.42) * pow(vFront, 12.0) * 0.35; // warm lip at the opening
-  gl_FragColor = vec4(col * (0.4 + 0.6 * reveal), 1.0);
+  gl_FragColor = vec4(col * (0.4 + 0.6 * reveal), fade);
 }`;
 
 function tunnelGeometry() {
@@ -108,7 +108,7 @@ void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(
 // Live video when available, a swirling "world forming" effect while connecting,
 // an iris that opens on creation, and feathered edges so it reads as a window.
 const screenFrag = /* glsl */ `
-uniform sampler2D map; uniform float hasVideo; uniform float time; uniform float reveal; uniform float focus;
+uniform sampler2D map; uniform float hasVideo; uniform float time; uniform float reveal; uniform float focus; uniform float fade;
 varying vec2 vUv;
 float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7))) * 43758.5453); }
 float noise(vec2 p){ vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);
@@ -123,19 +123,19 @@ void main(){
   float feather = smoothstep(0.0, 0.035, edge);
   float iris = 1.0 - smoothstep(reveal * 1.2 - 0.05, reveal * 1.2, r);
   col *= 0.92 + 0.08 * focus;
-  gl_FragColor = vec4(col, feather * iris);
+  gl_FragColor = vec4(col, feather * iris * fade);
 }`;
 
 const glowFrag = /* glsl */ `
-uniform vec3 color; uniform float strength; uniform float time;
+uniform vec3 color; uniform float strength; uniform float time; uniform float fade;
 varying vec2 vUv;
 float sdRoundRect(vec2 p, vec2 b, float r){ vec2 q = abs(p) - b + r; return length(max(q,0.0)) + min(max(q.x,q.y),0.0) - r; }
 void main(){
   vec2 p = (vUv - 0.5) * vec2(${((W + 0.5) / (H + 0.5)).toFixed(4)}, 1.0);
   float d = sdRoundRect(p, vec2(${(W / (H + 0.5) / 2).toFixed(4)}, ${(H / (H + 0.5) / 2).toFixed(4)}), 0.02);
   float g = exp(-max(d, 0.0) * 28.0) * step(0.0, d);
-  float pulse = 0.85 + 0.15 * sin(time * 2.2);
-  gl_FragColor = vec4(color, g * strength * pulse);
+  float pulse = 0.95 + 0.05 * sin(time * 1.4); // a slow breath; a stronger, faster pulse reads as flicker in a headset
+  gl_FragColor = vec4(color, g * strength * pulse * fade);
 }`;
 
 function textCanvas() {
@@ -164,6 +164,7 @@ export class Portal {
         time: { value: 0 },
         reveal: { value: 0 },
         focus: { value: 0 },
+        fade: { value: 1 },
       },
     });
     this.screen = new THREE.Mesh(new THREE.PlaneGeometry(W, H), this.screenMat);
@@ -176,10 +177,11 @@ export class Portal {
       transparent: true,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
-      uniforms: { color: { value: new THREE.Color(0xffb36b) }, strength: { value: 0.6 }, time: { value: 0 } },
+      uniforms: { color: { value: new THREE.Color(0xffb36b) }, strength: { value: 0.6 }, time: { value: 0 }, fade: this.screenMat.uniforms.fade },
     });
     const glow = new THREE.Mesh(new THREE.PlaneGeometry(W + 0.5, H + 0.5), this.glowMat);
     glow.position.z = 0.004; // just in front of the wall opening
+    glow.renderOrder = 1; // fixed order: glow, then caption (by-distance sorting flipped them as you moved: flicker)
     this.group.add(glow);
 
     // Caption panel under the portal (status, then the storyteller's line).
@@ -191,21 +193,31 @@ export class Portal {
       new THREE.MeshBasicMaterial({ map: this.captionTex, transparent: true, depthWrite: false }),
     );
     cap.position.set(0, -H / 2 - 0.2, 0.01);
+    cap.renderOrder = 2;
     this.group.add(cap);
+    this.captionMat = cap.material;
 
     // Depth: the picture sits inside the wall, behind an opening, with lit tunnel walls.
     // (Added after the caption: the in-headset toast borrows children[2].)
     this.screen.position.z = -DEPTH;
-    const back = new THREE.Mesh(new THREE.PlaneGeometry(W, H), new THREE.MeshBasicMaterial({ color: 0x05060c }));
+    this.backMat = new THREE.MeshBasicMaterial({ color: 0x05060c, transparent: true });
+    const back = new THREE.Mesh(new THREE.PlaneGeometry(W, H), this.backMat);
     back.position.z = -DEPTH - 0.005;
+    back.renderOrder = -1; // now transparent (to fade): keep it drawn before the picture, as when it was opaque
     this.group.add(back);
     this.tunnelMat = new THREE.ShaderMaterial({
       vertexShader: tunnelVert,
       fragmentShader: tunnelFrag,
       side: THREE.DoubleSide,
-      uniforms: { map: this.screenMat.uniforms.map, hasVideo: this.screenMat.uniforms.hasVideo, reveal: this.screenMat.uniforms.reveal },
+      transparent: true,
+      uniforms: {
+        map: this.screenMat.uniforms.map, hasVideo: this.screenMat.uniforms.hasVideo, reveal: this.screenMat.uniforms.reveal,
+        fade: this.screenMat.uniforms.fade,
+      },
     });
-    this.group.add(new THREE.Mesh(tunnelGeometry(), this.tunnelMat));
+    const tunnel = new THREE.Mesh(tunnelGeometry(), this.tunnelMat);
+    tunnel.renderOrder = -1; // same: a fixed place before the picture, not sorted by distance
+    this.group.add(tunnel);
     this.mask = new THREE.Mesh(maskGeometry(), new THREE.MeshBasicMaterial({ colorWrite: false }));
     this.mask.renderOrder = -20; // before everything, so it hides what's "inside the wall"
     this.group.add(this.mask);
@@ -256,12 +268,28 @@ export class Portal {
     this.setImmersed(this.immersed);
   }
 
-  // Inside the world its sound surrounds you instead of coming from the window.
+  // Inside the world its sound surrounds you instead of coming from the window. Eased in update(),
+  // so the sound swells around you as you step through rather than jumping.
   setImmersed(on) {
     this.immersed = Boolean(on);
+    this._audioK ??= on ? 1 : 0;
+    this._applyAudio();
+  }
+
+  _applyAudio() {
     if (!this.sound) return;
-    if (on) this.sound.setRefDistance(60), this.sound.setDirectionalCone(360, 360, 1);
-    else this.sound.setRefDistance(1.2), this.sound.setDirectionalCone(200, 320, 0.35);
+    const k = this._audioK ?? 0;
+    this.sound.setRefDistance(1.2 + (60 - 1.2) * k * k);
+    this.sound.setDirectionalCone(200 + 160 * k, 320 + 40 * k, 0.35 + 0.65 * k);
+  }
+
+  /** 1 = the window as normal, 0 = gone (used while stepping in and out, so it fades rather than pops). */
+  setFade(k) {
+    k = Math.max(0, Math.min(1, k));
+    this.screenMat.uniforms.fade.value = k;
+    this.captionMat.opacity = k;
+    this.backMat.opacity = k;
+    this.group.visible = k > 0.001;
   }
 
   setFocused(f) {
@@ -295,6 +323,13 @@ export class Portal {
     this.screenMat.uniforms.reveal.value = Math.min(1, age / 1.4);
     this.burstMat.uniforms.age.value = age;
     if (this.burst.visible && age > 3) this.burst.visible = false;
+    // Ease the sound between "from the window" and "all around you" (about half a second).
+    const want = this.immersed ? 1 : 0;
+    if (this.sound && this._audioK !== want) {
+      this._audioK = (this._audioK ?? want) + Math.sign(want - (this._audioK ?? want)) * 0.035;
+      if (Math.abs(this._audioK - want) < 0.04) this._audioK = want;
+      this._applyAudio();
+    }
   }
 
   dispose() {

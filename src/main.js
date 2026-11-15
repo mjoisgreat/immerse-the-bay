@@ -2,7 +2,8 @@ import * as THREE from "three";
 import { XRControllerModelFactory } from "three/addons/webxr/XRControllerModelFactory.js";
 import { XRHandModelFactory } from "three/addons/webxr/XRHandModelFactory.js";
 import { Portal, PORTAL_SIZE } from "./portal.js";
-import { resizedScale, carriedPosition } from "./portalresize.js";
+import { resizedScale, carriedPosition, MIN_SCALE, MAX_SCALE } from "./portalresize.js";
+import { TouchGestureRecognizer } from "./touchgestures.js";
 import { analyzeStroke, strokeHint } from "./drawportal.js";
 import { GestureCard, gestureRows, buttonRows } from "./gesturecard.js";
 import { spotFor, windowSpot } from "./errand.js";
@@ -17,6 +18,7 @@ import { OrbisStream } from "./orbis.js";
 import { PushToTalk } from "./voice.js";
 import { createLink, speechHeaders } from "./link.js";
 import { TAGLINE } from "./presets.js";
+import { CameraView, headingOf } from "./cameraview.js";
 import { urlRoom, urlInvite, owned, lastOwnedRoom, newRoomCode, makeOwnerCreds, credFor, voterId } from "./identity.js";
 
 const $ = (s) => document.querySelector(s);
@@ -70,7 +72,7 @@ function buzz(strength = 0.6, ms = 90) {
   for (const src of renderer.xr.getSession()?.inputSources || []) src.gamepad?.hapticActuators?.[0]?.pulse?.(strength, ms);
 }
 // A short tone so a gesture is heard as well as seen (hands have no haptics; controllers also buzz).
-const TONES = { talk: [660, 880], send: [880, 660], open: [392, 523, 784], close: [784, 523, 392], shake: [300, 220, 300, 220], whee: [523, 784, 1047], bounce: [160, 95], snap: [660, 990] };
+const TONES = { talk: [660, 880], send: [880, 660], open: [392, 523, 784], close: [784, 523, 392], shake: [300, 220, 300, 220], whee: [523, 784, 1047], bounce: [160, 95], click: [1175], deny: [233, 196] };
 function chime(kind) {
   const ctx = listener.context;
   if (ctx.state !== "running") return;
@@ -90,7 +92,14 @@ function stepInside(portal) {
   if (!portal || (immersion.inside && immersion.portal === portal)) return;
   setFocus(portal.id);
   immersion.enter(portal, [...portals.values()].find((p) => p.portal === portal)?.stream.video);
-  flash(`You stepped into window ${portal.id}. Bring your hands together, or shake them, to step back out (or press B/Y).`, 5000);
+  flash(
+    renderer.xr.isPresenting
+      ? `You stepped into window ${portal.id}. Bring your hands together, or shake them, to step back out (or press B/Y).`
+      : CameraView.touch
+        ? `You stepped into window ${portal.id}. Pinch in or double-tap to step back out.`
+        : `You stepped into window ${portal.id}. Press E or Esc to step back out.`,
+    5000,
+  );
 }
 function stepOut() {
   if (!immersion.inside) return;
@@ -185,7 +194,72 @@ const labelFor = (s) =>
   ({ asking: ASK.portal, connecting: "Opening a window…", retrying: "Waiting for a free world…", reconnecting: "Reconnecting…", closed: "" })[s] ??
   s;
 
-addEventListener("pagehide", () => portals.forEach((p) => p.stream.closeOnUnload()));
+addEventListener("pagehide", () => {
+  portals.forEach((p) => p.stream.closeOnUnload());
+  for (const side of ["L", "R"]) sides[side]?.closeOnUnload();
+});
+
+// ---------- Wide view: live views to your left and right while you're inside a window ----------
+// Two more Orbis streams of the same scene with the camera turned to each side, stitched around you by
+// the step-inside view (see immersion.js). Only while you're inside, and only when Wide view is on.
+let wideOn = false;
+const sides = { L: null, R: null, for: null, triedAt: 0 };
+function sidePrompt(prompt, side) {
+  return `The same place at the same moment, seen from the same standing spot with the camera turned 72 degrees to the ${side}. ${prompt} This shot shows what lies to the ${side} of that view, continuing the same ground, horizon height, light, weather and time of day seamlessly. One continuous take, an almost still camera.`;
+}
+function startSides() {
+  const entry = [...portals.entries()].find(([, x]) => x.portal === immersion.portal);
+  if (!entry || !entry[1].stream.prompt) return; // the main view has no scene yet: try again shortly
+  const [id, { stream }] = entry;
+  stopSides();
+  sides.for = id;
+  for (const side of ["L", "R"]) {
+    const s = new OrbisStream(`${id}${side}`, ROOM);
+    s.addEventListener("video", () => immersion.setSide(side, s.video));
+    sides[side] = s;
+    s.start(sidePrompt(stream.prompt, side === "L" ? "left" : "right"));
+  }
+  flash("Wide view: live views to your left and right are on their way (about 20–30 s).", 6000);
+}
+function stopSides() {
+  for (const side of ["L", "R"]) {
+    sides[side]?.close();
+    sides[side] = null;
+    immersion.setSide(side, null);
+  }
+  sides.for = null;
+  sides.leftAt = 0;
+}
+function steerSides(id, prompt) {
+  if (sides.for !== id) return;
+  sides.L?.steer(sidePrompt(prompt, "left"));
+  sides.R?.steer(sidePrompt(prompt, "right"));
+}
+// Called every frame: start the side views when you're inside with Wide view on, stop them otherwise.
+// Stepping out keeps them for a little while, so stepping back in (or peeking out) doesn't mean
+// another 20-30 s wait for the side views.
+const SIDES_GRACE_MS = 15000;
+function updateSides() {
+  const wantFor = wideOn && immersion.inside ? [...portals.entries()].find(([, x]) => x.portal === immersion.portal)?.[0] : null;
+  if (wantFor) sides.leftAt = 0;
+  if (sides.for && sides.for !== wantFor) {
+    const now = performance.now();
+    const outOnly = wideOn && !immersion.inside && portals.has(sides.for); // stepped out, not switched or closed
+    if (outOnly && !sides.leftAt) sides.leftAt = now;
+    if (!outOnly || now - sides.leftAt > SIDES_GRACE_MS) stopSides();
+  }
+  if (wantFor && !sides.for && performance.now() - sides.triedAt > 2000) (sides.triedAt = performance.now()), startSides();
+}
+function toggleWide() {
+  wideOn = !wideOn;
+  if (!wideOn) return flash("Wide view off.", 2500);
+  flash(
+    immersion.inside
+      ? "Wide view on: two more live views (left and right) for this world."
+      : "Wide view on: step inside a window and live views open to your left and right too.",
+    5000,
+  );
+}
 
 // ---------- Room: each headset owns a private story room ----------
 // Visiting with ?room=X: if this browser owns X, drive it; if X is unclaimed, claim it;
@@ -295,21 +369,38 @@ setInterval(() => {
 setInterval(() => !retired && send({ t: "heartbeat" }), 30000);
 
 // Small snapshots of each portal so watchers and the gallery can see the story (no extra credits).
+// One window per tick, encoded asynchronously (toBlob), so it never stalls a frame in the headset;
+// less often while you're in the headset, where a dropped frame shows as judder.
 const snapCanvas = Object.assign(document.createElement("canvas"), { width: 480, height: 270 });
+let snapTurn = 0, snapBusy = false, snapNext = 0;
 setInterval(() => {
-  if (retired) return;
-  const g = snapCanvas.getContext("2d");
-  for (const [id, p] of portals) {
-    const v = p.stream.video;
-    if (p.stream.status !== "streaming" || v.readyState < 2) continue;
-    g.drawImage(v, 0, 0, 480, 270);
-    fetch("/api/snapshot", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ room: ROOM, cred: credFor(ROOM), id, data: snapCanvas.toDataURL("image/jpeg", 0.62) }),
-    }).catch(() => {});
-  }
-}, 3000);
+  if (retired || snapBusy || performance.now() < snapNext) return;
+  const live = [...portals].filter(([, p]) => p.stream.status === "streaming" && p.stream.video.readyState >= 2);
+  if (!live.length) return;
+  const [id, p] = live[snapTurn++ % live.length];
+  // Every 3 s on a flat screen; in the headset each window about every 6 s.
+  snapNext = performance.now() + (renderer.xr.isPresenting ? 6000 / live.length : 3000 / live.length) - 50;
+  snapBusy = true;
+  snapCanvas.getContext("2d").drawImage(p.stream.video, 0, 0, 480, 270);
+  snapCanvas.toBlob(
+    (blob) => {
+      if (!blob) return void (snapBusy = false);
+      const reader = new FileReader();
+      reader.onload = () => {
+        snapBusy = false;
+        fetch("/api/snapshot", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ room: ROOM, cred: credFor(ROOM), id, data: reader.result }),
+        }).catch(() => {});
+      };
+      reader.onerror = () => (snapBusy = false);
+      reader.readAsDataURL(blob);
+    },
+    "image/jpeg",
+    0.62,
+  );
+}, 250);
 
 function applyDirection({ portal_id, narration, updates, choices, speech, companion }) {
   if (guideStep === 1 && roomState?.log?.some((l) => ["voice", "choice", "guest", "crowd"].includes(l.kind))) setTimeout(() => guide(2), 6000);
@@ -326,6 +417,7 @@ function applyDirection({ portal_id, narration, updates, choices, speech, compan
     if (!p) continue;
     if (p.stream.status === "idle") p.stream.start(u.prompt);
     else p.stream.steer(u.prompt);
+    steerSides(u.portal_id, u.prompt); // Wide view: the left and right views follow the story too
   }
   if (narration) {
     // The line belongs to the window whose story it is, which may not be the focused one any more.
@@ -349,6 +441,7 @@ async function startTalking(gesture = false) {
   wantTalk = true;
   byGesture = gesture === true;
   talkingToBuddy = buddy.isLookedAt(); // look at the companion while you talk and your words go to it
+  buddy.attend(true); // whatever you say, she comes over to listen
   if (talkingToBuddy) buddy.listen();
   try {
     await ptt.begin();
@@ -361,15 +454,24 @@ async function startTalking(gesture = false) {
     talking = true;
     chime("talk");
     buzz(0.5, 60);
-    flash(byGesture ? "Listening… lower your hand when you're done" : "Listening… let go when you're done", 60000);
+    flash(
+      !byGesture
+        ? "Listening… let go when you're done"
+        : gestures.detector.talkBy === "thumb"
+          ? "Listening… 👍 thumbs up again when you're done"
+          : "Listening… lower your hand when you're done",
+      60000,
+    );
   } catch (e) {
     wantTalk = false;
+    buddy.attend(false);
     if (talkingToBuddy) buddy.react({ gesture: "none", move: "none" });
     flash(`Microphone unavailable: ${e.message}`);
   }
 }
 async function stopTalking() {
   wantTalk = false;
+  buddy.attend(false); // you've finished talking: she can go back to what she was doing
   if (!talking) return;
   talking = false;
   chime("send");
@@ -405,6 +507,8 @@ const toast = new Portal("toast"); // reuse the caption renderer only
 const toastMesh = toast.group.children[2];
 toast.group.remove(toastMesh);
 toastMesh.position.set(0, -0.32, -1.1);
+toastMesh.renderOrder = 50; // on top of everything, in a fixed order
+toastMesh.material.depthTest = false; // ...even when a window or its wall mask is nearer than the toast
 toastMesh.scale.setScalar(0.5);
 camera.add(toastMesh);
 let toastTimer;
@@ -744,7 +848,7 @@ function onSelectEnd(ctrl) {
 }
 
 function onSqueeze(ctrl) {
-  if (ctrl.userData.isHand) return; // a middle-finger pinch (like a snap) must not close a window; shake does that
+  if (ctrl.userData.isHand) return; // a middle-finger pinch must not close a window by accident; shake does that
   rayFrom(ctrl);
   const portal = raycaster.intersectObjects(targets(), false)[0]?.object.userData.portal;
   if (portal) closePortal(portal.id);
@@ -1050,7 +1154,14 @@ function showCheatSheet() {
   return true;
 }
 renderer.xr.addEventListener("sessionend", () => cheatSheet.hide());
-buddy.load().catch((e) => console.warn("[companion] failed to load", e));
+// Bonnie is always in the room: she appears as soon as she has loaded, and again in front of you when you
+// put the headset on. The Bonnie button (and a double tap on a phone) calls her over; nothing sends her away.
+buddy
+  .load()
+  .then(() => placeBuddy({ greet: false }))
+  .catch((e) => console.warn("[companion] failed to load", e));
+renderer.xr.addEventListener("sessionstart", () => setTimeout(() => buddy.ready && placeBuddy({ greet: false }), 1500));
+renderer.xr.addEventListener("sessionend", () => buddy.ready && placeBuddy({ greet: false }));
 let buddyWait = 0;
 /** Tells the story director whether its body is in the room, so it knows when it can speak here. */
 function syncBuddy(present = buddy.visible) {
@@ -1146,21 +1257,24 @@ function toggleBuddyFollow() {
   buddy.gesture(buddy.following ? "thumbs_up" : "wave");
   buddy.say(buddy.following ? "Lead the way! I'm right beside you." : "Okay, I'll wait here!", 4000);
   flash(
-    buddy.following ? `${BUDDY.name} is following you. Pinch ${BUDDY.name} again (or say “stay”) to stop.` : `${BUDDY.name} will stay here.`,
+    buddy.following
+      ? `${BUDDY.name} is following you. ${renderer.xr.isPresenting ? "Pinch" : CameraView.touch ? "Tap" : "Click"} ${BUDDY.name} again (or say “stay”) to stop.`
+      : `${BUDDY.name} will stay here.`,
     5000,
   );
 }
-/** Snap: call Bonnie. If she isn't here she appears; if she is, she hops back over to you. */
+/** The Bonnie button, or a phone double-tap on empty space: Bonnie hops back over to you. */
 function callBuddy() {
-  if (!buddy.visible) return toggleBuddy();
-  if (!buddy.ready || !renderer.xr.isPresenting) return;
-  buddy.summon(1.4);
+  if (!buddy.ready) return flash(`${BUDDY.name} is still waking up…`);
+  if (!buddy.visible) return placeBuddy();
+  buddy.summon(renderer.xr.isPresenting ? 1.4 : 3.0);
   buddy.gesture("wave");
   buddy.say("Coming!", 3000);
 }
-function toggleBuddy() {
-  if (buddy.visible) return buddy.dismiss(), syncBuddy(false), flash(`${BUDDY.name} waves goodbye.`);
-  if (!buddy.ready) return flash(`${BUDDY.name} is still waking up…`);
+// (The button used to send her away too; she now always stays.)
+const toggleBuddy = callBuddy;
+/** Put Bonnie in front of you, sized for the headset or a flat screen. `greet`: say hello and explain her. */
+function placeBuddy({ greet = true } = {}) {
   const xr = renderer.xr.isPresenting;
   buddy.range = xr ? [1.2, 2.4] : [2.6, 3.4];
   buddy.comeDistance = xr ? 0.8 : 2.4;
@@ -1168,12 +1282,21 @@ function toggleBuddy() {
   else {
     // On a flat screen: 3 m away and a slight downward tilt, so it and the windows stay in frame.
     buddy.summon(3.0);
-    pitch = Math.min(pitch, -0.2);
-    camera.rotation.set(pitch, yaw, 0, "YXZ");
+    if (greet && !camView.orienting) {
+      pitch = Math.min(pitch, -0.2);
+      camera.rotation.set(pitch, yaw, 0, "YXZ");
+    }
   }
   syncBuddy(true);
   buddy.say(`Hi! I'm ${BUDDY.name}. Talk to me any time!`, 6000);
-  flash(`Meet ${BUDDY.name}! Say “${BUDDY.name}”, or look at ${BUDDY.name} while you talk, to chat. Pinch, or say “follow me”, and ${BUDDY.name} comes with you. Pinch and hold to pick ${BUDDY.name} up, let go to throw!`, 9000);
+  if (!greet) return;
+  const touchUi = !xr && CameraView.touch;
+  flash(
+    touchUi
+      ? `Meet ${BUDDY.name}! Hold 🎙 and say “${BUDDY.name}” to chat. Tap ${BUDDY.name} (or say “follow me”) and ${BUDDY.name} comes with you. Drag to pick ${BUDDY.name} up, let go to throw! Double-tap empty space to call ${BUDDY.name} back.`
+      : `Meet ${BUDDY.name}! Say “${BUDDY.name}”, or look at ${BUDDY.name} while you talk, to chat. Pinch, or say “follow me”, and ${BUDDY.name} comes with you. Pinch and hold to pick ${BUDDY.name} up, let go to throw!`,
+    9000,
+  );
 }
 
 // ---------- Room background: see-through (your real room) or a 3D world around you ----------
@@ -1206,33 +1329,63 @@ function showLoading(text, fraction = null) {
   $("#loadingBar").style.width = `${Math.round((fraction ?? 0) * 100)}%`;
   flash(text, 120000); // in the headset the toast is the loading state
 }
-// The worlds you can stand in. Stanford is the golden-hour Main Quad (or ?backdrop=stanford for the
-// photo-based one). Moon needs its world in worlds/manifest.json (and its .spz file) before it can load.
-const WORLDS = {
-  stanford: { id: new URLSearchParams(location.search).get("backdrop") || "stanford-golden", name: "Stanford's Main Quad" },
-  moon: { id: "moon", name: "the Moon base" },
-};
-/** Which world is on, for the menu: "stanford", "moon" or null. */
-function worldKey() {
-  return Object.keys(WORLDS).find((k) => WORLDS[k].id === backdrop.worldId) || null;
+// The hub world: the Moon by default. `?backdrop=stanford-church` (Memorial Church, from a 360° video),
+// `?backdrop=stanford-golden` (golden-hour Main Quad) or `?backdrop=stanford` (the photo-based one)
+// picks a Stanford splat instead (`?world=` works too).
+const HUB = (() => {
+  const q = new URLSearchParams(location.search);
+  const id = q.get("backdrop") || q.get("world");
+  return id && id !== "moon" ? id : "moon";
+})();
+// The world button cycles: your room → the Moon → Stanford's Memorial Church → your room.
+// (A world picked in the URL comes first in the cycle.)
+const WORLD_CYCLE = [...new Set([HUB, "moon", "stanford-church"])];
+// The Stanford world the menu's Stanford entry goes to.
+const STANFORD = WORLD_CYCLE.find((id) => id !== "moon") || "stanford-church";
+const worldInfo = (id) =>
+  id === "moon"
+    ? { label: "Moon", bar: "Moon", icon: "🌕", name: "the Moon", on: "on" }
+    : { label: "Stanford", bar: "Stanford Quad", icon: "🏛", name: "Stanford's Main Quad", on: "in" };
+/** Where the world button takes you next (null = back to see-through). */
+function nextWorld() {
+  if (!backdrop.on) return WORLD_CYCLE[0];
+  const i = WORLD_CYCLE.indexOf(backdrop.worldId);
+  return i >= 0 && i < WORLD_CYCLE.length - 1 ? WORLD_CYCLE[i + 1] : null;
 }
-/** Enters a world from wherever you are, or leaves it if it is the one you are in. */
-async function toggleWorld(key) {
-  const w = WORLDS[key];
-  if (backdrop.worldId === w.id) {
+/** The world button: cycles your room → the Moon → Stanford → your room. */
+async function toggleBackdrop() {
+  if (backdrop.loading) return;
+  const next = nextWorld();
+  if (!next) {
     backdrop.hide();
     return flash("Back to your room.", 3000);
   }
+  return loadWorld(next);
+}
+/** The menu's world entries: go to that world from wherever you are, or leave it if you are in it. */
+async function toggleWorld(id) {
   if (backdrop.loading) return;
+  if (backdrop.worldId === id) {
+    backdrop.hide();
+    return flash("Back to your room.", 3000);
+  }
+  return loadWorld(id);
+}
+/** Which world is on, for the menu: "moon", "stanford" or null. */
+function worldKey() {
+  return backdrop.worldId ? (backdrop.worldId === "moon" ? "moon" : "stanford") : null;
+}
+async function loadWorld(next) {
+  const info = worldInfo(next);
   const quality = splatQuality(renderer);
-  const light = quality === "low" ? " (light version)" : "";
-  showLoading(`Loading ${w.name}${light}…`, 0);
+  const light = next !== "moon" && quality === "low" && backdrop.worlds.hasLight(next) ? " (light version)" : "";
+  showLoading(next === "moon" ? "Flying to the Moon…" : `Loading ${info.name}${light}…`, next === "moon" ? null : 0);
   const ok = await backdrop
-    .show(w.id, {
+    .show(next, {
       quality,
       onProgress: ({ stage, fraction }) =>
         stage === "download"
-          ? showLoading(`Loading ${w.name}${light}… ${Math.round(fraction * 100)}%`, fraction)
+          ? showLoading(`Loading ${info.name}${light}… ${Math.round(fraction * 100)}%`, fraction)
           : showLoading(`Building the world${light}… hold still, this can take a moment.`),
     })
     .catch(() => false);
@@ -1240,9 +1393,10 @@ async function toggleWorld(key) {
   const how = renderer.xr.isPresenting
     ? "Walk, use the left thumbstick, or point at the ground and pinch to jump there."
     : "Use W/A/S/D or the arrow keys to walk around.";
-  flash(ok ? `You're standing in ${w.name}. ${how}` : `Couldn't load ${w.name}.`, 9000);
+  const after = nextWorld();
+  const then = after ? `Press ${worldInfo(after).label} to go there next, or keep pressing to return to your room.` : "Press See-through to return to your room.";
+  flash(ok ? `You're standing ${info.on} ${info.name}. ${how} ${then}` : "Couldn't load the 3D world.", 9000);
 }
-const toggleBackdrop = () => toggleWorld("stanford");
 
 // ---------- Buttons (floating panel in the headset, bar at the bottom on desktop) ----------
 function openInFront() {
@@ -1261,6 +1415,15 @@ function closeFocused() {
   if (id) closePortal(id);
   else flash("No window to close.");
 }
+/** The Close window button: asks for a second tap first (a window's story can't be brought back). */
+function closePressed() {
+  const id = immersion.inside ? immersion.portal?.id : focusId;
+  if (!id) return flash("No window to close.");
+  if (armed === "close") return (armed = null), syncButtons(), closeFocused();
+  armed = "close";
+  syncButtons();
+  flash(`Tap Close window again to close window ${id}.`, 600000);
+}
 // ---------- The world question ----------
 // "What world is this story set in?" (New story) and "What world is behind this window?" (every
 // new window). Answer by voice (hold to talk) or by typing; skip it and the first thing you say
@@ -1274,7 +1437,7 @@ function askWorld(kind, id = null) {
   $("#ask").hidden = false;
   const xr = renderer.xr.isPresenting;
   if (id) portals.get(id)?.portal.setCaption(ASK.portal, "status");
-  flash(`${ASK[kind]} ${xr ? "Raise a hand to your mouth (or hold A) and say it." : "Type it, or hold Space and say it."}`, 600000);
+  flash(`${ASK[kind]} ${xr ? "Raise a hand to your mouth (or hold A) and say it." : CameraView.touch ? "Type it, or hold 🎙 and say it." : "Type it, or hold Space and say it."}`, 600000);
   if (xr) speak(ASK[kind], ...NARRATOR);
   else if ($("#overlay").hidden) $("#askText").focus();
 }
@@ -1315,7 +1478,7 @@ $("#askSkip").onclick = skipWorld;
 // ---------- Reset and New story ----------
 // One tap arms the button, which then reads "Tap again to confirm" until you do (or press any
 // other button, or Esc). No timer: a toast that vanishes is easy to miss in the headset.
-let armed = null; // "reset" | "newstory"
+let armed = null; // "reset" | "newstory" | "close"
 function confirmTap(what) {
   if (armed === what || !portals.size) return (armed = null), syncButtons(), true; // nothing open: nothing to lose
   armed = what;
@@ -1364,14 +1527,16 @@ function menuItems() {
   const act = {
     exitwin: stepOut,
     reset: resetPressed,
-    stanford: () => void toggleWorld("stanford"),
-    "exit-stanford": () => void toggleWorld("stanford"),
+    stanford: () => void toggleWorld(STANFORD),
+    "exit-stanford": () => void toggleWorld(STANFORD),
     moon: () => void toggleWorld("moon"),
     "exit-moon": () => void toggleWorld("moon"),
+    wide: toggleWide,
+    camera: toggleCamera,
     cheat: showCheatSheet,
     exitvr: () => void renderer.xr.getSession()?.end(), // (a true return would keep the list open)
   };
-  const entries = menuFor({ inside: immersion.inside, world: worldKey(), loading: backdrop.loading, armed });
+  const entries = menuFor({ inside: immersion.inside, world: worldKey(), loading: backdrop.loading, armed, wideOn, cameraOn: camView.on });
   return entries.map((e) => ({ ...e, press: act[e.id] }));
 }
 scene.add(toolbar.group); // in the scene, not on the camera: it follows your gaze (see Toolbar.update)
@@ -1484,6 +1649,30 @@ const gestures = new HandGestures(renderer, camera, {
 });
 scene.add(gestures.fx);
 
+// ---------- Camera: see your real surroundings on a phone or computer, like the Quest's see-through ----------
+const camView = new CameraView();
+const seeThrough = () => renderer.xr.isPresenting || camView.on; // windows sit over the real world
+async function toggleCamera() {
+  if (camView.on) {
+    camView.stop();
+    yaw = headingOf(camera.quaternion);
+    pitch = 0;
+    camera.rotation.set(pitch, yaw, 0, "YXZ");
+    return flash("Camera off.", 2500);
+  }
+  try {
+    await camView.start();
+    flash(
+      camView.orienting
+        ? "Camera on: move your phone to look around. Drag to turn the view if the windows are out of reach."
+        : "Camera on: your windows float over your camera. Drag to look around.",
+      6000,
+    );
+  } catch (e) {
+    flash(e?.name === "NotAllowedError" ? "Camera blocked: allow camera access for this site and try again." : `Camera unavailable: ${e?.message || e}`, 6000);
+  }
+}
+
 // ---------- Desktop bar ----------
 // Its buttons show once you are past the start screen, never on it. The keyboard does the same things.
 const bar = Object.fromEntries([...document.querySelectorAll("#bar [data-act]")].map((b) => [b.dataset.act, b]));
@@ -1492,7 +1681,7 @@ bar.talk.addEventListener("pointerup", () => stopTalking());
 bar.talk.addEventListener("pointerleave", () => stopTalking());
 bar.new.onclick = openInFront;
 bar.step.onclick = toggleStep;
-bar.close.onclick = closeFocused;
+bar.close.onclick = closePressed;
 bar.reset.onclick = resetPressed;
 bar.newstory.onclick = newStoryPressed;
 // Any other button cancels a pending confirm (capture: runs before the button's own handler).
@@ -1500,6 +1689,8 @@ $("#bar").addEventListener("click", (e) => e.target.closest("[data-act]")?.datas
 bar.info.onclick = () => setStartScreen($("#overlay").hidden);
 bar.hide.onclick = () => setButtonsHidden(true);
 bar.world.onclick = toggleBackdrop;
+bar.wide.onclick = toggleWide;
+bar.camera.onclick = toggleCamera;
 bar.buddy.onclick = toggleBuddy;
 bar.buddy.textContent = BUDDY.name;
 const BAR_KEY = "lw:bar";
@@ -1525,8 +1716,14 @@ setStartScreen(true);
   setButtonsHidden(pref !== "shown", false);
 }
 function syncButtons() {
-  bar.world.textContent = backdrop.on ? "See-through" : "Stanford Quad";
+  const nw = nextWorld();
+  bar.world.textContent = nw ? worldInfo(nw).bar : "See-through";
+  bar.wide.textContent = wideOn ? "Wide view: on" : "Wide view";
+  bar.wide.classList.toggle("on", wideOn);
+  bar.camera.textContent = camView.on ? "Camera: on" : "Camera";
+  bar.camera.classList.toggle("on", camView.on);
   bar.talk.classList.toggle("on", talking);
+  syncDock();
   bar.talk.textContent = talking ? "Listening…" : "Hold to talk";
   bar.step.textContent = immersion.inside ? "Step out" : "Step inside";
   bar.reset.textContent = armed === "reset" ? "Tap again to confirm" : "Reset story";
@@ -1536,16 +1733,88 @@ function syncButtons() {
 }
 
 
+// ---------- Phone layout: a dock with the main actions, the rest in a "More" sheet ----------
+// The desktop bar (buttons and handlers) moves into the sheet, so both stay one set of controls.
+const MOBILE = CameraView.touch && !/OculusBrowser|Quest/i.test(navigator.userAgent);
+const dock = Object.fromEntries([...document.querySelectorAll("#dock [data-dock]")].map((b) => [b.dataset.dock, b]));
+const moreSheet = $("#moreSheet"), gestSheet = $("#gestSheet"), scrim = $("#scrim");
+const GEST_KEY = "lw:gestures";
+function openSheet(el) {
+  closeSheets();
+  el.classList.add("open");
+  scrim.classList.add("open");
+}
+function closeSheets() {
+  for (const el of [moreSheet, gestSheet]) el.classList.remove("open");
+  scrim.classList.remove("open");
+}
+function showGestures() {
+  openSheet(gestSheet);
+  try {
+    localStorage.setItem(GEST_KEY, "seen");
+  } catch {}
+}
+scrim.onclick = closeSheets;
+$("#gestBtn").onclick = showGestures;
+$("#gestDone").onclick = closeSheets;
+if (MOBILE) {
+  document.body.classList.add("mobile");
+  $("#sheetBody").append($("#bar"));
+  setButtonsHidden(false, false); // the dock is the app's main controls: always there to start with
+  dock.new.onclick = () => (haptic(), openInFront());
+  dock.step.onclick = () => (haptic(), toggleStep());
+  dock.buddy.onclick = () => (haptic(), toggleBuddy());
+  dock.more.onclick = () => (haptic(), moreSheet.classList.contains("open") ? closeSheets() : openSheet(moreSheet));
+  dock.talk.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    dock.talk.setPointerCapture?.(e.pointerId); // keep listening while the finger slides a little
+    haptic(25);
+    startTalking();
+  });
+  for (const ev of ["pointerup", "pointercancel"]) dock.talk.addEventListener(ev, () => stopTalking());
+  dock.talk.addEventListener("contextmenu", (e) => e.preventDefault());
+  // A tap in the sheet does its thing and closes it, unless it's waiting for "tap again to confirm".
+  $("#bar").addEventListener("click", (e) => {
+    if (!e.target.closest("[data-act]")) return;
+    haptic();
+    setTimeout(() => !armed && closeSheets(), 0);
+  });
+  // The first time the app opens on a phone, show the touch gestures once.
+  new MutationObserver(() => {
+    let seen = null;
+    try {
+      seen = localStorage.getItem(GEST_KEY);
+    } catch {}
+    if ($("#overlay").hidden && !seen) setTimeout(showGestures, 900);
+  }).observe($("#overlay"), { attributes: true, attributeFilter: ["hidden"] });
+}
+/** Dock labels follow the app's state (called with the other button syncing). */
+function syncDock() {
+  if (!MOBILE) return;
+  const set = (b, icon, label, on) => {
+    const [i, sp] = b.children;
+    if (i.textContent !== icon) i.textContent = icon;
+    if (sp.textContent !== label) sp.textContent = label;
+    b.classList.toggle("on", Boolean(on));
+  };
+  set(dock.step, immersion.inside ? "↩" : "🚪", immersion.inside ? "Step out" : "Step in", immersion.inside);
+  set(dock.talk, "🎙", talking ? "Listening…" : "Hold to talk", talking);
+  set(dock.buddy, "🐰", BUDDY.name, buddy.visible);
+}
+
 // ---------- Desktop controls (for building and testing without the headset) ----------
-let yaw = 0, pitch = 0, dragging = false, moved = 0;
+let yaw = 0, pitch = 0, dragging = false, moved = 0, lastX = 0, lastY = 0;
 // Drag the companion with the mouse to pick it up; let go to throw it.
 const mouseHand = new THREE.Object3D();
 scene.add(mouseHand);
 let buddyDrag = 0; // how far along the mouse ray it is held (0 = not held)
 const mouseRay = (e) => raycaster.setFromCamera(new THREE.Vector2((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1), camera);
+let lastPointerType = "mouse";
 renderer.domElement.addEventListener("pointerdown", (e) => {
+  lastPointerType = e.pointerType;
   dragging = true;
   moved = 0;
+  (lastX = e.clientX), (lastY = e.clientY);
   if (renderer.xr.isPresenting || !buddy.visible) return;
   mouseRay(e);
   if (!raycaster.intersectObjects(targets(), false)[0]?.object.userData.companion) return;
@@ -1554,34 +1823,49 @@ renderer.domElement.addEventListener("pointerdown", (e) => {
   if (!buddy.grab(mouseHand, { reel: false })) buddyDrag = 0;
 });
 addEventListener("pointerup", (e) => {
-  dragging = false;
+  touch.up(e);
+  dragging = touch.pts.size > 0;
   if (buddyDrag) {
     buddyDrag = 0;
     if (buddy.release() === "tap") toggleBuddyFollow();
     return;
   }
   if (moved > 6 || renderer.xr.isPresenting || e.target !== renderer.domElement) return;
-  const ndc = new THREE.Vector2((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
-  raycaster.setFromCamera(ndc, camera);
-  const hit = raycaster.intersectObjects(targets(), false)[0];
+  if (e.pointerType === "touch") return; // fingers: taps arrive through the touch gestures (onTap)
+  tapAt(e.clientX, e.clientY);
+});
+/** What's under a point on the screen (window, Bonnie, button…), or undefined. */
+function hitAt(x, y) {
+  raycaster.setFromCamera(new THREE.Vector2((x / innerWidth) * 2 - 1, -(y / innerHeight) * 2 + 1), camera);
+  return raycaster.intersectObjects(targets(), false)[0];
+}
+/** A click or tap: focus / touch a window, touch the world you're inside, or open a window. */
+function tapAt(x, y) {
+  const hit = hitAt(x, y);
   if (hit?.object.userData.portal) {
     const p = hit.object.userData.portal;
     if (p.id === focusId) touchPortal(p, hit.uv, hit.point); // click the focused window to touch it
     else setFocus(p.id);
   } else if (immersion.inside) touchWorld(raycaster.ray.origin.clone(), raycaster.ray.direction.clone());
   else if (!hit) openPortal(raycaster.ray.origin.clone(), raycaster.ray.direction.clone());
-});
+}
 renderer.domElement.addEventListener("dblclick", (e) => {
+  if (lastPointerType === "touch") return; // fingers have their own double tap
   const ndc = new THREE.Vector2((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
   raycaster.setFromCamera(ndc, camera);
   stepInside(raycaster.intersectObjects(targets(), false)[0]?.object.userData.portal);
 });
 addEventListener("pointermove", (e) => {
-  if (!dragging) return;
+  touch.move(e);
+  if (!dragging || touch.busy || touch.pts.size > 1) return; // a hold, pinch or second finger isn't looking around
   if (buddyDrag) return mouseRay(e), void raycaster.ray.at(buddyDrag, mouseHand.position);
-  moved += Math.abs(e.movementX) + Math.abs(e.movementY);
-  yaw -= e.movementX * 0.004;
-  pitch = Math.max(-1.2, Math.min(1.2, pitch - e.movementY * 0.004));
+  // From positions, not movementX/Y: phones (Safari especially) don't report those for touch.
+  const dx = e.clientX - lastX, dy = e.clientY - lastY;
+  (lastX = e.clientX), (lastY = e.clientY);
+  moved += Math.abs(dx) + Math.abs(dy);
+  if (camView.orienting) return void (camView.offset -= dx * 0.004); // the phone aims; a drag turns the room around you
+  yaw -= dx * 0.004;
+  pitch = Math.max(-1.2, Math.min(1.2, pitch - dy * 0.004));
   camera.rotation.set(pitch, yaw, 0, "YXZ");
 });
 addEventListener("keydown", (e) => {
@@ -1595,6 +1879,116 @@ addEventListener("keyup", (e) => {
   if (e.code === "Space") stopTalking();
   keysDown.delete(e.code);
 });
+// ---------- Touch gestures (phones, tablets): the headset's hand gestures, with fingers ----------
+// See touchgestures.js for how each is recognised, and the gesture guide (#gestures) for the list.
+const haptic = (ms = 12) => navigator.vibrate?.(ms);
+const screenRay = (x, y) => (raycaster.setFromCamera(new THREE.Vector2((x / innerWidth) * 2 - 1, -(y / innerHeight) * 2 + 1), camera), raycaster.ray);
+let carry = null, drawing = null, pinchResize = null, flickArmed = null;
+// Where one finger came down: the window under it, and the view then. A flick also drags the view
+// (it can't be told apart until the finger lifts), so a flick puts the view back and acts on that window.
+let touchStart = null;
+const DRAW_AT = 0.6; // metres: you "draw in the air" at arm's length, as in the headset
+const touch = new TouchGestureRecognizer({
+  claims: () => buddyDrag > 0, // a finger on Bonnie picks her up (pointerdown above): carry and throw
+  onTap: (x, y) => tapAt(x, y),
+  onDoubleTap(x, y) {
+    const p = hitAt(x, y)?.object.userData.portal;
+    haptic();
+    if (p && !immersion.inside) return stepInside(p);
+    if (immersion.inside) return stepOut();
+    callBuddy(); // Bonnie appears, or hops back over to you
+  },
+  onHoldStart(x, y) {
+    const hit = hitAt(x, y);
+    const p = hit?.object.userData.portal;
+    if (p && !immersion.inside) {
+      const eye = camera.getWorldPosition(new THREE.Vector3());
+      carry = { portal: p, dist: p.group.getWorldPosition(new THREE.Vector3()).distanceTo(eye) };
+      setFocus(p.id);
+      haptic(20);
+      return true;
+    }
+    if (hit || immersion.inside) return false; // a button, or inside a world: nothing to hold
+    const ray = screenRay(x, y);
+    drawing = [ray.at(DRAW_AT, new THREE.Vector3()).toArray()];
+    trail.start(drawing[0]);
+    haptic(20);
+    flash("Draw a rectangle where the window should go, then lift your finger.", 4000);
+    return true;
+  },
+  onHoldMove(x, y) {
+    const ray = screenRay(x, y);
+    if (carry) {
+      const g = carry.portal.group;
+      g.position.copy(ray.at(carry.dist, new THREE.Vector3()));
+      const eye = camera.getWorldPosition(new THREE.Vector3());
+      g.lookAt(eye.x, g.position.y, eye.z);
+    } else if (drawing) {
+      const p = ray.at(DRAW_AT, new THREE.Vector3()).toArray(), last = drawing.at(-1);
+      if (Math.hypot(p[0] - last[0], p[1] - last[1], p[2] - last[2]) > 0.004 && drawing.length < 600) drawing.push(p), trail.add(p);
+    }
+  },
+  onHoldEnd(_at, cancelled) {
+    if (carry) (carry = null), haptic(10);
+    if (!drawing) return;
+    const stroke = drawing;
+    drawing = null;
+    if (cancelled) return trail.cancel();
+    const r = analyzeStroke(stroke, camera.getWorldPosition(new THREE.Vector3()).toArray());
+    if (r.ok) return trail.end(true), haptic(40), openPortal(null, null, { at: r.position, scale: r.scale });
+    trail.end(false);
+    flash(strokeHint(r.reason), 4000);
+  },
+  onFlick() {
+    const start = touchStart;
+    if (start) {
+      if (camView.orienting) camView.offset = start.offset;
+      else (yaw = start.yaw), (pitch = start.pitch), camera.rotation.set(pitch, yaw, 0, "YXZ");
+    }
+    const p = start?.portal;
+    if (!p || immersion.inside || !portals.has(p.id)) return;
+    if (flickArmed?.id === p.id && performance.now() - flickArmed.at < 3000) {
+      flickArmed = null;
+      haptic(40);
+      flash(`Window ${p.id} wiped away.`, 2500);
+      return closePortal(p.id);
+    }
+    flickArmed = { id: p.id, at: performance.now() };
+    haptic();
+    flash(`Flick up again to close window ${p.id}.`, 3000);
+  },
+  onPinchStart(mid, a, b) {
+    const p = [mid, a, b].map(([x, y]) => hitAt(x, y)?.object.userData.portal).find(Boolean);
+    pinchResize = p && !immersion.inside ? { portal: p, s0: p.group.scale.x } : null;
+    if (pinchResize) setFocus(p.id);
+  },
+  onPinch(ratio) {
+    if (pinchResize) pinchResize.portal.group.scale.setScalar(Math.min(MAX_SCALE, Math.max(MIN_SCALE, pinchResize.s0 * ratio)));
+  },
+  onPinchEnd(ratio, cancelled) {
+    if (pinchResize) return (pinchResize = null), haptic(10);
+    if (cancelled) return;
+    // Like parting curtains: fingers apart steps into the window; together steps back out.
+    if (!immersion.inside && ratio > 1.45) {
+      const p = portals.get(focusId)?.portal || facingPortal();
+      if (!p) return flash("Open a window first, then spread two fingers to step inside.", 3500);
+      haptic(30);
+      return stepInside(p);
+    }
+    if (immersion.inside && ratio < 0.7) return haptic(30), stepOut();
+  },
+  onTwoFingerTap: () => (haptic(), setButtonsHidden(!document.body.classList.contains("clean"))),
+});
+renderer.domElement.addEventListener("pointerdown", (e) => {
+  if (e.pointerType === "touch" && touch.pts.size === 0)
+    touchStart = { portal: hitAt(e.clientX, e.clientY)?.object.userData.portal, yaw, pitch, offset: camView.offset };
+  touch.down(e);
+});
+addEventListener("pointercancel", (e) => {
+  touch.up(e);
+  dragging = touch.pts.size > 0;
+});
+
 // W/A/S/D or arrow keys walk around a 3D world background in the desktop preview.
 const keysDown = new Set();
 addEventListener("keydown", (e) => {
@@ -1631,11 +2025,12 @@ $("#cheat-toggle").onclick = (e) => {
 async function setupXR() {
   const cfg = await fetch("/api/config").then((r) => r.json()).catch(() => ({}));
   maxPortals = cfg.maxPortals || maxPortals;
-  if (!navigator.xr || !(await navigator.xr.isSessionSupported("immersive-ar").catch(() => false))) {
+  const xrOk = Boolean(navigator.xr) && (await navigator.xr.isSessionSupported("immersive-ar").catch(() => false));
+  if (!xrOk) {
     // No mixed reality here: offer the desktop preview, and say where the real thing runs.
     enterBtn.textContent = "Explore the preview";
     enterBtn.onclick = () => (setStartScreen(false));
-    enterBtn.insertAdjacentHTML("afterend", `<p id="note">To step into mixed reality, open this page in the Meta Quest browser.</p>`);
+    enterBtn.insertAdjacentHTML("afterend", `<p id="note">For full mixed reality, open this page in the Meta Quest browser.</p>`);
     return;
   }
   enterBtn.onclick = async () => {
@@ -1647,6 +2042,7 @@ async function setupXR() {
     });
     renderer.xr.setReferenceSpaceType("local-floor");
     await renderer.xr.setSession(session);
+    camView.stop(); // the headset (or phone AR) has its own see-through
     loco.start();
     scene.background = null;
     previewRoom.visible = false;
@@ -1675,7 +2071,10 @@ renderer.setAnimationLoop(() => {
   const t = clock.elapsedTime;
   for (const { portal } of portals.values()) portal.update(t);
   checkWalking();
-  immersion.update(t, dt);
+  if (!renderer.xr.isPresenting && camView.update(camera, yaw)) yaw = headingOf(camera.quaternion);
+  // Over the real world (headset, or the camera view) the step-inside world is drawn first, so the
+  // windows' wall masks can't cut holes in it (see immersion.js).
+  immersion.update(t, dt, { presenting: seeThrough() });
   backdrop.update(dt, { inside: immersion.active });
   // Moving around: only in a 3D world, not inside a window. Back to see-through puts you back
   // where your real room is, so windows line up with your walls again.
@@ -1683,11 +2082,12 @@ renderer.setAnimationLoop(() => {
   if (!backdrop.on && backdrop.opacity === 0) loco.reset();
   loco.update(dt, locoRays());
   desktopWalk(dt);
-  scene.background = backdrop.background(renderer.xr.isPresenting ? null : DESKTOP_BG);
-  previewRoom.visible = !renderer.xr.isPresenting && !immersion.active && !backdrop.on;
+  scene.background = backdrop.background(renderer.xr.isPresenting ? null : camView.on ? camView.texture : DESKTOP_BG);
+  previewRoom.visible = !seeThrough() && !immersion.active && !backdrop.on;
   updateToolbar();
   gestures.update();
   updateResize();
+  updateSides();
   updateStrokes();
   trail.update();
   updateCradle();
@@ -1696,9 +2096,11 @@ renderer.setAnimationLoop(() => {
   updateRipples();
   updateTitle();
   for (const { portal, stream } of portals.values()) {
-    // The "hole in the wall" only makes sense over passthrough, not inside a world.
+    // The "hole in the wall" only makes sense over passthrough
     // ...nor over a 3D world background (there's no real wall to cut into).
-    portal.mask.visible = renderer.xr.isPresenting && !immersion.active && backdrop.opacity === 0;
+    // It stays on while you step in and out (the world is drawn before it, so it can't cut holes there),
+    // but not once you're fully inside: there it would hide the motes and Bonnie behind each window's frame.
+    portal.mask.visible = seeThrough() && backdrop.opacity === 0 && !(immersion.inside && immersion.progress >= 1);
     if (guideStep === 0 && stream.status === "streaming") guide(1);
   }
   if (!renderer.xr.isPresenting) syncButtons();
