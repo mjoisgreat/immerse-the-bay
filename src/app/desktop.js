@@ -12,7 +12,7 @@ import { flash } from "./feedback.js";
 import { buddy, callBuddy, toggleBuddyFollow } from "./buddy.js";
 import { setButtonsHidden } from "./buttons.js";
 import { closeWindow, getWindow, immersion, openWindow, settlePortal, stepInside, stepOut } from "./portals.js";
-import { disarm, skipWorld, touchPortal, touchWorld } from "./story.js";
+import { disarm, touchPortal, touchWorld } from "./story.js";
 import { startTalking, stopTalking } from "./talk.js";
 import { trail } from "./trail.js";
 import { backdrop } from "./world.js";
@@ -114,7 +114,7 @@ addEventListener("keydown", (e) => {
   if (e.code === "Space" && !e.repeat && !/INPUT|TEXTAREA/.test(e.target.tagName)) (e.preventDefault(), startTalking());
   if (e.code === "Backspace" && getWindow() && !/INPUT|TEXTAREA/.test(e.target.tagName)) closeWindow();
   if (e.code === "KeyE" && !/INPUT|TEXTAREA/.test(e.target.tagName)) immersion.inside ? stepOut() : stepInside();
-  if (e.code === "Escape") stepOut(), disarm(), skipWorld();
+  if (e.code === "Escape") stepOut(), disarm();
   if (e.code === "KeyH" && !/INPUT|TEXTAREA/.test(e.target.tagName)) setButtonsHidden(!document.body.classList.contains("clean"));
 });
 addEventListener("keyup", (e) => {

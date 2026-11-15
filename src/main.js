@@ -11,9 +11,9 @@ import { flash, toastMesh } from "./app/feedback.js";
 import { aimedAtBuddy, buddy, buddyChangesWorld, syncBuddy, updateCradle } from "./app/buddy.js";
 import { openInFront, setButtonsHidden, setStartScreen, syncButtons, updateToolbar } from "./app/buttons.js";
 import { camView, desktopWalk, seeThrough, toggleCamera } from "./app/desktop.js";
-import { guide, showTitle, updateTitle } from "./app/guide.js";
+import { showTitle, updateTitle } from "./app/guide.js";
 import { closeAllStreams, closeWindow, getWindow, immersion, retire, stepInside, stepOut } from "./app/portals.js";
-import { applyDirection, askWorld, clearAsk, resetLocal, showChoices, updateRipples } from "./app/story.js";
+import { applyDirection, resetLocal, showChoices, updateRipples } from "./app/story.js";
 import { ptt, stopTalking } from "./app/talk.js";
 import { trail } from "./app/trail.js";
 import { heartsFor, updateHearts } from "./app/hearts.js";
@@ -55,8 +55,6 @@ Object.assign(handlers, {
     if (m.t === "direction") applyDirection(m);
     else if (m.t === "state") {
       state.roomState = m;
-      // Someone else (the console, a co-narrator) named the world we were asking about.
-      if (state.asking?.kind === "window" && m.story?.seed) clearAsk(true);
       showChoices(m.choices || []); // the director's options, plus the audience's ideas and votes
       showPeople(m.people);
       updateJoinCard();
@@ -144,10 +142,6 @@ async function setupXR() {
       setStartScreen(true);
     });
     showTitle();
-    // A world question that was waiting on the flat page is asked again, out loud.
-    if (state.asking) setTimeout(() => state.asking && askWorld(state.asking.kind), 7000);
-    else if (!getWindow()) setTimeout(() => guide(0), 4500);
-    else state.guideStep = 2; // already mid-story (or a prepared demo): no tutorial
   };
 }
 setupXR();
@@ -194,13 +188,12 @@ renderer.setAnimationLoop(() => {
   updateTitle();
   const w = getWindow();
   if (w) {
-    const { portal, stream } = w;
+    const { portal } = w;
     // The "hole in the wall" only makes sense over passthrough
     // ...nor over a 3D world background (there's no real wall to cut into).
     // It stays on while you step in and out (the world is drawn before it, so it can't cut holes there),
     // but not once you're fully inside: there it would hide the motes and Bonnie behind each window's frame.
     portal.mask.visible = seeThrough() && backdrop.opacity === 0 && !(immersion.inside && immersion.progress >= 1);
-    if (state.guideStep === 0 && stream.status === "streaming") guide(1);
   }
   if (!renderer.xr.isPresenting) syncButtons();
   if (!renderer.xr.isPresenting) toastMesh.visible = false; // headset UI; on a flat screen the status bar does the job

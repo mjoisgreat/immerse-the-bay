@@ -53,12 +53,6 @@
       #bar button.warn { background: #c8483a; border-color: #ff8a7a; }
       body.clean #bar { display: none; }
       p.tagline { font-size: 1.25rem; opacity: 1; color: #ffd08a; margin-bottom: .4rem; }
-      #ask { padding: .7rem .9rem; border-radius: 1rem; background: rgba(12, 14, 24, .9); border: 1px solid #ffd08a; text-align: center; width: min(34rem, 100%); box-sizing: border-box; }
-      #ask[hidden], #loading[hidden] { display: none; }
-      #ask label { display: block; font-style: italic; font-size: 1.1rem; color: #ffd08a; margin-bottom: .5rem; }
-      #ask div { display: flex; gap: .4rem; }
-      #ask input { flex: 1; min-width: 0; font: .95rem system-ui, sans-serif; padding: .5rem .8rem; border-radius: 999px; border: 1px solid #ffb36b77; background: #10141f; color: #fff3e0; }
-      #ask button { font-size: .9rem; padding: .45rem 1rem; }
       #loading { padding: .55rem .95rem; border-radius: 1rem; background: rgba(12, 14, 24, .9); border: 1px solid #6aa8ff; font: .9rem system-ui, sans-serif; width: min(26rem, 100%); box-sizing: border-box; text-align: center; }
       #loading div { height: .35rem; margin-top: .45rem; border-radius: 999px; background: #1c2233; overflow: hidden; }
       #loading i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, #6aa8ff, #ffd08a); transition: width .2s; }
@@ -139,8 +133,6 @@
       #gestList b { flex: none; width: 2.2rem; height: 2.2rem; display: grid; place-items: center; border-radius: .7rem; background: #1a1f2e; font-size: 1.1rem; }
       #gestList span { opacity: .9; } #gestList em { font-style: normal; color: #ffd08a; }
       .sheet .done { width: 100%; margin-top: .9rem; font: 600 .95rem system-ui, sans-serif; }
-      body.mobile #ask { border-radius: 1.1rem; }
-      body.mobile #ask input { font-size: 1rem; } /* 16px: iOS doesn't zoom the page into the field */
       body.mobile #choices button { font-size: .95rem; padding: .6rem 1rem; }
     </style>
   </head>
@@ -162,11 +154,6 @@
     </div>
     <div id="hud">
       <div id="choices"></div>
-      <form id="ask" hidden>
-        <label for="askText" id="askQ"></label>
-        <div><input id="askText" autocomplete="off" maxlength="400" placeholder="e.g. a lantern-lit village on a misty lake" />
-        <button>Begin</button><button type="button" class="ghost" id="askSkip">Skip</button></div>
-      </form>
       <div id="loading" hidden><span id="loadingText"></span><div><i id="loadingBar"></i></div></div>
       <div id="status"></div>
       <div id="bar" hidden>

@@ -11,7 +11,6 @@ import { send } from "./room.js";
 import { buzz, chime, flash } from "./feedback.js";
 import { getWindow, immersion, setWorld } from "./portals.js";
 import { speak } from "./talk.js";
-import { askWorld } from "./story.js";
 import { tmpMat } from "./xrinput.js";
 
 // ---------- The companion (Bonnie, or Pip the robot with ?companion=pip) ----------
@@ -98,7 +97,7 @@ buddy.onPhysics = (event, amount) => {
  * opening shot, which swaps the stream. `world` is "" when they asked for a new world without saying which.
  */
 export function buddyChangesWorld(world) {
-  if (!world) return askWorld("window"), buddy.say("What world should it show?", 4000);
+  if (!world) return; // she asked which one in her reply
   flash(`“${world}”`, 5000);
   setWorld(world);
 }

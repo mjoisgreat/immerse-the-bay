@@ -9,7 +9,7 @@ const start = (world = "A misty lake at dusk") => {
   const s = initialState();
   reduce(s, { t: "hello", rid: "r1" }, owner);
   reduce(s, { t: "window_opened", rid: "r1" }, owner);
-  if (world) reduce(s, { t: "utterance", text: world }, owner);
+  if (world) reduce(s, { t: "set_seed", seed: world }, { role: "console" });
   return s;
 };
 
@@ -49,7 +49,7 @@ test("utterances ask the director; co-narrators are logged as guests", () => {
 
 test("choices come from the director and can be picked once", () => {
   const s = start();
-  applyDirection(s, { narration: "n", bible: "b", prompt: null, choices: ["Go left", "Go right"], speech: null }, 10);
+  applyDirection(s, { narration: "n", bible: "b", prompt: null, choices: ["Go left", "Go right"] }, 10);
   assert.deepEqual(s.choices, ["Go left", "Go right"]);
   const { director } = reduce(s, { t: "choose", index: 1 }, owner);
   assert.equal(director.text, "Go right");
@@ -57,11 +57,13 @@ test("choices come from the director and can be picked once", () => {
   assert.equal(reduce(s, { t: "choose", index: 0 }, owner).director, null);
 });
 
-test("character speech is logged and sent to the headset", () => {
+test("a world asked for while one is showing is a transition: the story moves on, no restart", () => {
   const s = start();
-  const [ev] = applyDirection(s, { narration: "n", bible: "b", prompt: null, choices: [], speech: { speaker: "Mei", line: "Hello", voice: "warm" } }, 10);
-  assert.equal(ev.speech.line, "Hello");
-  assert.equal(s.log.at(-1).text, "Mei: Hello");
+  reduce(s, { t: "companion", id: "bunny", present: true, rid: "r1" }, owner);
+  const [ev] = applyDirection(s, bunny("Fine.", { prompt: "The lake melts into desert dunes.", companion: { reply: "Fine.", gesture: "none", move: "none", world: "a desert at noon" } }), 10);
+  assert.equal(s.story.seed, "a desert at noon");
+  assert.equal(ev.prompt, "The lake melts into desert dunes.");
+  assert.ok(!("world" in ev.companion)); // the headset keeps the window open
 });
 
 test("touch sends the frame to the director but never stores it", () => {
@@ -89,7 +91,7 @@ test("reset clears everything: the window, the story, ideas, choices and the see
   reduce(s, { t: "suggest", text: "A whale" }, { role: "viewer", voter: "v1" });
   s.choices = ["x"];
   const { events } = reduce(s, { t: "reset_story" }, { role: "console" });
-  assert.deepEqual(events, [{ t: "reset", ask: false, seed: "" }]);
+  assert.deepEqual(events, [{ t: "reset", seed: "" }]);
   assert.equal(s.window, null);
   assert.deepEqual(s.story, { seed: "", bible: "", beats: [] });
   assert.equal(s.nextSeed, "");
@@ -103,28 +105,27 @@ test("reset clears everything: the window, the story, ideas, choices and the see
   assert.ok(!JSON.stringify(s.story).includes("lake"));
 });
 
-test("a new story can name its world up front, or have the headset ask for it", () => {
+test("a new story can name its world up front", () => {
   const s = start();
-  let { events } = reduce(s, { t: "reset_story", ask: true }, owner);
-  assert.deepEqual(events, [{ t: "reset", ask: true, seed: "" }]);
+  let { events } = reduce(s, { t: "reset_story" }, owner);
+  assert.deepEqual(events, [{ t: "reset", seed: "" }]);
   ({ events } = reduce(s, { t: "reset_story", seed: "A coral city" }, owner));
-  assert.deepEqual(events, [{ t: "reset", ask: false, seed: "A coral city" }]);
+  assert.deepEqual(events, [{ t: "reset", seed: "A coral city" }]);
   const { director } = reduce(s, { t: "window_opened", rid: "r1" }, owner);
   assert.deepEqual(director, { type: "world", world: "A coral city" });
   assert.equal(s.nextSeed, ""); // used once, never again
 });
 
-test("a new window has no world until the first line names it", () => {
+test("a new window has no world until Bonnie makes one: the owner's words go to her", () => {
   const s = start(null);
   assert.equal(s.story.seed, "");
   const { director } = reduce(s, { t: "utterance", text: "A tin-can moon base" }, owner);
-  assert.deepEqual(director, { type: "world", world: "A tin-can moon base" });
-  assert.equal(s.story.seed, "A tin-can moon base");
-  assert.deepEqual(s.story.beats, []);
-  // With no window open, the line waits for the next one.
+  assert.deepEqual(director, { type: "utterance", text: "A tin-can moon base", addressed: true });
+  assert.equal(s.story.seed, ""); // the world comes from her answer, not from the words
+  // With no window open the owner's words go to her too, and nothing is stored for later.
   const empty = initialState();
-  assert.equal(reduce(empty, { t: "utterance", text: "A coral city" }, { role: "console" }).director, null);
-  assert.equal(empty.nextSeed, "A coral city");
+  assert.equal(reduce(empty, { t: "utterance", text: "A coral city" }, owner).director.addressed, true);
+  assert.equal(empty.nextSeed, "");
 });
 
 test("closing the window forgets its story", () => {
@@ -199,7 +200,7 @@ test("ideas keep their author's name, cleaned and optional", () => {
 
 test("using a crowd idea moves the story on and clears the director's old options", () => {
   const s = start();
-  applyDirection(s, { narration: "n", bible: "b", prompt: null, choices: ["Go left"], speech: null }, 10);
+  applyDirection(s, { narration: "n", bible: "b", prompt: null, choices: ["Go left"] }, 10);
   reduce(s, { t: "suggest", text: "A full moon rises", name: "Maya" }, { role: "viewer", voter: "v1" });
   const { director } = reduce(s, { t: "use_suggestion", id: s.suggestions[0].id }, owner);
   assert.equal(director.text, "A full moon rises");
@@ -208,7 +209,7 @@ test("using a crowd idea moves the story on and clears the director's old option
   assert.equal(s.log.at(-1).kind, "crowd");
 });
 
-const bunny = (reply, more = {}) => ({ narration: "", bible: "b", prompt: null, choices: [], speech: null, companion: { reply, gesture: "wave", move: "none" }, ...more });
+const bunny = (reply, more = {}) => ({ narration: "", bible: "b", prompt: null, choices: [], companion: { reply, gesture: "wave", move: "none" }, ...more });
 
 test("asked for a new landscape, the companion's reply carries the world; other replies carry none", () => {
   const s = start();
@@ -225,7 +226,7 @@ test("asked for a new landscape, the companion's reply carries the world; other 
 test("small talk with the companion is spoken and logged but leaves the story alone", () => {
   const s = start();
   reduce(s, { t: "companion", id: "bunny", present: true, rid: "r1" }, owner);
-  applyDirection(s, { narration: "n", bible: "b", prompt: null, choices: ["Go left", "Go right"], speech: null, companion: null }, 10);
+  applyDirection(s, { narration: "n", bible: "b", prompt: null, choices: ["Go left", "Go right"], companion: null }, 10);
   const { director } = reduce(s, { t: "utterance", text: "Hi Bonnie", addressed: true }, owner);
   assert.deepEqual(director, { type: "utterance", text: "Hi Bonnie", addressed: true });
   const [ev] = applyDirection(s, bunny("Hello!"), 10, 0, director);
@@ -257,7 +258,7 @@ test("only the headset can say where the companion is or that it was addressed",
 
 test("a slow director reply can't overwrite a newer one", () => {
   const s = start();
-  const dir = (prompt) => ({ narration: "n", bible: "b", prompt, choices: [], speech: null });
+  const dir = (prompt) => ({ narration: "n", bible: "b", prompt, choices: [] });
   applyDirection(s, dir("newer scene"), 10, 2); // request 2 answered first
   const [ev] = applyDirection(s, dir("older scene"), 10, 1); // request 1 answered late
   assert.equal(s.window.prompt, "newer scene");

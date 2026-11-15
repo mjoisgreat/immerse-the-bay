@@ -1,15 +1,11 @@
-// app/guide.js: title card, the first-time guide, and the how-to gesture card.
+// app/guide.js: the title card and the cheat sheet (the how-to gesture card). Bonnie is the only voice; there is no spoken tutorial.
 import * as THREE from "three";
 import { GestureCard, buttonRows, gestureRows } from "../gesturecard.js";
 import { TAGLINE } from "../presets.js";
 import { camera, renderer, scene } from "./stage.js";
-import { state } from "./state.js";
 import { BUDDY } from "./config.js";
-import { flash } from "./feedback.js";
-import { speak } from "./talk.js";
 
-// ---------- First-time guide: a title card and a narrator who teaches the controls ----------
-export const NARRATOR = ["Narrator", "a warm, wise storyteller with a gentle voice, full of hushed wonder"];
+// ---------- Title card ----------
 const titleCanvas = Object.assign(document.createElement("canvas"), { width: 1400, height: 520 });
 {
   const g = titleCanvas.getContext("2d");
@@ -55,19 +51,6 @@ export function updateTitle() {
   titleCard.material.opacity = Math.min(1, t / 1.2) * Math.min(1, Math.max(0, (6.5 - t) / 1.2));
   titleCard.position.y += 0.0004; // slow drift upward
   if (t > 6.5) titleCard.visible = false;
-}
-
-// Steps: open a window → tell the story → touch / step inside. Each is spoken once.
-const GUIDE = [
-  "Welcome, storyteller. Pinch the air and draw a circle, round and round at least twice, like a sorcerer, to open your first window.",
-  "A world is waking. Hold a thumbs up to your mouth like a microphone, and tell me what happens next. Lower it when you're done.",
-  "Now part your hands like curtains, and step inside. Shake both hands to wipe a window away.",
-];
-export function guide(step) {
-  if (step <= state.guideStep || state.retired) return;
-  state.guideStep = step;
-  flash(GUIDE[step], 9000);
-  if (renderer.xr.isPresenting) speak(GUIDE[step], ...NARRATOR);
 }
 
 // The cheat sheet: every hand gesture, controller button and desktop key. It opens only from the menu's

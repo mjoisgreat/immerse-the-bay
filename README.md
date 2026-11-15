@@ -34,11 +34,11 @@ npm run dev            # API on :8787 + HTTPS Vite on :5173
 There is one window and one story: its world (seed), story bible, beats, choice chips and prompt history live
 in `server/core.js` (`state.window`, `state.story`, `state.prompts`).
 
-* **A new window asks "What world is behind this window?"** Answer in one line, by voice (hold to talk) or by
-  typing (desktop preview, console). Skip it and the first thing you say becomes the window's world.
-* **A new world can be asked for at any time**, from inside the window or outside it: say "Bonnie, take us to
-  the desert", answer the world question, or use the console. The story restarts there and the director gives
-  Orbis a new opening shot, which swaps the stream. With no window open, asking opens one onto that world.
+* **Bonnie is the only voice, and she makes the worlds.** A new window starts empty ("Tell Bonnie what to show
+  here"). Whatever you say goes to her: with no window open she creates one, with an empty window she makes its
+  world, with a world already showing she writes a transition prompt and the story moves on in one continuous
+  shot. She answers with a witty line and comments when you step inside. Ask her for ideas and she invents one.
+  There is no narrator and there are no character voices.
 * **Audience ideas** steer the window's story: a pinch on an idea card, "Use" in the console, or Crowd Mode's
   pick every 20 s. With no window open, ideas wait on the list.
 * **Where the window may be:** it stays off the floor, under the ceiling and at least about 1.35 m from you
@@ -49,8 +49,7 @@ in `server/core.js` (`state.window`, `state.story`, `state.prompts`).
 
 * **Reset story** (one tap arms it; the button reads **Tap again to confirm** until you do, press another
   button, or hit Esc): closes the window and forgets the story, the ideas and the seed. Nothing is reused.
-* **New story:** the same reset, then the narrator asks **"What world is this story set in?"**. Your answer
-  opens the first window onto that world. Skip it and the first window asks its own question.
+* **New story:** the same reset. Tell Bonnie what world you want and she makes it.
 * **In the headset** a small round **☰** button rests in the lower left of your view, like the casting symbol. It holds
   still while you look around inside a dead zone (about 26°), and glides to its spot again once you look beyond it. Point at
   it (trigger or a pinch) to open its list: **Reset**, **Stanford** (or **Exit Stanford**), **Cheat sheet** and
@@ -100,10 +99,10 @@ is a private Reactor session, so that device is the only place a live copy can c
 
 * **Theater view** (`/theater.html?room=…`, linked from the headset start card and the console): a full-screen
   page for a TV or projector next to the headset. Live window frames cross-fade large with a slow drift, the
-  narration runs as subtitles, character lines appear as captions, the director's choices and the top audience
+  narration runs as subtitles, Bonnie's lines appear as captions, the director's choices and the top audience
   ideas are shown, and a QR code lets anyone join from their phone to suggest and vote.
-* **First-time guide:** entering MR shows a "Living Window" title card, then a narrator voice walks a new
-  person through it: open a window, tell the story, touch it or step inside.
+* **Title card and cheat sheet:** entering MR shows a "Living Window" title card. Every gesture, button and
+  key is in the **Cheat sheet** (menu); there is no spoken tutorial.
 * **Windows cut into your wall:** each picture sits 32 cm inside the wall behind an opening (a depth-only mask
   over passthrough), with tunnel walls lit by the scene's own colours, so moving your head gives real parallax.
   Sparks burst from the rim when a window opens.
