@@ -91,7 +91,7 @@ export function startCountdowns() {
 // ---------- The story log as a stream chat (the watch page's story feed and the console's live log) ----------
 // Each line gets a time, a badge and a coloured name; the newest is at the top and the log sticks there.
 const ROLES = {
-  director: { name: "Narrator", chip: "📖", color: "#ffb36b", title: "The narrator" },
+  director: { name: "Scene", chip: "🎬", color: "#ffb36b", title: "The scene (what the director narrated)" },
   voice: { name: "Storyteller", chip: "🎥", color: "#ff6b6b", title: "The storyteller (broadcaster)" },
   guest: { name: "Co-narrator", chip: "🎙", color: "#3ddc6a", title: "A co-narrator" },
   crowd: { name: "Crowd", chip: "👥", color: "#bf94ff", title: "The crowd's top idea" },
