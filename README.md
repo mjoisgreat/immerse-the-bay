@@ -87,8 +87,9 @@ history, kept per `portal_id` in `server/core.js` (`state.threads`). Each window
 ## Interactive story
 
 * **Choices:** after every beat the director offers 2–3 options for what happens next (gentle, surprising,
-  bold). They float above the button panel in the headset and appear on desktop, the console and for
-  co-narrators on the watch page. Pick one, or just say something else.
+  bold). They appear on desktop, the console and for co-narrators on the watch page. Pick one, or just say
+  something else. **In the headset the story is steered by voice only:** the director's options are not
+  shown there (an audience idea sent by a friend still floats above the buttons).
 * **Characters talk to you:** when a character is present, the director gives them a line spoken directly to
   you (often a question you can answer out loud). It's voiced with OpenAI TTS (same character, same voice) and
   plays from their window, or all around you when you're inside it.
@@ -175,8 +176,9 @@ is in `src/portalresize.js`.
 ## Controls in the headset
 
 A button panel floats just below your gaze and follows you when you turn or walk away. Point at a button and
-pull the trigger (or pinch): **Hold to talk**, **New window**, **Step inside / Step out**, **Close window**,
-**New story** and **Reset story** (see above). The same buttons sit at the bottom of the screen on desktop,
+pull the trigger (or pinch): **Hold to talk**, **New window**, **Step inside / Step out**, **Hide buttons**,
+the companion, the room background, **New story** and **Reset story** (see above), and **Close window** in the
+far corner, away from the buttons you press most. The same buttons sit at the bottom of the screen on desktop,
 plus **Room info**; the director console has New story, Reset and Prepare demo too.
 **Hide buttons** (or click a thumbstick, or press H on desktop) leaves just a small **☰ Buttons** handle; point at it
 to bring them back.
