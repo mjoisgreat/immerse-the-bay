@@ -8,7 +8,6 @@ import * as THREE from "three";
 const MW = 0.05, MH = 0.05; // the button: a small circle you can still aim at with a controller ray or a pinch
 const RW = 0.25, RH = 0.042, RG = 0.008; // list rows, stacked above the button
 const CW_TOTAL = 0.9, CH = 0.075, GAP = 0.01; // "what happens next" cards, above the button while the list is shut
-const MAX_ROWS = 7; // the longest list (outside a world: reset, Stanford, Moon, Wide, cheat sheet, exit VR) needs 6 rows
 const DIST = 0.7; // it rests this far ahead of you...
 const LEFT = 0.2, DROP = 0.16; // ...this far to the left of your gaze and this far below it
 const DEAD = 0.45; // radians (about 26°): while you look within this, it stays still
@@ -115,16 +114,8 @@ export class Toolbar {
     this.cursor.visible = false;
     this.group.add(this.cursor);
 
-    // The list, stacked above the button. Rows are reused; each one is given an entry on setItems.
+    // The list, stacked above the button. Rows are made as the list needs them (see setItems).
     this.rows = [];
-    for (let i = 0; i < MAX_ROWS; i++) {
-      const canvas = Object.assign(document.createElement("canvas"), { width: 512, height: 86 });
-      const { mesh, tex } = texturedPlane(RW, RH, canvas);
-      mesh.position.set(0, MH / 2 + RG + RH / 2 + i * (RH + RG), 0);
-      mesh.visible = false;
-      this.group.add(mesh);
-      this.rows.push({ canvas, tex, mesh, item: null, hovered: false });
-    }
 
     // "What happens next?" cards in a row above the button. They step aside while the list is open.
     this.choiceMeshes = [];
@@ -166,6 +157,16 @@ export class Toolbar {
     this.buttonTex.needsUpdate = true;
   }
 
+  /** Makes one more list row, stacked above the rows before it. */
+  _addRow(i) {
+    const canvas = Object.assign(document.createElement("canvas"), { width: 512, height: 86 });
+    const { mesh, tex } = texturedPlane(RW, RH, canvas);
+    mesh.position.set(0, MH / 2 + RG + RH / 2 + i * (RH + RG), 0);
+    mesh.visible = false;
+    this.group.add(mesh);
+    this.rows.push({ canvas, tex, mesh, item: null, hovered: false });
+  }
+
   _drawRow(row) {
     if (!row.item) return;
     const state = row.item.state && row.item.state !== "idle" ? row.item.state : row.hovered ? "hover" : "idle";
@@ -176,6 +177,7 @@ export class Toolbar {
   /** Sets the list's entries. Each row is redrawn only when its text or state changes. */
   setItems(items) {
     const sig = JSON.stringify(items.map(({ id, icon, label, state }) => [id, icon, label, state]));
+    while (this.rows.length < items.length) this._addRow(this.rows.length);
     this.rows.forEach((row, i) => {
       row.item = items[i] || null;
       row.mesh.userData.button = row.item?.id;
