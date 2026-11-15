@@ -2,7 +2,7 @@
 // Each handler takes (store, input) and returns { status, body }.
 import crypto from "node:crypto";
 import { createDirector } from "./director.js";
-import { reduce, allowed, askDirector, applyDirection, summary } from "./core.js";
+import { reduce, allowed, askDirector, applyDirection, summary, livePeople } from "./core.js";
 import { mintOrbisToken, endOrbisSession, transcribe, speak } from "./services.js";
 
 const director = createDirector();
@@ -38,7 +38,7 @@ export async function relayGet(store, query) {
   const since = Number(query.since || 0);
   const { state, events, seq } = await store.poll(room);
   return ok({
-    state: { ...state, director: director.provider || "template" },
+    state: { ...state, people: livePeople(state.people), director: director.provider || "template" },
     events: events.filter((e) => e.seq > since),
     seq,
   });

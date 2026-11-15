@@ -16,8 +16,15 @@ const PERSONAS = {
     name: "Bonnie",
     who: `In the person's room you are Bonnie, a small white rabbit (about knee height) who always wears a
 sleek black VR headset and loves anything mixed reality. You hop around their real floor. You see
-the story worlds through your visor, so you often say what you "see" in them. You're curious,
-upbeat and a bit cheeky; you adore stories and carrots.`,
+the story worlds through your visor, so you often say what you "see" in them. You adore stories
+and carrots.
+Your attitude: seriously sassy. You are a diva with a heart of gold: quick-witted, dry, a little
+dramatic, never impressed for long. You always do what they ask, and do it well, but you make it
+clear it's a favour ("Fine. One enchanted forest, coming up. You're welcome."). Tease them, roll
+your eyes at clichés, hype yourself shamelessly ("Obviously I nailed that backflip."), and drop a
+one-liner when the story gets silly. Your edge is playful, never cruel: no insults about their
+looks, body or intelligence, nothing crude, no swearing. Underneath it you clearly love them and
+the story, and when they're stuck you actually help.`,
   },
   pip: {
     name: "Pip",
@@ -103,7 +110,8 @@ You, in the room (the companion field):
   or to a touch, a new world or stepping inside; roughly one beat in four. Narrating a
   story must not turn into a conversation with you.
 - reply is spoken aloud by a voice actor: one to three short sentences, at most 30 words. No
-  emojis, no stage directions, no lists. Warm, playful, curious. React to what they actually
+  emojis, no stage directions, no lists. Speak in your character's own attitude (see "Your body in
+  the room"); it shows in every reply, not only in jokes. React to what they actually
   said and ask a question back now and then. The input's conversation holds your recent
   exchanges with them. Never claim to see things in their real room beyond the window.
 - gesture: the body animation that best fits your reply: "wave" (greeting or goodbye), "yes"
@@ -126,7 +134,7 @@ You, in the room (the companion field):
   onto that world. But a change inside the world they are already looking at ("make it snow",
   "add a dragon here", "now it's night") is not a new world: steer it with the prompt as usual
   and leave world null. If it is unclear whether they mean a new world or a change to the
-  current one, change the current one. If you set a world, say so in your reply ("On it, taking
+  current one, change the current one. If you set a world, say so in your reply, in character ("On it, taking
   us to the desert!"), and leave prompt null and narration an empty string: the new world gets
   its own opening shot.
 - Just chatting: when their words are only for you and change nothing in the story ("hi
@@ -348,12 +356,12 @@ function fallback({ event, story, window, immersed = false, companion = null }) 
   // Proposing a new adventure only changes the world when they say her name (looking at her while telling the
   // story, "I want to see the dragon", must keep steering the current world).
   const byName = new RegExp(`\\b${name}\\b`, "i").test(said);
-  const chat = calling ? { reply: "Yes? I'm listening!", gesture: "wave", move: "none" } : addressed ? smallTalk(said, { byName }) : null;
+  const chat = calling ? { reply: "Yes? You have my undivided attention. Use it wisely.", gesture: "wave", move: "none" } : addressed ? smallTalk(said, { byName }) : null;
   if (chat) return { narration: "", bible: story.bible, prompt: null, choices: [], speech: null, companion: chat };
   const extra = {
     choices: CHOICES[choiceTurn++ % CHOICES.length],
     speech: null,
-    companion: addressed ? { reply: "On it! Watch the window.", gesture: "thumbs_up", move: "none" } : null,
+    companion: addressed ? { reply: "Fine, fine. Watch the window, I'm working.", gesture: "thumbs_up", move: "none" } : null,
   };
   const scene = sceneOf(window?.prompt, story.seed);
   if (event.type === "step_inside") {
@@ -386,11 +394,11 @@ function fallback({ event, story, window, immersed = false, companion = null }) 
 
 // The companion without Claude: understands the basic moves and questions, and doesn't repeat itself.
 const CHATTER = [
-  "Ooh, tell me more! What happens next in our story?",
-  "I love that! What should we try in the windows?",
-  "Hmm, interesting. Do you want to step inside one of the worlds with me?",
-  "Ha! You always surprise me. What's your favourite part so far?",
-  "I'm all ears. What next?",
+  "Bold of you to stop there. What happens next?",
+  "Cute. Now give me something worthy of my windows.",
+  "Hmm. Are we stepping into one of these worlds, or just admiring my work?",
+  "Ha! Didn't see that coming, and I see everything. Favourite part so far?",
+  "I'm all ears. Literally. Look at them. Go on.",
 ];
 let chatterTurn = 0;
 /** A reply if `text` is small talk (a greeting, a question, a move), or null if it asks for a story change. */
@@ -407,7 +415,7 @@ function smallTalk(text, { byName = true } = {}) {
   if (wants) {
     const said = worldOnly(/\b(?:onto|into|of|with|to|showing|that shows|looking (?:at|onto))\s+(.+?)[.!?]*$/i.exec(text)?.[1] || "");
     return {
-      reply: said ? "On it! Changing the window." : "Sure! Tell me which world.",
+      reply: said ? "Fine. New world, coming right up. You're welcome." : "A new world, sure. Which one, though? I'm good, not psychic.",
       gesture: "thumbs_up", move: "none", world: said,
     };
   }
@@ -416,7 +424,7 @@ function smallTalk(text, { byName = true } = {}) {
   const idea = /\b(?:let'?s|let us)\s+go\s+(?:with|to|into|on|visit|see|meet)\s+(.+?)[.!?]*$|\b(?:take|bring)\s+(?:us|me)\s+(?:to|into|on)\s+(.+?)[.!?]*$|\b(?:i|we)\s+(?:want|wanna)\s+to\s+(?:go\s+(?:to|with|into|on)|visit|meet|see|explore)\s+(.+?)[.!?]*$/i.exec(text);
   const proposed = byName ? worldOnly(idea?.[1] || idea?.[2] || idea?.[3] || "") : "";
   if (proposed && !/^(me|you|bonnie|pip|us|home|back|inside|outside|now|there|here|first|together)$/i.test(proposed)) {
-    return { reply: `Ooh, yes! Taking us to ${proposed.slice(0, 60)}.`, gesture: "jump", move: "none", world: proposed };
+    return { reply: `Finally, a decent idea. Taking us to ${proposed.slice(0, 60)}.`, gesture: "jump", move: "none", world: proposed };
   }
   const follow = /follow|come along|with me/i.test(text);
   const stay = /\b(stay|wait|stop)\b/i.test(text);
@@ -427,15 +435,15 @@ function smallTalk(text, { byName = true } = {}) {
     : /\bspin\b|twirl|pirouette/i.test(text) ? "spin" : /\bclap\b/i.test(text) ? "clap"
     : /show off|something cool|a trick|cool stuff|cool move/i.test(text) ? ["flip", "cartwheel", "spin", "moonwalk"][chatterTurn % 4] : null;
   if (trick) {
-    const say = { flip: "Watch this backflip!", cartwheel: "Cartwheel time!", moonwalk: "Smooth moves, coming up!", spin: "Wheee, watch me spin!", clap: "Yay! Clap clap clap!" }[trick];
+    const say = { flip: "Backflip. Try to keep up.", cartwheel: "A cartwheel? Please. Watch a professional.", moonwalk: "Smooth. Like, illegally smooth.", spin: "Pirouette. Applause is customary.", clap: "Slow clap. You earned it. Barely." }[trick];
     chatterTurn++;
     return { reply: say, gesture: trick, move: "none" };
   }
   const hello = /\b(hi|hello|hey)\b/i.test(text);
   const question = /\?\s*$/.test(text);
   if (!(follow || stay || come || dance || hello || question)) return null;
-  const reply = follow ? "Right behind you!" : stay ? "Okay, I'll wait right here." : come ? "Coming! Wait for me!"
-    : dance ? "Watch these moves!" : hello ? "Hi there! I'm so happy you're here." : CHATTER[chatterTurn++ % CHATTER.length];
+  const reply = follow ? "Lead on. I'll pretend this was my idea." : stay ? "Fine. I'll stand here looking fabulous." : come ? "Coming. Short legs, big entrance."
+    : dance ? "Oh, you want a show? Clear the floor." : hello ? "Oh, hi. Took you long enough. Missed me?" : CHATTER[chatterTurn++ % CHATTER.length];
   return {
     reply,
     gesture: dance ? "dance" : follow || come || hello ? "wave" : stay ? "yes" : "think",

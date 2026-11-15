@@ -4,6 +4,7 @@ export const state = {
   started: false, // true once every module has loaded (see main.js)
   wideOn: false,
   retired: false,
+  joined: false, // the server has accepted this page as the room's renderer ("hello" answered)
   roomState: null,
   talking: false,
   wantTalk: false, // the button is held (the mic may still be starting)

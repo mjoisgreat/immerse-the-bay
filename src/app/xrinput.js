@@ -13,6 +13,7 @@ import { buzz, chime, flash } from "./feedback.js";
 import { buddy, buddyAimed, buddyTouched, cradle, nearBuddy, toggleBuddyFollow, updateCradle } from "./buddy.js";
 import { closeMenu, menuSnap, pressMenuPart, toolbar } from "./buttons.js";
 import { cheatSheet } from "./guide.js";
+import { joinCardMesh, pressJoinCard } from "./join.js";
 import { closeWindow, getWindow, immersion, openWindow, settlePortal, stepInside, stepOut } from "./portals.js";
 import { touchPortal, touchWorld } from "./story.js";
 import { startTalking, stopTalking } from "./talk.js";
@@ -30,6 +31,8 @@ export function targets() {
   if (renderer.xr.isPresenting) ui.push(...toolbar.targets);
   if (buddy.visible) ui.push(buddy.hitbox);
   if (cheatSheet.visible) ui.push(cheatSheet.mesh);
+  const join = joinCardMesh();
+  if (join) ui.push(join);
   return [...ui.filter((o) => o.visible || o === buddy.hitbox), ...(getWindow()?.portal.group.visible ? [getWindow().portal.screen] : [])];
 }
 
@@ -75,6 +78,7 @@ function onSelectStart(ctrl) {
   const snap = menuSnap(ray); // pointing near a menu item zones in on it
   if (snap) return pressMenuPart(snap.part);
   const hit = raycaster.intersectObjects(targets(), false)[0];
+  if (hit?.object.userData.joinCard) return pressJoinCard(hit.uv); // the invite card has its own switch and close; the menu stays open
   if (!(hit?.object.userData.button || hit?.object.userData.choice !== undefined)) closeMenu(); // any other action shuts the menu
   if (hit?.object.userData.gestureCard) return cheatSheet.hide(); // pinching the cheat sheet closes it
   if (hit?.object.userData.button || hit?.object.userData.choice !== undefined) return pressMenuPart(hit.object);

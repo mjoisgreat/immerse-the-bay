@@ -1,6 +1,7 @@
 // app/world.js: the room background (see-through / 3D world), locomotion, loading state.
 import * as THREE from "three";
 import { Backdrop } from "../backdrop.js";
+import { CameraView } from "../cameraview.js";
 import { splatQuality } from "../worlds.js";
 import { Locomotion } from "../locomotion.js";
 import { $, camera, renderer, scene } from "./stage.js";
@@ -90,7 +91,9 @@ async function loadWorld(next) {
   showLoading("");
   const how = renderer.xr.isPresenting
     ? "Walk, use the left thumbstick, or point at the ground and pinch to jump there."
-    : "Use W/A/S/D or the arrow keys to walk around.";
+    : CameraView.touch
+      ? "Drag to look around. Press Camera to see your real surroundings instead."
+      : "Use W/A/S/D or the arrow keys to walk around.";
   const after = nextWorld();
   const then = after ? `Press ${worldInfo(after).label} to go there next, or keep pressing to return to your room.` : "Press See-through to return to your room.";
   flash(ok ? `You're standing ${info.on} ${info.name}. ${how} ${then}` : "Couldn't load the 3D world.", 9000);

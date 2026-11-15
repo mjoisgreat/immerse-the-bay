@@ -6,7 +6,6 @@ import { camera, renderer, scene } from "./stage.js";
 import { state } from "./state.js";
 import { BUDDY } from "./config.js";
 import { flash } from "./feedback.js";
-import { immersion } from "./portals.js";
 import { speak } from "./talk.js";
 
 // ---------- First-time guide: a title card and a narrator who teaches the controls ----------

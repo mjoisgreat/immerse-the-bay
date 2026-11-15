@@ -28,7 +28,8 @@ renderer.xr.addEventListener("sessionstart", () => setTimeout(() => buddy.ready 
 renderer.xr.addEventListener("sessionend", () => buddy.ready && placeBuddy({ greet: false }));
 /** Tells the story director whether its body is in the room, so it knows when it can speak here. */
 export function syncBuddy(present = buddy.visible) {
-  send({ t: "companion", id: BUDDY.id, present: Boolean(present) });
+  // Not before the room has accepted us: the server refuses it ("room has no owner yet"). Joining syncs her.
+  if (state.joined) send({ t: "companion", id: BUDDY.id, present: Boolean(present) });
 }
 export function buddyIdle() {
   clearTimeout(state.buddyWait);
@@ -114,6 +115,15 @@ export function toggleBuddyFollow() {
     5000,
   );
 }
+/** On a flat screen she only wanders where you can see her: within the view's width (a portrait phone is narrow). */
+function fitWander() {
+  if (renderer.xr.isPresenting) return void (buddy.wanderDeg = 50);
+  const half = THREE.MathUtils.radToDeg(Math.atan(Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * camera.aspect));
+  buddy.wanderDeg = Math.max(6, Math.min(50, half - 9));
+}
+addEventListener("resize", fitWander);
+renderer.xr.addEventListener("sessionstart", fitWander);
+renderer.xr.addEventListener("sessionend", fitWander);
 /** How far to the side she stands on a flat screen: nearly straight ahead on a narrow (portrait) one, so she's in view. */
 function flatSide() {
   return renderer.xr.isPresenting ? 0.4 : innerWidth / innerHeight < 1 ? 0.08 : 0.3;
@@ -139,6 +149,7 @@ export function toggleBuddy() {
 /** Put Bonnie in front of you, sized for the headset or a flat screen. `greet`: say hello and explain her. */
 function placeBuddy({ greet = true } = {}) {
   const xr = renderer.xr.isPresenting;
+  fitWander();
   buddy.range = xr ? [1.2, 2.4] : [2.6, 3.4];
   buddy.comeDistance = xr ? 0.8 : 2.4;
   if (xr) buddy.summon(1.4);

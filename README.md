@@ -73,6 +73,16 @@ in `server/core.js` (`state.window`, `state.story`, `state.prompts`).
   next and upvote ideas. Use an idea from the console, or turn on **Crowd Mode** to apply the top
   vote every 20 seconds.
 * **Co-narrators:** the console's invite link lets a friend type or speak lines into the story.
+* **Inviting friends and who's here:** the Quest tells the story; phones and computers join it. In the headset,
+  open the menu and pick **Invite friends**: a card with a QR code floats in front of you (also in the Room info
+  panel on the start screen). A friend scans it and lands on the watch page, as an audience member by default
+  (watch, suggest, vote). The card's switch, **Joiners can talk and choose**, adds the invite code to the QR so
+  they can also speak and pick what happens next (anyone who already has an invite link keeps that right). Every
+  page (headset, watch, theater, console) tells the room "here" every ~10 s with what kind of device it is
+  (`quest`, `phone`, `computer`, `screen`) and an optional name; the room keeps that list (`people` in the room
+  state, dropped after 25 s of silence), the storyteller sees "Ana joined on a phone", and each page shows
+  "here: Quest · 2 phones · laptop". The list never carries timestamps, so the state only changes when someone
+  comes or goes. Helpers are in `src/people.js`, the card in `src/joincard.js` and `src/app/join.js`.
 
 ## Demo setup for judges
 

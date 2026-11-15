@@ -4,7 +4,7 @@ import { stopSides } from "./wide.js";
 import { CameraView } from "../cameraview.js";
 import { credFor } from "../identity.js";
 import { LAYER } from "../layers.js";
-import { $, camera, listener, renderer, scene } from "./stage.js";
+import { $, camera, renderer, scene } from "./stage.js";
 import { state } from "./state.js";
 import { ROOM, send } from "./room.js";
 import { buzz, flash } from "./feedback.js";
