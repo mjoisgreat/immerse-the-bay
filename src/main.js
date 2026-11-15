@@ -1314,24 +1314,36 @@ const HUB = (() => {
   const id = q.get("backdrop") || q.get("world");
   return id && id !== "moon" ? id : "moon";
 })();
-const HUB_NAME = HUB === "moon" ? "the Moon" : "Stanford's Main Quad";
-const HUB_LABEL = HUB === "moon" ? "Moon" : "Stanford";
-const HUB_ICON = HUB === "moon" ? "🌕" : "🏛";
+// The world button cycles: your room → the Moon → Stanford's golden-hour Main Quad → your room.
+// (A world picked in the URL comes first in the cycle.)
+const WORLD_CYCLE = [...new Set([HUB, "moon", "stanford-golden"])];
+const worldInfo = (id) =>
+  id === "moon"
+    ? { label: "Moon", bar: "Moon", icon: "🌕", name: "the Moon", on: "on" }
+    : { label: "Stanford", bar: "Stanford Quad", icon: "🏛", name: "Stanford's Main Quad", on: "in" };
+/** Where the world button takes you next (null = back to see-through). */
+function nextWorld() {
+  if (!backdrop.on) return WORLD_CYCLE[0];
+  const i = WORLD_CYCLE.indexOf(backdrop.worldId);
+  return i >= 0 && i < WORLD_CYCLE.length - 1 ? WORLD_CYCLE[i + 1] : null;
+}
 async function toggleBackdrop() {
-  if (backdrop.on) {
+  if (backdrop.loading) return;
+  const next = nextWorld();
+  if (!next) {
     backdrop.hide();
     return flash("Back to your room.", 3000);
   }
-  if (backdrop.loading) return;
+  const info = worldInfo(next);
   const quality = splatQuality(renderer);
-  const light = HUB !== "moon" && quality === "low" ? " (light version)" : "";
-  showLoading(HUB === "moon" ? "Flying to the Moon…" : `Loading ${HUB_NAME}${light}…`, HUB === "moon" ? null : 0);
+  const light = next !== "moon" && quality === "low" ? " (light version)" : "";
+  showLoading(next === "moon" ? "Flying to the Moon…" : `Loading ${info.name}${light}…`, next === "moon" ? null : 0);
   const ok = await backdrop
-    .show(HUB, {
+    .show(next, {
       quality,
       onProgress: ({ stage, fraction }) =>
         stage === "download"
-          ? showLoading(`Loading ${HUB_NAME}${light}… ${Math.round(fraction * 100)}%`, fraction)
+          ? showLoading(`Loading ${info.name}${light}… ${Math.round(fraction * 100)}%`, fraction)
           : showLoading(`Building the world${light}… hold still, this can take a moment.`),
     })
     .catch(() => false);
@@ -1339,7 +1351,9 @@ async function toggleBackdrop() {
   const how = renderer.xr.isPresenting
     ? "Walk, use the left thumbstick, or point at the ground and pinch to jump there."
     : "Use W/A/S/D or the arrow keys to walk around.";
-  flash(ok ? `You're standing ${HUB === "moon" ? "on" : "in"} ${HUB_NAME}. ${how} Press See-through to return to your room.` : "Couldn't load the 3D world.", 9000);
+  const after = nextWorld();
+  const then = after ? `Press ${worldInfo(after).label} to go there next, or keep pressing to return to your room.` : "Press See-through to return to your room.";
+  flash(ok ? `You're standing ${info.on} ${info.name}. ${how} ${then}` : "Couldn't load the 3D world.", 9000);
 }
 
 // ---------- Buttons (floating panel in the headset, bar at the bottom on desktop) ----------
@@ -1493,7 +1507,7 @@ const toolbar = new Toolbar(camera, [
   { id: "step", icon: "🚪", label: "Step inside", press: toggleStep },
   { id: "hide", icon: "▾", label: "Hide buttons", press: () => setButtonsHidden(true) },
   { id: "buddy", icon: BUDDY.icon, label: BUDDY.name, press: toggleBuddy },
-  { id: "world", icon: HUB_ICON, label: HUB_LABEL, press: toggleBackdrop },
+  { id: "world", icon: worldInfo(WORLD_CYCLE[0]).icon, label: worldInfo(WORLD_CYCLE[0]).label, press: toggleBackdrop },
   { id: "wide", icon: "🔭", label: "Wide view", press: toggleWide },
   { id: "newstory", icon: "✨", label: "New story", press: newStoryPressed },
   { id: "reset", icon: "↺", label: "Reset story", press: resetPressed },
@@ -1538,8 +1552,10 @@ function updateToolbar() {
   syncButtons();
 }
 function syncButtons() {
-  toolbar.set("world", { label: backdrop.on ? "See-through" : HUB_LABEL, icon: backdrop.on ? "👓" : HUB_ICON });
-  bar.world.textContent = backdrop.on ? "See-through" : HUB === "moon" ? "Moon" : "Stanford Quad";
+  // The world button names where it takes you next.
+  const nw = nextWorld();
+  toolbar.set("world", { label: nw ? worldInfo(nw).label : "See-through", icon: nw ? worldInfo(nw).icon : "👓" });
+  bar.world.textContent = nw ? worldInfo(nw).bar : "See-through";
   toolbar.set("wide", { state: wideOn ? "active" : "idle", label: wideOn ? "Wide: on" : "Wide view" });
   bar.wide.textContent = wideOn ? "Wide view: on" : "Wide view";
   bar.wide.classList.toggle("on", wideOn);
