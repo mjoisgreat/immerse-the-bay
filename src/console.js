@@ -1,11 +1,9 @@
 import "./site.css";
 import { createLink } from "./link.js";
 import { PRESETS } from "./presets.js";
-import { urlRoom, cleanRoom, credFor, owned, consolePins, savePin, voterId } from "./identity.js";
+import { urlRoom, cleanRoom, credFor, owned, consolePins, savePin, voterId, esc } from "./identity.js";
 
 const $ = (s) => document.querySelector(s);
-const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
-
 
 async function whoami(room) {
   const r = await fetch("/api/relay", {
@@ -47,6 +45,7 @@ $("#gateForm").addEventListener("submit", async (e) => {
 let link, room;
 
 function open(r, me) {
+  if (link) return; // a double submit of the gate must not start a second poller
   room = r;
   $("#app").hidden = false;
   $("#roomPill").textContent = `room ${room}`;
@@ -104,6 +103,8 @@ function render(s) {
 
   const box = $("#portals");
   if (box.querySelector("textarea:focus")) return; // don't clobber a prompt being typed
+  const drafts = {}; // unsent override prompts survive the re-render
+  for (const t of box.querySelectorAll("textarea")) if (t.value) drafts[t.dataset.id] = t.value;
   box.className = s.portals.length ? "" : "empty";
   box.innerHTML = s.portals.length
     ? s.portals
@@ -121,6 +122,7 @@ function render(s) {
         )
         .join("")
     : "No portals yet. Open one in the headset.";
+  for (const t of box.querySelectorAll("textarea")) t.value = drafts[t.dataset.id] || "";
 }
 
 document.addEventListener("click", (e) => {
@@ -133,7 +135,7 @@ document.addEventListener("click", (e) => {
   if (b.dataset.dismiss) send({ t: "dismiss_suggestion", id: b.dataset.dismiss });
   if (b.dataset.apply) {
     const ta = document.querySelector(`textarea[data-id="${b.dataset.apply}"]`);
-    if (ta.value.trim()) send({ t: "manual_prompt", id: b.dataset.apply, prompt: ta.value.trim() }), (ta.value = "");
+    if (ta?.value.trim()) send({ t: "manual_prompt", id: b.dataset.apply, prompt: ta.value.trim() }), (ta.value = "");
   }
   if (b.dataset.copy) {
     navigator.clipboard?.writeText($(`#${b.dataset.copy}`).textContent).then(() => {

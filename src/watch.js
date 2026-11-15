@@ -1,10 +1,9 @@
 import "./site.css";
 import { createLink, speechHeaders } from "./link.js";
-import { urlRoom, voterId } from "./identity.js";
+import { urlRoom, voterId, esc } from "./identity.js";
 import { PushToTalk } from "./voice.js";
 
 const $ = (s) => document.querySelector(s);
-const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 const room = urlRoom;
 if (!room) location.replace("/community.html");
 
@@ -85,6 +84,7 @@ function render(s) {
 
 // Portal snapshots (posted by the storyteller's headset every few seconds).
 let snaps = {};
+let snapsHtml = "";
 async function pollSnaps() {
   snaps = await fetch(`/api/snapshot?room=${room}`, { cache: "no-store" })
     .then((r) => r.json())
@@ -96,11 +96,13 @@ function renderSnaps() {
   const ids = (state?.portals || []).map((p) => p.id).filter((id) => snaps[id]);
   if (!ids.length) {
     $("#snaps").innerHTML = `<div class="empty">Waiting for the storyteller to open a window…</div>`;
+    snapsHtml = "";
     return;
   }
-  $("#snaps").innerHTML = ids
-    .map((id) => `<div class="snap ${id === state.focusId ? "focus" : ""}"><img alt="Portal ${esc(id)}" src="${snaps[id]}"><span>Window ${esc(id)}${id === state.immersedId ? " · storyteller inside" : ""}</span></div>`)
+  const html = ids
+    .map((id) => `<div class="snap ${id === state.focusId ? "focus" : ""}"><img alt="Portal ${esc(id)}" src="${esc(snaps[id])}"><span>Window ${esc(id)}${id === state.immersedId ? " · storyteller inside" : ""}</span></div>`)
     .join("");
+  if (html !== snapsHtml) $("#snaps").innerHTML = snapsHtml = html; // same frames: don't reload the images
 }
 pollSnaps();
 
@@ -140,17 +142,21 @@ $("#coForm").addEventListener("submit", async (e) => {
 });
 const ptt = new PushToTalk();
 const mic = $("#mic");
+let held = false;
 async function micDown(e) {
   e.preventDefault();
+  held = true;
   try {
     await ptt.begin();
     mic.classList.add("on");
     mic.textContent = "Listening…";
+    if (!held) micUp(); // released while the mic permission/start was pending
   } catch (err) {
     $("#coErr").textContent = `Microphone unavailable: ${err.message}`;
   }
 }
 async function micUp() {
+  held = false;
   if (!mic.classList.contains("on")) return;
   mic.classList.remove("on");
   mic.textContent = "Thinking…";
