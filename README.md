@@ -180,7 +180,7 @@ fallback. Besides pointing and pinching (open, move, tap to touch, press buttons
 Every gesture answers so you know it registered: your palms glow, a short tone plays, and controllers buzz.
 The two-hand gestures share a 1.5 s cooldown and are ignored while you talk; parting has to end with the hands
 held apart for a moment, so a shake never reads as an opening motion. There is no snap gesture (it was removed;
-to bring Bonnie in, use the **Bonnie** button or just start talking). On hands, a middle-finger pinch does not
+to bring Bonnie in, use the **Bonnie** button, double-tap empty space on a phone, or just start talking). On hands, a middle-finger pinch does not
 count as a "grip", so it can't close the window you happen to be pointing at. Tuning constants sit at the top of `src/gestures.js`; the resize math
 is in `src/portalresize.js`.
 
