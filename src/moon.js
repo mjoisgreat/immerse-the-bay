@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
+import { LAYER } from "./layers.js";
 
 // The Moon hub: a lunar landscape built in code (no big download), lit by a low sun with long
 // baked shadows, under a black sky with stars, the Sun and the Earth.
@@ -215,7 +216,7 @@ function stars() {
   });
   const p = new THREE.Points(g, m);
   p.frustumCulled = false;
-  p.renderOrder = -20;
+  p.renderOrder = LAYER.MOON_STARS;
   return p;
 }
 
@@ -249,7 +250,7 @@ function earth(tex) {
   });
   const mesh = new THREE.Mesh(g, m);
   mesh.frustumCulled = false;
-  mesh.renderOrder = -19;
+  mesh.renderOrder = LAYER.MOON_EARTH;
   return mesh;
 }
 
@@ -278,7 +279,7 @@ function sunDisc() {
   });
   const mesh = new THREE.Mesh(g, m);
   mesh.frustumCulled = false;
-  mesh.renderOrder = -18;
+  mesh.renderOrder = LAYER.MOON_SUN;
   return mesh;
 }
 
@@ -304,7 +305,7 @@ function blackSky() {
   m.userData.keepPass = true; // the fader leaves it in the opaque pass
   const mesh = new THREE.Mesh(new THREE.SphereGeometry(SKY_DIST, 32, 16), m);
   mesh.frustumCulled = false;
-  mesh.renderOrder = -40; // before the step-inside world (-30) and the windows' wall masks (-20)
+  mesh.renderOrder = LAYER.SKY;
   return mesh;
 }
 

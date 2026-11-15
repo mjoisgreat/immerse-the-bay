@@ -2,7 +2,7 @@
 import { redisStore } from "../../server/stores.js";
 
 let storePromise;
-export const getStore = () => (storePromise ??= redisStore());
+const getStore = () => (storePromise ??= redisStore().catch((e) => ((storePromise = undefined), Promise.reject(e))));
 
 export async function readBody(req) {
   if (Buffer.isBuffer(req.body)) return req.body;
@@ -14,8 +14,12 @@ export async function readBody(req) {
 
 export async function readJson(req) {
   const b = await readBody(req);
-  if (Buffer.isBuffer(b)) return b.length ? JSON.parse(b.toString("utf8")) : {};
-  if (typeof b === "string") return JSON.parse(b);
+  try {
+    if (Buffer.isBuffer(b)) return b.length ? JSON.parse(b.toString("utf8")) : {};
+    if (typeof b === "string") return JSON.parse(b);
+  } catch {
+    throw Object.assign(new Error("invalid JSON"), { status: 400 });
+  }
   return b || {};
 }
 

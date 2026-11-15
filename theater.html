@@ -9,8 +9,7 @@
       * { box-sizing: border-box; }
       html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); overflow: hidden;
         font-family: system-ui, -apple-system, sans-serif; }
-      #ambient { position: fixed; inset: -8%; background-size: cover; background-position: center; filter: blur(60px) saturate(1.4) brightness(.45);
-        transition: background-image 1.5s ease; }
+      #ambient { position: fixed; inset: -8%; background-size: cover; background-position: center; filter: blur(60px) saturate(1.4) brightness(.45); }
       .stage { position: relative; height: 100%; display: grid; grid-template-rows: auto 1fr auto; gap: 1.2vh; padding: 2.4vh 2.6vw; }
       header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
       .brand { display: flex; align-items: baseline; gap: 1rem; min-width: 0; }
@@ -33,7 +32,6 @@
       .screen .empty { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; color: var(--muted);
         font: italic clamp(1rem, 2vw, 2rem) Georgia, serif; padding: 2rem; }
       [hidden] { display: none !important; }
-      .screen .tag { position: absolute; left: 1rem; top: 1rem; z-index: 2; }
       .speech { position: absolute; left: 50%; bottom: 4%; transform: translate(-50%, 20px); width: min(86%, 1100px); z-index: 3; opacity: 0;
         transition: opacity .6s ease, transform .6s ease; background: #0b0d18d9; border: 1px solid #ffd08a66; border-radius: 18px;
         padding: 1.1rem 1.5rem; backdrop-filter: blur(8px); }
@@ -81,11 +79,11 @@
     </form>
     <div class="stage" id="stage" hidden>
       <header>
-        <div class="brand"><h1>Living Window</h1><span id="title"></span><span class="tagline" id="tagline">A campfire story you can step into.</span></div>
-        <div class="pills"><span class="pill" id="inside" hidden>Storyteller is inside the world</span><span class="pill" id="live">offline</span><button id="start" hidden>Full screen</button></div>
+        <div class="brand"><h1>Living Window</h1><span id="title"></span><span class="tagline">A campfire story you can step into.</span></div>
+        <div class="pills"><span class="pill inside" id="inside" hidden>Storyteller is inside the world</span><span class="pill" id="live">offline</span><button id="start" hidden>Full screen</button></div>
       </header>
       <div class="main">
-        <div class="screen" id="screen">
+        <div class="screen">
           <img id="imgA" alt="" /><img id="imgB" alt="" />
           <div class="empty" id="empty"><div>A campfire story you can step into.<small style="display:block;font-size:.55em;margin-top:.8em;max-width:34em">One person speaks, the room becomes the story, and everyone watching shapes what happens next, live.</small><small style="display:block;font-size:.5em;margin-top:1.2em;opacity:.7">Waiting for the storyteller to open a window…</small></div></div>
           <div class="speech" id="speech"><b id="speaker"></b><q id="line"></q></div>

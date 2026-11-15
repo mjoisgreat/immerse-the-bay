@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { LAYER } from "./layers.js";
 
 const W = 1.6, H = 0.9; // metres, 16:9 like Orbis output
 const DEPTH = 0.32; // how far the picture sits "inside" the wall
@@ -138,11 +139,40 @@ void main(){
   gl_FragColor = vec4(color, g * strength * pulse * fade);
 }`;
 
-function textCanvas() {
-  const c = document.createElement("canvas");
-  c.width = 1024;
-  c.height = 192;
-  return c;
+/** A rounded text panel (a window's caption, the in-headset toast). `mesh` is what you add to the scene. */
+export class Caption {
+  constructor() {
+    this.canvas = Object.assign(document.createElement("canvas"), { width: 1024, height: 192 });
+    this.tex = new THREE.CanvasTexture(this.canvas);
+    this.tex.colorSpace = THREE.SRGBColorSpace;
+    this.mesh = new THREE.Mesh(
+      new THREE.PlaneGeometry(W, W * (192 / 1024)),
+      new THREE.MeshBasicMaterial({ map: this.tex, transparent: true, depthWrite: false }),
+    );
+  }
+
+  set(text, kind = "story") {
+    const c = this.canvas, g = c.getContext("2d");
+    g.clearRect(0, 0, c.width, c.height);
+    if (text) {
+      g.font = `${kind === "story" ? "italic 500" : "500"} 44px Georgia, serif`;
+      const lines = wrap(g, text, c.width - 80).slice(0, 2);
+      g.fillStyle = "rgba(10,12,20,0.55)";
+      roundRect(g, 20, 20, c.width - 40, c.height - 40, 30);
+      g.fill();
+      g.fillStyle = kind === "story" ? "#ffe9c7" : "#bcd3ff";
+      g.textAlign = "center";
+      g.textBaseline = "middle";
+      lines.forEach((l, i) => g.fillText(l, c.width / 2, c.height / 2 + (i - (lines.length - 1) / 2) * 52));
+    }
+    this.tex.needsUpdate = true;
+  }
+
+  dispose() {
+    this.tex.dispose();
+    this.mesh.geometry.dispose();
+    this.mesh.material.dispose();
+  }
 }
 
 export class Portal {
@@ -181,29 +211,22 @@ export class Portal {
     });
     const glow = new THREE.Mesh(new THREE.PlaneGeometry(W + 0.5, H + 0.5), this.glowMat);
     glow.position.z = 0.004; // just in front of the wall opening
-    glow.renderOrder = 1; // fixed order: glow, then caption (by-distance sorting flipped them as you moved: flicker)
+    glow.renderOrder = LAYER.WINDOW_GLOW; // fixed order: glow, then caption (see layers.js)
     this.group.add(glow);
 
     // Caption panel under the portal (status, then the storyteller's line).
-    this.caption = textCanvas();
-    this.captionTex = new THREE.CanvasTexture(this.caption);
-    this.captionTex.colorSpace = THREE.SRGBColorSpace;
-    const cap = new THREE.Mesh(
-      new THREE.PlaneGeometry(W, W * (192 / 1024)),
-      new THREE.MeshBasicMaterial({ map: this.captionTex, transparent: true, depthWrite: false }),
-    );
+    this.caption = new Caption();
+    const cap = this.caption.mesh;
     cap.position.set(0, -H / 2 - 0.2, 0.01);
-    cap.renderOrder = 2;
+    cap.renderOrder = LAYER.WINDOW_CAPTION;
     this.group.add(cap);
-    this.captionMat = cap.material;
 
     // Depth: the picture sits inside the wall, behind an opening, with lit tunnel walls.
-    // (Added after the caption: the in-headset toast borrows children[2].)
     this.screen.position.z = -DEPTH;
     this.backMat = new THREE.MeshBasicMaterial({ color: 0x05060c, transparent: true });
     const back = new THREE.Mesh(new THREE.PlaneGeometry(W, H), this.backMat);
     back.position.z = -DEPTH - 0.005;
-    back.renderOrder = -1; // now transparent (to fade): keep it drawn before the picture, as when it was opaque
+    back.renderOrder = LAYER.WINDOW_BACK; // transparent (to fade), but always drawn before the picture
     this.group.add(back);
     this.tunnelMat = new THREE.ShaderMaterial({
       vertexShader: tunnelVert,
@@ -216,10 +239,10 @@ export class Portal {
       },
     });
     const tunnel = new THREE.Mesh(tunnelGeometry(), this.tunnelMat);
-    tunnel.renderOrder = -1; // same: a fixed place before the picture, not sorted by distance
+    tunnel.renderOrder = LAYER.WINDOW_BACK;
     this.group.add(tunnel);
     this.mask = new THREE.Mesh(maskGeometry(), new THREE.MeshBasicMaterial({ colorWrite: false }));
-    this.mask.renderOrder = -20; // before everything, so it hides what's "inside the wall"
+    this.mask.renderOrder = LAYER.WALL_MASK; // hides what's "inside the wall"
     this.group.add(this.mask);
 
     this.burstMat = new THREE.ShaderMaterial({
@@ -287,7 +310,7 @@ export class Portal {
   setFade(k) {
     k = Math.max(0, Math.min(1, k));
     this.screenMat.uniforms.fade.value = k;
-    this.captionMat.opacity = k;
+    this.caption.mesh.material.opacity = k;
     this.backMat.opacity = k;
     this.group.visible = k > 0.001;
   }
@@ -300,20 +323,7 @@ export class Portal {
   }
 
   setCaption(text, kind = "story") {
-    const c = this.caption, g = c.getContext("2d");
-    g.clearRect(0, 0, c.width, c.height);
-    if (text) {
-      g.font = `${kind === "story" ? "italic 500" : "500"} 44px Georgia, serif`;
-      const lines = wrap(g, text, c.width - 80).slice(0, 2);
-      g.fillStyle = "rgba(10,12,20,0.55)";
-      roundRect(g, 20, 20, c.width - 40, c.height - 40, 30);
-      g.fill();
-      g.fillStyle = kind === "story" ? "#ffe9c7" : "#bcd3ff";
-      g.textAlign = "center";
-      g.textBaseline = "middle";
-      lines.forEach((l, i) => g.fillText(l, c.width / 2, c.height / 2 + (i - (lines.length - 1) / 2) * 52));
-    }
-    this.captionTex.needsUpdate = true;
+    this.caption.set(text, kind);
   }
 
   update(t) {
@@ -337,7 +347,7 @@ export class Portal {
     this.sound?.disconnect?.();
     if (this._audioEl) this._audioEl.srcObject = null;
     this.texture.dispose();
-    this.captionTex.dispose();
+    this.caption.dispose();
   }
 }
 

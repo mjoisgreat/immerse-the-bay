@@ -1,7 +1,7 @@
 /* Shared look for the console, watch and community pages. */
 :root {
   --bg: #0b0e16; --panel: #141a28; --panel2: #0e1320; --line: #2a3350; --text: #f3ead8; --muted: #9aa3bd;
-  --warm: #ffb36b; --warm2: #ffd08a; --cool: #6aa8ff; --good: #7fd89a; --bad: #ff8a7a;
+  --warm: #ffb36b; --warm2: #ffd08a; --good: #7fd89a; --bad: #ff8a7a;
 }
 * { box-sizing: border-box; }
 html { color-scheme: dark; }
@@ -27,7 +27,6 @@ input[type="text"], input:not([type]), textarea { flex: 1; min-width: 0; font: i
 textarea { width: 100%; min-height: 4.2rem; resize: vertical; }
 button { font: inherit; border: 0; border-radius: 10px; padding: .55rem 1rem; cursor: pointer; background: var(--warm); color: #1b1206; font-weight: 600; }
 button.ghost { background: transparent; color: var(--muted); border: 1px solid var(--line); font-weight: 400; }
-button:disabled { opacity: .5; cursor: default; }
 .muted { color: var(--muted); }
 .narration { font: italic 1.2rem Georgia, serif; color: #ffe9c7; min-height: 1.6rem; margin: .6rem 0 0; }
 .toggle { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .55rem 0; border-bottom: 1px dashed var(--line); }

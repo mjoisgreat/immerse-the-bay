@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { LAYER } from "./layers.js";
 
 // The "how do I do things with my hands" card shown at the start of a headset session: one row per
 // action, with the gesture that does it. Pinch the ✕ in its top-right corner (or wait) to dismiss it.
@@ -53,27 +54,28 @@ export class GestureCard {
       new THREE.PlaneGeometry(width, (width * canvas.height) / canvas.width),
       new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthTest: false }),
     );
-    this.mesh.renderOrder = 30;
+    this.mesh.renderOrder = LAYER.GESTURE_CARD;
     this.mesh.userData.gestureCard = true;
     this.mesh.visible = false;
 
     // Close button: a round ✕ in the top-right corner, just in front of the card.
     const height = (width * canvas.height) / canvas.width, r = 0.042;
+    const normalTex = closeTexture(false);
     this.closeButton = new THREE.Mesh(
       new THREE.CircleGeometry(r, 40),
-      new THREE.MeshBasicMaterial({ map: closeTexture(false), transparent: true, depthTest: false }),
+      new THREE.MeshBasicMaterial({ map: normalTex, transparent: true, depthTest: false }),
     );
     this.closeButton.position.set(width / 2 - r - 0.025, height / 2 - r - 0.025, 0.004);
-    this.closeButton.renderOrder = 31;
+    this.closeButton.renderOrder = LAYER.GESTURE_CARD + 1;
     this.closeButton.userData.cardClose = true;
     this.mesh.add(this.closeButton);
-    this._hoverTex = [closeTexture(false), closeTexture(true)];
+    this._hoverTex = [normalTex, closeTexture(true)];
   }
 
   /** Highlight the ✕ while a hand / controller points at it. */
   hoverClose(on) {
     const t = this._hoverTex[on ? 1 : 0];
-    if (this.closeButton.material.map !== t) (this.closeButton.material.map = t), (this.closeButton.material.needsUpdate = true);
+    if (this.closeButton.material.map !== t) this.closeButton.material.map = t;
     this.closeButton.scale.setScalar(on ? 1.15 : 1);
   }
 
@@ -123,7 +125,7 @@ export class GestureCard {
   /** Floats it `dist` metres in front of where you are looking (level, facing you). */
   show(camera, dist = 1.05) {
     const eye = camera.getWorldPosition(new THREE.Vector3());
-    const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.getWorldQuaternion(new THREE.Quaternion())).setY(0);
+    const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.getWorldQuaternion(new THREE.Quaternion())).setY(0); // once per show: fine
     if (fwd.lengthSq() < 1e-4) fwd.set(0, 0, -1);
     fwd.normalize();
     this.mesh.position.copy(eye).addScaledVector(fwd, dist);
