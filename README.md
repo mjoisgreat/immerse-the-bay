@@ -14,10 +14,9 @@ Built for Immerse the Bay 2026. Tracks: Visko Living Worlds, AI Horizons, Creati
 ## Run it
 
 ```bash
-cp .env.example .env   # paste the team REACTOR_API_KEY (from @KJ) and ANTHROPIC_API_KEY
+cp .env.example .env   # paste REACTOR_API_KEY (from @KJ), OPENAI_API_KEY (voice + mic) and ANTHROPIC_API_KEY (or use OpenAI for the director)
 npm install
 npm run dev            # API on :8787 + HTTPS Vite on :5173
-npm run stt            # second terminal: local Whisper speech-to-text on :8790
 ```
 
 * **Quest headset:** the Quest and laptop must be on the same Wi-Fi. Open the `Network:` URL that
@@ -193,7 +192,7 @@ Quest Browser (three.js WebXR, passthrough)          Laptop
  ├─ portal A ── WebRTC ── Orbis session A    ┌───────────────────────────────┐
  ├─ portal B ── WebRTC ── Orbis session B    │ server/index.js               │
  ├─ portal C ── WebRTC ── Orbis session C    │  /api/token  → Reactor JWT     │
- ├─ mic (push-to-talk) ─ 16 kHz PCM ───────► │  /api/transcribe → stt.py      │
+ ├─ mic (push-to-talk) ─ 16 kHz PCM ───────► │  /api/transcribe → OpenAI STT  │
  └─ WebSocket ◄──── directions ───────────── │  /ws  story state + director   │
                                               │       (Claude, structured out)│
 Director console (console.html) ── /ws ─────► └───────────────────────────────┘
@@ -214,7 +213,7 @@ Director console (console.html) ── /ws ─────► └─────
    polish, and the in-headset UI.
 2. **Orbis/backend:** `src/orbis.js`, `server/index.js`. Reliability with 3 parallel sessions,
    reconnects, and watching the credit dashboard.
-3. **AI/voice:** `server/director.js`, `src/voice.js`, `server/stt.py`. Prompt quality and
+3. **AI/voice:** `server/director.js`, `src/voice.js`. Prompt quality and
    latency, and story-director tuning.
 4. **Pitch:** demo script, Devpost, backup recording, story seeds (`src/console.js` PRESETS).
 
