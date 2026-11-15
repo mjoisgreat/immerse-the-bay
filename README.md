@@ -1,13 +1,13 @@
 # Living Window
 
-**Tell a story out loud, and your room becomes it, live.**
+**A campfire story you can step into.**
+One person speaks, the room becomes the story, and everyone watching shapes what happens next, live.
 
 You wear a Meta Quest 3S and still see your real room. Pinch at a wall and a portal opens onto a
 living world streamed live by Visko Orbis, with its own spatial sound. Hold the orange orb
 (or the A/X button) and narrate. An AI story director (Claude) turns your words into Orbis
 prompts, and the world changes within about 2 seconds without cutting away. You can open up to
-3 portals, each a different place in the same story, kept consistent by a shared "story bible".
-Grab a portal to move it.
+3 portals, each its own story in its own world (see "One story per window"). Grab a portal to move it.
 
 Built for Immerse the Bay 2026. Tracks: Visko Living Worlds, AI Horizons, Creative Zenith.
 
@@ -29,6 +29,35 @@ npm run stt            # second terminal: local Whisper speech-to-text on :8790
   hold Space to talk.
 * If the venue Wi-Fi blocks device-to-device traffic: `ngrok http https://localhost:5173` and open
   the ngrok URL on the Quest.
+
+## One story per window
+
+Every window is its own story thread: its own world (seed), story bible, beats, choice chips and prompt
+history, kept per `portal_id` in `server/core.js` (`state.threads`). Each window still has its own Orbis session.
+
+* **A new window asks "What world is behind this window?"** Answer in one line, by voice (hold to talk) or by
+  typing (desktop preview, console). Skip it and the first thing you say becomes that window's world. A new
+  window never inherits another window's story.
+* **Steering only reaches the focused window.** What you say, the choice chips, touches and prompt updates go
+  to the window you are looking at; the director is given that one thread and cannot change any other window.
+* **Switching focus brings back that window's own story:** its world, bible, choices and prompt history. The
+  other windows keep streaming their own worlds untouched.
+* **Audience ideas belong to the room, not to a window.** There is one list and one vote count. An idea steers
+  whichever window is focused at the moment it is used: a pinch on an idea card, "Use" in the console, or Crowd
+  Mode's pick every 20 s. When more than one window is open, each idea card says where it will land
+  ("→ WINDOW B"), and the console, watch page and theater view name the focused window too. With no window
+  open, ideas wait on the list.
+
+## New story, Reset, Prepare demo
+
+* **Reset story** (one tap arms it; the button reads **Tap again to confirm** until you do, press another
+  button, or hit Esc): closes every window and forgets every story, the ideas and the seed. Nothing is reused.
+* **New story:** the same reset, then the narrator asks **"What world is this story set in?"**. Your answer
+  opens the first window onto that world. Skip it and the first window asks its own question.
+* **Prepare demo** (start card and console): a fresh story in a chosen world with its first window opened
+  straight away, because a window takes 20–30 s to reach video. Do it before the headset goes on.
+* The buttons start hidden on a first visit (**H**, the **☰ Buttons** handle, a thumbstick click or your left
+  palm brings them out) and then stay the way you last left them.
 
 ## Rooms and community (live site)
 
@@ -99,6 +128,12 @@ of you (without the "hole in the wall" effect, since there's no real wall), step
 live video (the Quad hides while you're inside and comes back when you step out), and Bonnie comes along. The splat
 renderer is only downloaded the first time you press the button.
 
+**Loading and weak hardware:** pressing the button shows a loading state (download percentage, then "Building the
+world…"). Headsets, phones, software rendering and small machines get a light version of the splat
+(`public/worlds/stanford-low.spz`, 150 000 of the 500 000 splats, made with `node scripts/decimate-spz.mjs`); a device
+where the full version freezes for more than 2 s switches to the light one from then on. Force either with
+`?splat=low` or `?splat=high`.
+
 **Moving around the Quad** (only while the world is on, and not inside a window): walk for real, use the **left
 thumbstick** to walk where you're looking, the **right thumbstick** to turn in 30° steps, or **point at the ground and
 pinch** (or pull the trigger) to teleport there (a glowing circle shows where you'll land; pointing straight ahead still
@@ -120,8 +155,8 @@ press buttons, pick choices):
 
 A button panel floats just below your gaze and follows you when you turn or walk away. Point at a button and
 pull the trigger (or pinch): **Hold to talk**, **New window**, **Step inside / Step out**, **Close window**,
-**Reset story** (tap twice: starts the story over from its seed and closes all windows). The same buttons sit
-at the bottom of the screen on desktop, plus **Room info**; the director console has Reset too.
+**New story** and **Reset story** (see above). The same buttons sit at the bottom of the screen on desktop,
+plus **Room info**; the director console has New story, Reset and Prepare demo too.
 **Hide buttons** (or click a thumbstick, or press H on desktop) leaves just a small **☰ Buttons** handle; point at it
 to bring them back.
 
@@ -159,8 +194,8 @@ Director console (console.html) ── /ws ─────► └─────
 
 * `src/orbis.js` runs one Orbis session per portal: one JWT per session, retry with backoff on
   "no capacity" (429), auto-restart when generation completes, server-side cleanup on close.
-* `server/director.js` sends the story bible, recent beats and each portal's current prompt to
-  Claude and gets back `{narration, bible, updates[]}` as validated JSON. It follows the Orbis
+* `server/director.js` sends the focused window's own story bible, recent beats and prompt history to
+  Claude and gets back `{narration, bible, updates[]}` as validated JSON (only that window can be updated). It follows the Orbis
   prompt guide: one continuous shot, and describe only what changes. Without a Claude key it falls
   back to a simple template so the demo still works.
 * Each portal plays its Orbis audio through three.js `PositionalAudio`, so the sound comes from

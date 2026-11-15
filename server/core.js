@@ -3,12 +3,24 @@
 
 export const MAX_PORTALS = Number(process.env.MAX_PORTALS || 3);
 const MAX_SUGGESTIONS = 25;
-const DEFAULT_SEED =
-  "A lantern-lit fishing village on a misty mountain lake at dusk, wooden boats, paper lanterns glowing amber";
+const MAX_BEATS = 20;
+const MAX_PROMPTS = 12;
+
+// Every portal is its own story: its own world (seed), story bible, beats, choice chips and prompt
+// history, kept in `threads[portal id]`. Steering only ever touches the focused portal's thread.
+// A new portal starts with no world: the storyteller is asked "what world is behind this window?"
+// and their answer (or simply the first line they say) becomes its seed. Nothing is inherited from
+// other portals, and there is no default seed.
+const newThread = (seed = "") => ({ seed, bible: seed ? `Setting: ${seed}.` : "", beats: [], choices: [], prompts: [] });
+const cleanSeed = (v) => String(v || "").replace(/\s+/g, " ").trim().slice(0, 400);
+const thread = (s, id) => (id && s.threads[id]) || null;
 
 export function initialState() {
   return {
-    story: { seed: DEFAULT_SEED, bible: `Setting: ${DEFAULT_SEED}. Time: dusk. Mood: calm, magical.`, beats: [] },
+    threads: {}, // portal id -> { seed, bible, beats, choices, prompts }
+    nextSeed: "", // a world chosen ahead of time (New story, Prepare demo, console) for the next portal opened
+    // `story` and `choices` always show the FOCUSED portal's thread (see mirror); pages read these.
+    story: { seed: "", bible: "", beats: [] },
     portals: [], // [{ id, prompt, status }]
     focusId: null,
     immersedId: null, // the portal the storyteller has stepped inside, if any
@@ -37,8 +49,8 @@ export function allowed(role, t) {
   return false;
 }
 
-function pushLog(s, kind, text) {
-  s.log.push({ at: Date.now(), kind, text });
+function pushLog(s, kind, text, portal = null) {
+  s.log.push({ at: Date.now(), kind, text, ...(portal && { portal }) });
   if (s.log.length > 60) s.log.shift();
 }
 const find = (s, id) => s.portals.find((p) => p.id === id);
@@ -50,11 +62,67 @@ const rid = () => Math.random().toString(36).slice(2, 9);
  * `director` (if set) is an event the story director must handle afterwards.
  */
 export function reduce(s, m, ctx = {}) {
-  const events = [];
-  let director = null;
-  // Upgrade state saved by older versions.
+  upgrade(s);
+  const out = step(s, m, ctx);
+  mirror(s);
+  return out;
+}
+
+/** Upgrades state saved by older versions (one story for the whole room) to per-portal threads. */
+function upgrade(s) {
   s.meta ??= { title: "", shared: false, crowd: false };
   s.suggestions ??= [];
+  if (s.threads) return;
+  s.threads = {};
+  s.nextSeed = "";
+  for (const p of s.portals || []) {
+    s.threads[p.id] = { ...newThread(s.story?.seed || ""), bible: s.story?.bible || "", beats: (s.story?.beats || []).slice(-MAX_BEATS), prompts: p.prompt ? [p.prompt] : [] };
+  }
+  if (s.focusId && s.threads[s.focusId]) s.threads[s.focusId].choices = s.choices || [];
+}
+
+/** Points the room-level `story` and `choices` at the focused portal's thread. */
+function mirror(s) {
+  const th = thread(s, s.focusId);
+  s.story = th ? { seed: th.seed, bible: th.bible, beats: th.beats } : { seed: s.nextSeed || "", bible: "", beats: [] };
+  s.choices = th ? th.choices : [];
+}
+
+/**
+ * A story line for the focused portal (spoken, typed, a picked choice or an audience idea).
+ * If that portal has no world yet, the line defines its world instead. With no portal open it is
+ * kept as the world of the next one. Returns the event for the director, or null.
+ */
+function tell(s, text, kind, addressed = false) {
+  const id = s.focusId;
+  const th = thread(s, id);
+  if (addressed && (!th || !th.seed)) return { type: "utterance", text, portal_id: th ? id : null }; // talking to the companion
+  if (!th) {
+    s.nextSeed = cleanSeed(text);
+    pushLog(s, "world", `The next window opens onto: ${s.nextSeed}`);
+    return null;
+  }
+  if (!th.seed) return openWorld(s, id, text);
+  th.beats.push(text);
+  if (th.beats.length > MAX_BEATS) th.beats.shift();
+  if (kind === "choice" || kind === "crowd") th.choices = []; // picked or overtaken: the old options are stale
+  pushLog(s, kind, text, id);
+  return { type: "utterance", text, portal_id: id };
+}
+
+/** Starts (or restarts) a portal's own story in the world `seed`. */
+function openWorld(s, id, seed) {
+  seed = cleanSeed(seed);
+  s.threads[id] = newThread(seed);
+  const p = find(s, id);
+  if (p.status === "asking") p.status = "starting";
+  pushLog(s, "world", `Window ${id}: ${seed}`, id);
+  return { type: "portal_added", portal_id: id, world: seed };
+}
+
+function step(s, m, ctx) {
+  const events = [];
+  let director = null;
 
   // Only the current headset page may change portals; a stale tab of the owner is ignored.
   if (OWNER_ONLY.has(m.t) && m.t !== "hello" && s.rendererId && m.rid !== s.rendererId) return { events, director };
@@ -63,7 +131,10 @@ export function reduce(s, m, ctx = {}) {
   switch (m.t) {
     case "hello":
       // The owner's newest headset page takes over; the same page reconnecting re-sends its portals.
-      if (m.rid !== s.rendererId) events.push({ t: "takeover", rid: m.rid });
+      if (m.rid !== s.rendererId) {
+        events.push({ t: "takeover", rid: m.rid });
+        s.threads = {}; // a new page has no windows yet; the same page reconnecting keeps its stories
+      }
       s.rendererId = m.rid ?? null;
       s.portals = [];
       s.focusId = null;
@@ -71,19 +142,26 @@ export function reduce(s, m, ctx = {}) {
       break;
     case "portal_sync":
       if (!find(s, m.id) && s.portals.length < MAX_PORTALS) {
-        s.portals.push({ id: m.id, prompt: String(m.prompt || ""), status: m.status || "streaming" });
+        const prompt = String(m.prompt || "");
+        s.portals.push({ id: m.id, prompt, status: m.status || "streaming" });
+        // The server lost this window's story (restart): its running scene stands in as its world.
+        s.threads[m.id] ??= { ...newThread(cleanSeed(prompt)), prompts: prompt ? [prompt] : [] };
         s.focusId = s.focusId ?? m.id;
       }
       break;
     case "portal_added":
       if (find(s, m.id) || s.portals.length >= MAX_PORTALS) break;
-      s.portals.push({ id: m.id, prompt: "", status: "starting" });
+      // Its world: one chosen ahead of time, or none yet (the headset asks what is behind it).
+      s.portals.push({ id: m.id, prompt: "", status: s.nextSeed ? "starting" : "asking" });
+      s.threads[m.id] = newThread();
       s.focusId = m.id;
-      pushLog(s, "portal", `Portal ${m.id} opened`);
-      director = { type: "portal_added", portal_id: m.id };
+      pushLog(s, "portal", `Portal ${m.id} opened`, m.id);
+      if (s.nextSeed) director = openWorld(s, m.id, s.nextSeed);
+      s.nextSeed = "";
       break;
     case "portal_removed":
       s.portals = s.portals.filter((p) => p.id !== m.id);
+      delete s.threads[m.id];
       if (s.focusId === m.id) s.focusId = s.portals[0]?.id ?? null;
       if (s.immersedId === m.id) s.immersedId = null;
       pushLog(s, "portal", `Portal ${m.id} closed`);
@@ -95,10 +173,9 @@ export function reduce(s, m, ctx = {}) {
     }
     case "choose": {
       // Someone picked one of the director's "what happens next" options.
-      const text = (s.choices || [])[Number(m.index)];
+      const text = (thread(s, s.focusId)?.choices || [])[Number(m.index)];
       if (!text) break;
-      s.choices = [];
-      director = narrate(s, text, "choice");
+      director = tell(s, text, "choice");
       break;
     }
     case "touch": {
@@ -135,37 +212,51 @@ export function reduce(s, m, ctx = {}) {
     case "utterance": {
       const text = String(m.text || "").trim().slice(0, 300);
       if (!text) break;
-      director = narrate(s, text, ctx.role === "co" ? "guest" : "voice");
-      // The storyteller was looking at the companion while they spoke.
-      if (m.addressed && ctx.role === "owner") director.addressed = true;
+      // `addressed`: the storyteller was looking at the companion while they spoke.
+      const addressed = Boolean(m.addressed && ctx.role === "owner");
+      director = tell(s, text, ctx.role === "co" ? "guest" : "voice", addressed);
+      if (director && addressed) director.addressed = true;
       break;
     }
     case "manual_prompt": {
       const p = find(s, m.id);
       if (!p || !m.prompt) break;
       p.prompt = String(m.prompt).slice(0, 1200);
-      pushLog(s, "manual", `Portal ${m.id}: ${p.prompt.slice(0, 80)}...`);
-      events.push({ t: "direction", narration: "", updates: [{ portal_id: m.id, prompt: p.prompt }] });
+      const th = (s.threads[m.id] ??= newThread());
+      if (!th.seed) Object.assign(th, { seed: cleanSeed(p.prompt), bible: `Setting: ${cleanSeed(p.prompt)}.` });
+      remember(th, p.prompt);
+      if (p.status === "asking") p.status = "starting";
+      pushLog(s, "manual", `Portal ${m.id}: ${p.prompt.slice(0, 80)}...`, m.id);
+      events.push({ t: "direction", portal_id: m.id, narration: "", updates: [{ portal_id: m.id, prompt: p.prompt }] });
       break;
     }
     case "reset_story": {
-      // Start the story over from its seed: clears what happened, the ideas, and the open windows.
-      const seed = s.story.seed;
-      s.story = { seed, bible: `Setting: ${seed}.`, beats: [] };
+      // Start over with nothing: every window closes and every story is forgotten, seeds included.
+      // `seed` (optional) is the world of the NEXT window, chosen by whoever asked for the reset;
+      // `ask` has the headset ask "what world is this story set in?"; `open` has it open a window.
+      s.threads = {};
+      s.portals = [];
+      s.focusId = null;
+      s.immersedId = null;
+      s.nextSeed = cleanSeed(m.seed);
       s.suggestions = [];
-      s.choices = [];
       s.chat = [];
       s.log = [];
-      s.immersedId = null;
-      pushLog(s, "story", "The story was reset");
-      events.push({ t: "reset" });
+      pushLog(s, "story", s.nextSeed ? `New story: ${s.nextSeed}` : "The story was reset");
+      events.push({ t: "reset", ask: Boolean(m.ask) && !s.nextSeed, open: Boolean(m.open), seed: s.nextSeed });
       break;
     }
     case "set_seed": {
-      const seed = String(m.seed || "").trim().slice(0, 400);
+      // The world of one window: the given one, else the focused one (its story starts over there),
+      // else the next window to open.
+      const seed = cleanSeed(m.seed);
       if (!seed) break;
-      s.story = { seed, bible: `Setting: ${seed}.`, beats: [] };
-      pushLog(s, "story", `New story seed: ${seed}`);
+      const id = find(s, m.id) ? m.id : s.focusId;
+      if (find(s, id)) director = openWorld(s, id, seed);
+      else {
+        s.nextSeed = seed;
+        pushLog(s, "world", `The next window opens onto: ${seed}`);
+      }
       break;
     }
     case "set_meta":
@@ -201,22 +292,21 @@ export function reduce(s, m, ctx = {}) {
       s.suggestions = s.suggestions.filter((x) => x.id !== m.id);
       break;
     case "use_suggestion": {
+      // Audience ideas belong to the room, not to one window: an idea steers whichever window is
+      // focused at the moment it is used (pinched on a card, "Use" in the console, or Crowd Mode).
       const x = m.id === "top" ? topSuggestion(s) : s.suggestions.find((y) => y.id === m.id);
-      if (!x) break;
+      if (!x || !thread(s, s.focusId)) break; // no window to steer: the idea stays on the list
       s.suggestions = s.suggestions.filter((y) => y.id !== x.id);
-      s.choices = []; // the story moved on, so the director's old options are stale
-      director = narrate(s, x.text, "crowd");
+      director = tell(s, x.text, "crowd");
       break;
     }
   }
   return { events, director };
 }
 
-function narrate(s, text, kind) {
-  s.story.beats.push(text);
-  if (s.story.beats.length > 40) s.story.beats.shift();
-  pushLog(s, kind, text);
-  return { type: "utterance", text };
+function remember(th, prompt) {
+  th.prompts.push(prompt);
+  if (th.prompts.length > MAX_PROMPTS) th.prompts.shift();
 }
 
 /** A display name for an idea's author: letters, digits, spaces and . ' - only, up to 20 characters. */
@@ -233,14 +323,21 @@ export function topSuggestion(s) {
   return [...(s.suggestions || [])].sort(byVotes)[0] || null;
 }
 
-/** Asks the director (slow, async). Reads a snapshot; does not mutate. */
+/**
+ * Asks the director (slow, async). Reads a snapshot; does not mutate. The director is given one
+ * portal's thread only (the event's `portal_id`) and can steer nothing else; the other windows
+ * are listed read-only so the companion knows what is in them.
+ */
 export function askDirector(director, s, event) {
+  const id = event.portal_id ?? null;
+  const th = thread(s, id);
   return director.direct({
     event,
-    story: s.story,
-    portals: s.portals,
-    focusId: s.focusId,
-    immersedId: s.immersedId ?? null,
+    story: th ? { seed: th.seed, bible: th.bible, beats: th.beats } : { seed: "", bible: "", beats: [] },
+    portals: s.portals.filter((p) => p.id === id).map((p) => ({ ...p, history: (th?.prompts || []).slice(-3) })),
+    others: s.portals.filter((p) => p.id !== id).map((p) => ({ id: p.id, world: s.threads[p.id]?.seed || "", prompt: p.prompt })),
+    focusId: id,
+    immersedId: s.immersedId === id ? id : null,
     companion: s.companion ?? null,
     chat: s.chat ?? [],
   });
@@ -248,17 +345,22 @@ export function askDirector(director, s, event) {
 
 /**
  * Applies the director's answer to the *current* state (re-read after the wait).
- * `event` is what the director was asked about (used to tell small talk from story).
+ * `event` is what the director was asked about: its `portal_id` names the one thread the answer
+ * belongs to (bible, beats, choices, prompt), whatever is focused by now. Without an event the
+ * focused portal is used.
  */
 export function applyDirection(s, out, ms, seq = 0, event = null) {
+  upgrade(s);
+  const id = event ? (event.portal_id ?? null) : s.focusId;
+  const th = find(s, id) ? thread(s, id) : null;
   const companion = out.companion?.reply
     ? { name: s.companion?.id === "pip" ? "Pip" : "Bonnie", reply: String(out.companion.reply).slice(0, 300), gesture: out.companion.gesture || "none", move: out.companion.move || "none" }
     : null;
   // Small talk with the companion: the story, its choices and its subtitle stay as they were.
   const chatOnly = Boolean(companion && !out.updates.length && !String(out.narration || "").trim());
-  if (chatOnly && event?.type === "utterance") {
-    const i = s.story.beats.lastIndexOf(event.text);
-    if (i !== -1) s.story.beats.splice(i, 1);
+  if (chatOnly && th && event?.type === "utterance") {
+    const i = th.beats.lastIndexOf(event.text);
+    if (i !== -1) th.beats.splice(i, 1);
   }
   // A reply to an older request than one already applied: its portal prompts are out of date
   // (applying them would make the scene jump back), so keep only the newer ones.
@@ -267,20 +369,28 @@ export function applyDirection(s, out, ms, seq = 0, event = null) {
   if (stale) out = { ...out, updates: out.updates.filter((u) => !(s.portalSeq || {})[u.portal_id] || s.portalSeq[u.portal_id] < seq) };
   s.portalSeq ??= {};
   for (const u of out.updates) s.portalSeq[u.portal_id] = Math.max(seq, s.portalSeq[u.portal_id] || 0);
-  s.story.bible = out.bible || s.story.bible;
-  const updates = out.updates.filter((u) => find(s, u.portal_id));
-  for (const u of updates) find(s, u.portal_id).prompt = u.prompt;
-  if (!chatOnly) {
-    pushLog(s, "director", `${out.narration} (${ms} ms, ${updates.length} portal updates)`);
-    s.choices = (out.choices || []).map((c) => String(c).slice(0, 80)).filter(Boolean).slice(0, 3);
+  // Only this thread's own portal can be steered.
+  const updates = th ? out.updates.filter((u) => u.portal_id === id) : [];
+  for (const u of updates) {
+    find(s, id).prompt = u.prompt;
+    remember(th, u.prompt);
+    // A world that began from a line said to the companion: that scene is its seed.
+    if (!th.seed) th.seed = cleanSeed(event?.text || u.prompt);
   }
-  const speech = out.speech?.line ? { ...out.speech, portal_id: find(s, out.speech.portal_id) ? out.speech.portal_id : s.focusId } : null;
-  if (speech) pushLog(s, "speech", `${speech.speaker}: ${speech.line}`);
+  if (th && !chatOnly) {
+    th.bible = out.bible || th.bible;
+    th.choices = (out.choices || []).map((c) => String(c).slice(0, 80)).filter(Boolean).slice(0, 3);
+    pushLog(s, "director", `${out.narration} (${ms} ms, ${updates.length} portal updates)`, id);
+  }
+  mirror(s);
+  const speech = out.speech?.line && th ? { ...out.speech, portal_id: id } : null;
+  if (speech) pushLog(s, "speech", `${speech.speaker}: ${speech.line}`, id);
   if (companion) {
     pushLog(s, "speech", `${companion.name}: ${companion.reply}`);
     s.chat = [...(s.chat || []), { you: event?.type === "utterance" ? event.text : null, reply: companion.reply }].slice(-8);
   }
-  return [{ t: "direction", narration: out.narration, updates, choices: s.choices, speech, companion }];
+  // `choices` are the focused window's, which may not be the one this answer was for.
+  return [{ t: "direction", portal_id: id, narration: th ? out.narration : "", updates, choices: s.choices, speech, companion }];
 }
 
 /** What the gallery shows for a room. */

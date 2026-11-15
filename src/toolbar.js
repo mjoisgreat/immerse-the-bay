@@ -2,7 +2,7 @@ import * as THREE from "three";
 
 // A floating button panel for the headset. It rests below your gaze, follows you lazily when you
 // turn or walk away, and is pressed by pointing (controller trigger or hand pinch).
-const BW = 0.135, BH = 0.08, GAP = 0.01;
+const BW = 0.12, BH = 0.071, GAP = 0.01; // nine buttons span about 1.16 m at arm's length
 
 function drawButton(canvas, { icon, label, state }) {
   const g = canvas.getContext("2d");
@@ -21,7 +21,7 @@ function drawButton(canvas, { icon, label, state }) {
   g.fillStyle = state === "active" ? "#1b1206" : "#fff3e0";
   g.font = "64px system-ui, sans-serif";
   g.fillText(icon, w / 2, h * 0.38);
-  g.font = `600 ${label.length > 12 ? 30 : 36}px system-ui, sans-serif`;
+  g.font = `600 ${label.length > 16 ? 25 : label.length > 12 ? 30 : 36}px system-ui, sans-serif`;
   g.fillText(label, w / 2, h * 0.76);
 }
 
@@ -120,7 +120,7 @@ export class Toolbar {
 
   /**
    * Shows up to 3 "what happens next" cards (or hides them with an empty list). Each item is the
-   * director's option as a string, or an audience idea as { text, by, votes }.
+   * director's option as a string, or an audience idea as { text, by, votes, to } (to = the window it will steer, when there are several).
    */
   setChoices(list) {
     this.choices = list || [];
@@ -154,10 +154,12 @@ export class Toolbar {
       g.font = "700 26px system-ui, sans-serif";
       g.textAlign = "left";
       g.fillStyle = hovered ? "#1b1206" : "#ffb36b";
-      g.fillText((item.by || "A friend").toUpperCase(), 28, 34, w - 150);
+      // With several windows open the card also says which one the idea will steer.
+      const right = `${item.to ? `→ WINDOW ${item.to}   ` : ""}▲ ${item.votes ?? 0}`;
+      g.fillText((item.by || "A friend").toUpperCase(), 28, 34, w - 80 - g.measureText(right).width);
       g.textAlign = "right";
       g.fillStyle = hovered ? "#1b1206" : "#ffd08a";
-      g.fillText(`▲ ${item.votes ?? 0}`, w - 28, 34);
+      g.fillText(right, w - 28, 34);
       top = 26;
     }
     g.fillStyle = hovered ? "#1b1206" : "#fff3e0";

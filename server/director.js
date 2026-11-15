@@ -1,6 +1,6 @@
 // The AI "story director": turns what people say into Orbis prompts for each
-// portal while keeping characters and setting consistent across portals.
-// It is also the companion (Bonnie, or Pip the robot) who walks around the storyteller's room:
+// portal. Every portal is its own story (its own world, bible and history): see server/core.js.
+// It is also the companion (Bunny, or Pip the robot) who walks around the storyteller's room:
 // one mind, one call. The same answer steers the worlds and says what the companion says and does.
 import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
@@ -42,18 +42,26 @@ How Orbis prompts work (follow these strictly):
   scene plus the change), never just the change.
 - Never put text, captions, logos or UI in the picture. No real people or brands.
 - Keep every recurring character described with the same words in every prompt
-  (same name, clothing, colors) so they stay recognisable across portals.
+  (same name, clothing, colors) so they stay recognisable from prompt to prompt.
 
-Portals:
-- The FOCUSED portal is the one the person is looking at; their words mainly steer it.
-- Other portals show other places or viewpoints in the same story world. Update them
-  only when the story clearly affects them (time of day, weather, a character moving
-  between places), so the room feels like one connected world.
-- When a portal is newly opened, give it a fresh view that fits the story so far
-  (a different location or angle, never a copy of another portal).
+Windows are separate stories (this matters):
+- Each portal ("window") is its OWN story with its own world, characters, story bible and
+  history. You are given exactly one of them: \`window\`, the one the person is looking at. Its
+  world is \`window.world\`, in the person's own words. Everything you write (the prompt, the
+  bible, the narration, the choices, a character's speech) belongs to that window alone.
+- updates may only contain that one window's portal_id. Never carry places, characters,
+  weather or events from one window into another, and never try to change another window.
+- \`other_windows\` lists what the other windows show, for your information only (so that, as the
+  companion, you can talk about them). They are different worlds; leave them alone.
+- An event of type "portal_added" means this window has just been given its world: the event's
+  \`world\` is the person's answer to "what world is behind this window?". Write its opening shot
+  (an establishing view of exactly that world, nothing borrowed from other windows), start its
+  story bible from scratch, and make the narration a short line that opens the story.
+- \`window.recent_prompts\` are the last prompts this window was given, oldest first; the last
+  one is what it shows now. Continue from it.
 
 Stepping inside:
-- If immersed_portal is set, the person has walked INTO that portal: its video fills their
+- If immersed is true, the person has walked INTO this window: its video fills their
   whole view as if they stand exactly where the camera is. For that portal always write a
   first-person view from standing eye level (about 1.6 m) through a 20 mm wide-angle lens
   (no fisheye, straight lines stay straight), horizon level and exactly across the middle of
@@ -155,20 +163,23 @@ export function createDirector() {
     return tidy(await think(input), input);
   }
 
-  async function think({ event, story, portals, focusId, immersedId = null, companion = null, chat = [] }) {
+  async function think({ event, story, portals, others = [], focusId, immersedId = null, companion = null, chat = [] }) {
+    story = story || { seed: "", bible: "", beats: [] };
     const backup = () => fallback({ event, story, portals, focusId, immersedId, companion });
     if (!client) return backup();
     const persona = personaOf(companion);
 
     const payload = {
       event,
-      focused_portal: focusId,
-      immersed_portal: immersedId,
+      window: portals[0]
+        ? { portal_id: portals[0].id, world: story.seed || null, current_prompt: portals[0].prompt || null, recent_prompts: portals[0].history || [] }
+        : null,
+      immersed: Boolean(portals[0] && immersedId === portals[0].id),
       story_bible: story.bible,
       recent_beats: story.beats.slice(-8),
+      other_windows: others.map((o) => ({ portal_id: o.id, world: o.world || null, shows: o.prompt || null })),
       companion: { name: persona.name, present: Boolean(companion?.present) },
       conversation: chat.slice(-6),
-      portals: portals.map((p) => ({ portal_id: p.id, current_prompt: p.prompt || null })),
     };
 
     // A touch event carries the frame as an image; it is sent to Claude but kept out of the JSON.
@@ -293,15 +304,16 @@ function fallback({ event, story, portals, focusId, immersedId = null, companion
     };
   }
   if (event.type === "portal_added") {
-    const base = story.beats.at(-1) ? `${story.seed}. ${story.beats.at(-1)}` : story.seed;
+    // This window's own world, exactly as the storyteller described it.
+    const world = event.world || story.seed;
     return {
       ...extra,
-      narration: "A new window opens onto the story.",
-      bible: story.bible,
-      updates: [{ portal_id: event.portal_id, prompt: `${sceneOf(base, story.seed)} A different corner of the same world. ${STYLE}` }],
+      narration: "A window opens onto a new world.",
+      bible: story.bible || `Setting: ${world}.`,
+      updates: [{ portal_id: event.portal_id, prompt: `${sceneOf(world, world)} ${STYLE}` }],
     };
   }
-  const target = focusId || portals[0]?.id;
+  const target = find(focusId) ? focusId : portals[0]?.id;
   const look = target && target === immersedId ? IMMERSIVE : STYLE;
   const scene = sceneOf(find(target)?.prompt, story.seed);
   // "Bonnie, make it snow" asks for snow, not for a bunny in the scene.
@@ -310,7 +322,8 @@ function fallback({ event, story, portals, focusId, immersedId = null, companion
     ...extra,
     narration: event.text,
     bible: story.bible,
-    updates: target ? [{ portal_id: target, prompt: `${scene}${NOW}${change}, happening gradually. ${look}` }] : [],
+    // A window with no world yet: these words are its world.
+    updates: !target ? [] : [{ portal_id: target, prompt: find(target)?.prompt || story.seed ? `${scene}${NOW}${change}, happening gradually. ${look}` : `${change}. ${look}` }],
   };
 }
 

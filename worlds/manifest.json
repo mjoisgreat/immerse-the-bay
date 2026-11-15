@@ -10,6 +10,7 @@
         "Memorial Church"
       ],
       "spz": "/worlds/stanford.spz",
+      "spzLow": "/worlds/stanford-low.spz",
       "thumb": "/worlds/stanford.jpg",
       "scale": 3.1958162784576416,
       "ground": 1.7969460487365723,

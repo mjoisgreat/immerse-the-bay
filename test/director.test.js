@@ -81,3 +81,11 @@ test("the companion stays quiet when narrating, and when it isn't in the room", 
   assert.equal(away.companion, null);
   assert.ok(away.updates.length);
 });
+
+test("a new window opens onto exactly the world it was given, nothing else", async () => {
+  const blank = { seed: "", bible: "", beats: [] };
+  const out = await director.direct({ event: { type: "portal_added", portal_id: "B", world: "A tin-can moon base" }, story: blank, portals: [{ id: "B", prompt: "" }], focusId: "B" });
+  assert.equal(out.updates.length, 1);
+  assert.ok(out.updates[0].prompt.startsWith("A tin-can moon base."), out.updates[0].prompt);
+  assert.ok(!out.updates[0].prompt.includes("fishing village"));
+});

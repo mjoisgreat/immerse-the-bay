@@ -1,16 +1,11 @@
 import "./site.css";
 import { createLink } from "./link.js";
+import { PRESETS } from "./presets.js";
 import { urlRoom, cleanRoom, credFor, owned, consolePins, savePin, voterId } from "./identity.js";
 
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 
-const PRESETS = [
-  ["Lantern village", "A lantern-lit fishing village on a misty mountain lake at dusk, wooden boats, paper lanterns glowing amber"],
-  ["Giant's library", "A giant's overgrown library where the bookshelves are mossy cliffs and paper birds fly between them, warm afternoon light"],
-  ["Tin-can moon base", "A tiny moon base made of tin cans and string lights on a pastel lunar plain, Earth rising on the horizon"],
-  ["Coral city", "An underwater city of glowing coral towers, schools of silver fish, sunbeams slanting down through blue water"],
-];
 
 async function whoami(room) {
   const r = await fetch("/api/relay", {
@@ -73,7 +68,15 @@ const send = (m) => link?.send(m);
 function render(s) {
   $("#brain").textContent = `director: ${s.director}`;
   $("#bible").textContent = s.story.bible;
+  // Everything story-shaped on this page is the FOCUSED window's: each window is its own story.
+  const many = s.portals.length > 1;
+  const win = s.focusId ? `window ${s.focusId}` : "";
   if (document.activeElement !== $("#seedText")) $("#seedText").value = s.story.seed;
+  $("#seedTitle").textContent = win ? `World of ${win} (focused)` : "World of the next window";
+  $("#sayTitle").textContent = !win
+    ? "Tell the story (no window open: your line becomes the next window's world)"
+    : s.story.seed ? `Tell the story (goes to ${win})` : `What world is behind ${win}? (your line defines it)`;
+  $("#suggTitle").textContent = many ? `Audience suggestions (“Use” steers ${win}, the focused one)` : "Audience suggestions";
   if (document.activeElement !== $("#title")) $("#title").value = s.meta?.title || "";
   $("#shared").checked = Boolean(s.meta?.shared);
   $("#crowd").checked = Boolean(s.meta?.crowd);
@@ -84,7 +87,7 @@ function render(s) {
     ? s.log
         .slice()
         .reverse()
-        .map((l) => `<li><b>${esc(l.kind)}</b>${esc(l.text)}</li>`)
+        .map((l) => `<li><b>${esc(l.kind)}${many && l.portal ? ` · ${esc(l.portal)}` : ""}</b>${esc(l.text)}</li>`)
         .join("")
     : `<li class="muted">Nothing yet. Open a window in the headset and start telling the story.</li>`;
 
@@ -108,7 +111,8 @@ function render(s) {
           (p) => `<div class="sugg" style="display:block">
         <div class="row" style="justify-content:space-between"><strong>Portal ${esc(p.id)}${p.id === s.focusId ? " · focused" : ""}</strong>
           <span class="pill">${esc(p.status)}</span></div>
-        <p class="muted" style="margin:.4rem 0">${esc(p.prompt) || "<em>waiting for the director…</em>"}</p>
+        <p style="margin:.4rem 0;font-style:italic">${esc(s.threads?.[p.id]?.seed) || "<span class='muted'>No world yet: asking “what world is behind this window?”</span>"}</p>
+        <p class="muted" style="margin:.4rem 0">${esc(p.prompt) || (s.threads?.[p.id]?.seed ? "<em>waiting for the director…</em>" : "")}</p>
         <textarea data-id="${esc(p.id)}" placeholder="Override this portal's prompt (exact Orbis prompt)"></textarea>
         <div class="row" style="justify-content:space-between;margin-top:.4rem">
           <span class="row"><button class="ghost" data-focus="${esc(p.id)}">Focus</button>
@@ -157,27 +161,39 @@ $("#titleForm").addEventListener("submit", (e) => {
 });
 $("#shared").addEventListener("change", (e) => send({ t: "set_meta", shared: e.target.checked }));
 $("#crowd").addEventListener("change", (e) => send({ t: "set_meta", crowd: e.target.checked }));
-let resetTimer;
-$("#reset").addEventListener("click", (e) => {
-  const b = e.currentTarget;
-  if (b.dataset.armed) {
-    clearTimeout(resetTimer);
+// Reset, New story and Prepare demo wipe the room, so each asks for a second tap. The button
+// stays in its "Tap again to confirm" state until you do, or click anywhere else.
+const CONFIRM = {
+  reset: () => send({ t: "reset_story" }),
+  newStoryBtn() {
+    const seed = $("#newWorld").value.trim();
+    send({ t: "reset_story", seed, ask: !seed });
+    $("#newWorld").value = "";
+  },
+  prepare() {
+    send({ t: "reset_story", seed: $("#newWorld").value.trim() || PRESETS[0][1], open: true });
+    $("#newWorld").value = "";
+  },
+};
+function disarm() {
+  for (const b of document.querySelectorAll("button[data-armed]")) {
+    b.textContent = b.dataset.armed;
     delete b.dataset.armed;
-    b.textContent = "Reset story";
     b.className = "ghost";
     b.style.background = "";
-    return send({ t: "reset_story" });
   }
-  b.dataset.armed = "1";
-  b.textContent = "Click again to reset";
+}
+$("#newStory").addEventListener("submit", (e) => e.preventDefault());
+document.addEventListener("click", (e) => {
+  const b = e.target.closest("button");
+  const act = b && CONFIRM[b.id];
+  if (act && b.dataset.armed) return disarm(), act();
+  disarm();
+  if (!act) return;
+  b.dataset.armed = b.textContent;
+  b.textContent = "Tap again to confirm";
   b.className = "";
   b.style.background = "var(--bad)";
-  resetTimer = setTimeout(() => {
-    delete b.dataset.armed;
-    b.textContent = "Reset story";
-    b.className = "ghost";
-    b.style.background = "";
-  }, 3000);
 });
 $("#presets").innerHTML = PRESETS.map(([label, seed], i) => `<button class="ghost" data-preset="${i}" title="${esc(seed)}">${esc(label)}</button>`).join("");
 
