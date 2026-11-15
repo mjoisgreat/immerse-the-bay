@@ -12,7 +12,7 @@ export const state = {
   guideStep: -1,
   asking: null, // { kind: "story" | "portal", id }
   pendingSeed: "", // a world chosen ahead of time for the next window (also kept by the server)
-  armed: null, // "reset" | "newstory"
+  armed: null, // "reset" | "newstory" | "close"
   autoHidden: false,
   yaw: 0,
   pitch: 0,

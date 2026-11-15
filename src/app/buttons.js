@@ -5,7 +5,7 @@ import { CameraView } from "../cameraview.js";
 import { $, camera, renderer, scene } from "./stage.js";
 import { state } from "./state.js";
 import { BUDDY, WORLD_CYCLE, worldInfo } from "./config.js";
-import { flash } from "./feedback.js";
+import { buzz, chime, flash } from "./feedback.js";
 import { buddy, toggleBuddy } from "./buddy.js";
 import { camView, haptic, toggleCamera } from "./desktop.js";
 import { gestureCard } from "./guide.js";
@@ -33,19 +33,36 @@ function closeFocused() {
   if (id) closePortal(id);
   else flash("No window to close.");
 }
-export const toolbar = new Toolbar(camera, [
-  { id: "talk", icon: "🎙", label: "Hold to talk", press: () => startTalking(), release: () => stopTalking() },
-  { id: "new", icon: "＋", label: "New window", press: openInFront },
-  { id: "step", icon: "🚪", label: "Step inside", press: toggleStep },
-  { id: "hide", icon: "▾", label: "Hide buttons", press: () => setButtonsHidden(true) },
-  { id: "buddy", icon: BUDDY.icon, label: BUDDY.name, press: toggleBuddy },
-  { id: "world", icon: worldInfo(WORLD_CYCLE[0]).icon, label: worldInfo(WORLD_CYCLE[0]).label, press: toggleBackdrop },
-  { id: "wide", icon: "🔭", label: "Wide view", press: toggleWide },
-  { id: "newstory", icon: "✨", label: "New story", press: newStoryPressed },
-  { id: "reset", icon: "↺", label: "Reset story", press: resetPressed },
-  // Close window sits in the far corner, away from the buttons you press all the time.
-  { id: "close", icon: "✕", label: "Close window", press: closeFocused },
-]);
+/** The Close window button: asks for a second tap first (a window's story can't be brought back). */
+function closePressed() {
+  const id = immersion.inside ? immersion.portal?.id : state.focusId;
+  if (!id) return flash("No window to close.");
+  if (state.armed === "close") return (state.armed = null), syncButtons(), closeFocused();
+  state.armed = "close";
+  syncButtons();
+  flash(`Tap Close window again to close window ${id}.`, 600000);
+}
+// Top row: what you do all the time, Talk in the middle. Bottom row: the rest, with the buttons that
+// throw work away grouped at the far end (red, and they ask for a second tap). See toolbar.js.
+export const toolbar = new Toolbar(
+  camera,
+  [
+    { id: "new", icon: "＋", label: "New window", press: openInFront },
+    { id: "step", icon: "🚪", label: "Step inside", press: toggleStep },
+    { id: "talk", icon: "🎙", label: "Hold to talk", big: true, press: () => startTalking(), release: () => stopTalking() },
+    { id: "buddy", icon: BUDDY.icon, label: `Call ${BUDDY.name}`, press: toggleBuddy },
+    { id: "world", icon: worldInfo(WORLD_CYCLE[0]).icon, label: worldInfo(WORLD_CYCLE[0]).label, press: toggleBackdrop },
+    { id: "hide", icon: "▾", label: "Hide", row: "more", press: () => setButtonsHidden(true) },
+    { id: "wide", icon: "🔭", label: "Wide view", row: "more", press: toggleWide },
+    { id: "newstory", icon: "✨", label: "New story", row: "more", danger: true, press: newStoryPressed },
+    { id: "reset", icon: "↺", label: "Reset story", row: "more", danger: true, press: resetPressed },
+    { id: "close", icon: "✕", label: "Close window", row: "more", danger: true, press: closePressed },
+  ],
+  {
+    onPress: (id) => (chime("click"), buzz(id === "talk" ? 0.5 : 0.35, 25)),
+    onDisabled: (why) => (chime("deny"), buzz(0.2, 40), flash(why, 3000)),
+  },
+);
 // Hide / show the buttons (the exit ring hides with them; A/X and B/Y still work).
 // They start hidden (less to take in on a first visit: H, the ☰ handle, a thumbstick click or
 // your left palm brings them out) and after that stay the way you last left them.
@@ -78,7 +95,7 @@ export function updateToolbar() {
     if (h) hits.push(h.object);
     if (gestureCard.visible && hoverRay.intersectObject(gestureCard.closeButton, false).length) hits.push(gestureCard.closeButton);
   }
-  toolbar.hover(hits);
+  if (toolbar.hover(hits)) buzz(0.12, 12); // a light tick as the pointer lands on a button
   gestureCard.hoverClose(hits.includes(gestureCard.closeButton));
   syncButtons();
 }
@@ -93,7 +110,21 @@ export function syncButtons() {
   toolbar.set("world", { label: nw ? worldInfo(nw).label : "See-through", icon: nw ? worldInfo(nw).icon : "👓", state: backdrop.loading ? "active" : "idle" });
   toolbar.set("wide", { state: state.wideOn ? "active" : "idle", label: state.wideOn ? "Wide: on" : "Wide view" });
   toolbar.set("talk", { state: state.talking ? "active" : "idle", label: state.talking ? "Listening…" : "Hold to talk" });
-  toolbar.set("step", { label: inside ? "Step out" : "Step inside", icon: inside ? "↩" : "🚪" });
+  toolbar.set("step", {
+    label: inside ? "Step out" : "Step inside",
+    icon: inside ? "↩" : "🚪",
+    disabled: !inside && !portals.size,
+    why: "Open a window first: press ＋ New window, or pinch and draw a square.",
+  });
+  const closable = Boolean(inside ? immersion.portal : state.focusId && portals.has(state.focusId));
+  toolbar.set("close", {
+    disabled: !closable,
+    why: "No window to close.",
+    state: state.armed === "close" ? "warn" : "idle",
+    label: state.armed === "close" ? "Tap again" : "Close window",
+  });
+  setText(bar.close, state.armed === "close" ? "Tap again to close" : "Close window");
+  setClass(bar.close, "warn", state.armed === "close");
   toolbar.set("reset", { state: state.armed === "reset" ? "warn" : "idle", label: resetLabel });
   toolbar.set("newstory", { state: state.armed === "newstory" ? "warn" : "idle", label: newLabel });
   setText(bar.world, nw ? worldInfo(nw).bar : "See-through");
@@ -118,7 +149,7 @@ bar.talk.addEventListener("pointerup", () => stopTalking());
 bar.talk.addEventListener("pointerleave", () => stopTalking());
 bar.new.onclick = openInFront;
 bar.step.onclick = toggleStep;
-bar.close.onclick = closeFocused;
+bar.close.onclick = closePressed;
 bar.reset.onclick = resetPressed;
 bar.newstory.onclick = newStoryPressed;
 // Any other button cancels a pending confirm (capture: runs before the button's own handler).

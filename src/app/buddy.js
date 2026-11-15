@@ -7,6 +7,7 @@ import { CameraView } from "../cameraview.js";
 import { camera, renderer, scene } from "./stage.js";
 import { state } from "./state.js";
 import { BUDDY, USE_PIP } from "./config.js";
+import { camView } from "./desktop.js";
 import { send } from "./room.js";
 import { buzz, chime, flash } from "./feedback.js";
 import { immersion, openPortal, portals } from "./portals.js";
@@ -17,7 +18,14 @@ import { tmpMat } from "./xrinput.js";
 // It hops around your room, follows you, and talks with you. It is the story director's body in
 // the room: what it says and does arrives with each direction (see applyDirection).
 export const buddy = new Companion(scene, camera, { name: BUDDY.name, rig: USE_PIP ? new RobotRig() : new BunnyRig() });
-buddy.load().catch((e) => console.warn("[companion] failed to load", e));
+// Bonnie is always in the room: she appears as soon as she has loaded, and again in front of you when you
+// put the headset on. The Bonnie button (and a double tap on a phone) calls her over; nothing sends her away.
+buddy
+  .load()
+  .then(() => placeBuddy({ greet: false }))
+  .catch((e) => console.warn("[companion] failed to load", e));
+renderer.xr.addEventListener("sessionstart", () => setTimeout(() => buddy.ready && placeBuddy({ greet: false }), 1500));
+renderer.xr.addEventListener("sessionend", () => buddy.ready && placeBuddy({ greet: false }));
 /** Tells the story director whether its body is in the room, so it knows when it can speak here. */
 export function syncBuddy(present = buddy.visible) {
   send({ t: "companion", id: BUDDY.id, present: Boolean(present) });
@@ -118,17 +126,20 @@ export function toggleBuddyFollow() {
     5000,
   );
 }
-/** Phone double-tap on empty space: call Bonnie. If she isn't here she appears; if she is, she hops back over to you. */
+/** The Bonnie button, or a phone double-tap on empty space: Bonnie hops back over to you. */
 export function callBuddy() {
-  if (!buddy.visible) return toggleBuddy();
-  if (!buddy.ready) return;
+  if (!buddy.ready) return flash(`${BUDDY.name} is still waking up…`);
+  if (!buddy.visible) return placeBuddy();
   buddy.summon(renderer.xr.isPresenting ? 1.4 : 3.0);
   buddy.gesture("wave");
   buddy.say("Coming!", 3000);
 }
+// (The button used to send her away too; she now always stays.)
 export function toggleBuddy() {
-  if (buddy.visible) return buddy.dismiss(), syncBuddy(false), flash(`${BUDDY.name} waves goodbye.`);
-  if (!buddy.ready) return flash(`${BUDDY.name} is still waking up…`);
+  callBuddy();
+}
+/** Put Bonnie in front of you, sized for the headset or a flat screen. `greet`: say hello and explain her. */
+function placeBuddy({ greet = true } = {}) {
   const xr = renderer.xr.isPresenting;
   buddy.range = xr ? [1.2, 2.4] : [2.6, 3.4];
   buddy.comeDistance = xr ? 0.8 : 2.4;
@@ -136,11 +147,14 @@ export function toggleBuddy() {
   else {
     // On a flat screen: 3 m away and a slight downward tilt, so it and the windows stay in frame.
     buddy.summon(3.0);
-    state.pitch = Math.min(state.pitch, -0.2);
-    camera.rotation.set(state.pitch, state.yaw, 0, "YXZ");
+    if (greet && !camView.orienting) {
+      state.pitch = Math.min(state.pitch, -0.2);
+      camera.rotation.set(state.pitch, state.yaw, 0, "YXZ");
+    }
   }
   syncBuddy(true);
   buddy.say(`Hi! I'm ${BUDDY.name}. Talk to me any time!`, 6000);
+  if (!greet) return;
   const touchUi = !xr && CameraView.touch;
   flash(
     touchUi
