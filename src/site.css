@@ -124,6 +124,11 @@ ul.feed li.story { font: italic 1.02rem Georgia, serif; color: #ffe9c7; }
 .mod button[data-use]:hover { filter: brightness(1.12); }
 .mod button[data-dismiss]:hover { background: var(--bad); color: #1b1206; }
 
+/* The story so far (watch page): the same chat, a little shorter; narration keeps its storybook italic. */
+.chat.storyFeed { position: static; height: 24rem; }
+.chip.role { background: #2f2f35; }
+.msg.narr .text { font: italic 1rem/1.45 Georgia, serif; color: #ffe9c7; }
+
 /* ---------- Live view (watch page) ---------- */
 .liveview { position: relative; border-radius: 12px; overflow: hidden; background: #000; border: 1px solid var(--line); margin-bottom: .8rem; }
 .liveview video { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; background: #000; }

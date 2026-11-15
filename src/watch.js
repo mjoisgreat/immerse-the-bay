@@ -58,25 +58,54 @@ function render(s) {
     )
     .join("");
 
-  const kinds = { voice: "storyteller", guest: "co-narrator", crowd: "crowd", choice: "chosen", touch: "touch" };
-  const feed = (s.log || []).filter((l) => ["director", "speech", ...Object.keys(kinds)].includes(l.kind));
-  $("#feed").innerHTML = feed.length
-    ? feed
-        .slice()
-        .reverse()
-        .map((l) =>
-          l.kind === "director"
-            ? `<li class="story">${esc(l.text.replace(/\s*\(\d+ ms.*\)$/, ""))}</li>`
-            : l.kind === "speech"
-              ? `<li class="story" style="font-style:normal">💬 ${esc(l.text)}</li>`
-              : `<li><b>${kinds[l.kind]}</b>${esc(l.text)}</li>`,
-        )
-        .join("")
-    : `<li class="muted">Nothing yet.</li>`;
+  renderFeed(s);
 
   renderIdeas(s);
   maybeAskLive();
   renderSnaps();
+}
+
+// ---------- The story so far, as a stream chat: who said what, with Twitch-style badges ----------
+// The narrator, the storyteller, co-narrators, the crowd's picks and the characters each get a name and
+// a badge; the newest line is at the bottom and the log sticks there unless you've scrolled up.
+const ROLES = {
+  director: { name: "Narrator", chip: "📖", color: "#ffb36b", title: "The narrator" },
+  voice: { name: "Storyteller", chip: "🎥", color: "#ff6b6b", title: "The storyteller (broadcaster)" },
+  guest: { name: "Co-narrator", chip: "🎙", color: "#3ddc6a", title: "A co-narrator" },
+  crowd: { name: "Crowd", chip: "👥", color: "#bf94ff", title: "The crowd's top idea" },
+  choice: { name: "Chosen", chip: "✓", color: "#5cb8ff", title: "A chosen option" },
+  touch: { name: "Storyteller", chip: "✋", color: "#ff6b6b", title: "The storyteller touched the world" },
+};
+const seenLines = new Set();
+let firstFeed = true;
+const updateFeed = stickyLog($("#feed"), $("#feedJump"));
+function renderFeed(s) {
+  const lines = (s.log || []).filter((l) => l.kind === "speech" || ROLES[l.kind]);
+  const key = (l) => `${l.at}|${l.kind}|${l.text}`;
+  const html = lines.length
+    ? lines
+        .map((l) => {
+          let who, chip, color, title, text = l.text, cls = "";
+          if (l.kind === "speech") {
+            // A character speaking: "Mei: Hello". Characters get a steady colour per name.
+            const i = l.text.indexOf(": ");
+            who = i > 0 ? l.text.slice(0, i) : "Someone";
+            text = i > 0 ? l.text.slice(i + 2) : l.text;
+            ({ chip, title } = { chip: "💬", title: "A character" });
+            color = `hsl(${hueOf(who)} 85% 66%)`;
+          } else {
+            ({ name: who, chip, color, title } = ROLES[l.kind]);
+            if (l.kind === "director") (text = l.text.replace(/\s*\(\d+ ms.*\)$/, "")), (cls = " narr");
+          }
+          const fresh = !firstFeed && !seenLines.has(key(l)) ? " fresh" : "";
+          return `<div class="msg${cls}${fresh}"><span class="ts">${l.at ? clock(l.at) : ""}</span><span class="chip role" title="${title}" style="background:color-mix(in srgb, ${color} 35%, #18181b)">${chip}</span><b class="who" style="color:${color}">${esc(who)}</b><span class="colon">:</span> <span class="text">${esc(text)}</span></div>`;
+        })
+        .join("")
+    : `<div class="chatWelcome">Nothing yet. The story starts when the storyteller speaks.</div>`;
+  const hasNew = lines.some((l) => !seenLines.has(key(l)));
+  for (const l of lines) seenLines.add(key(l));
+  updateFeed(html, { hasNew });
+  firstFeed = false;
 }
 
 // ---------- Ideas as a stream chat: oldest at the top, newest at the bottom, the top idea pinned ----------
