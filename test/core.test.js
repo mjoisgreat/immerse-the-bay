@@ -260,9 +260,10 @@ test("a slow director reply can't overwrite a newer one", () => {
   const s = start();
   const dir = (prompt) => ({ narration: "n", bible: "b", prompt, choices: [] });
   applyDirection(s, dir("newer scene"), 10, 2); // request 2 answered first
-  const [ev] = applyDirection(s, dir("older scene"), 10, 1); // request 1 answered late
+  const late = applyDirection(s, { ...dir("older scene"), companion: { reply: "Old news.", gesture: "none", move: "none" } }, 10, 1); // request 1 answered late
   assert.equal(s.window.prompt, "newer scene");
-  assert.equal(ev.prompt, null);
+  assert.deepEqual(late, []); // dropped whole: neither its scene nor Bonnie's old answer reaches the headset
+  assert.ok(!s.log.some((l) => l.text.includes("Old news")));
 });
 
 import { autoTitle, summary } from "../server/core.js";

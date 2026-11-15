@@ -371,6 +371,9 @@ export function askDirector(director, s, event) {
  */
 export function applyDirection(s, out, ms, seq = 0, event = null) {
   upgrade(s);
+  // A reply to an older request than one already applied is dropped whole: its prompt would make the scene
+  // jump back, and its words (Bonnie's answer, world, choices) would land on top of the newer answer.
+  if (seq && seq < (s.appliedSeq || 0)) return [];
   const companion = out.companion?.reply
     ? {
         name: s.companion?.id === "pip" ? "Pip" : "Bonnie",
@@ -388,11 +391,8 @@ export function applyDirection(s, out, ms, seq = 0, event = null) {
     const i = s.story.beats.lastIndexOf(event.text);
     if (i !== -1) s.story.beats.splice(i, 1);
   }
-  // A reply to an older request than one already applied: its prompt is out of date (applying it
-  // would make the scene jump back), so drop it.
-  const stale = seq && seq < (s.appliedSeq || 0);
-  if (seq && !stale) s.appliedSeq = seq;
-  const prompt = s.window && !stale && out.prompt ? out.prompt : null;
+  if (seq) s.appliedSeq = seq;
+  const prompt = s.window && out.prompt ? out.prompt : null;
   // A new world asked for while one is showing comes with a transition prompt: the story moves there in
   // one continuous shot (no restart, so the client is not told to reopen the window).
   const transition = Boolean(prompt && s.story.seed && companion?.world);
