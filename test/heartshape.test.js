@@ -64,3 +64,23 @@ test("a heart drawn the way people draw it (point, straight sides, two round lob
   const tri = build((seg) => { seg([-0.5, 0.4], [0.5, 0.4], 25); seg([0.5, 0.4], [0, -0.5], 25); seg([0, -0.5], [-0.5, 0.38], 25); });
   assert.equal(analyzeHeart(P(tri), eye).heart, false);
 });
+test("hand-drawn hearts that miss the textbook curve count (boxy, flat lobes, overshooting the start); frames still don't", () => {
+  const P = (pts) => pts.map(([x, y]) => [x * 0.3, 1.4 + y * 0.3, -0.45]);
+  const build = (f) => {
+    const out = [];
+    const seg = (a, b, n) => { for (let i = 0; i < n; i++) out.push([a[0] + ((b[0] - a[0]) * i) / n, a[1] + ((b[1] - a[1]) * i) / n]); };
+    const arc = (cx, cy, r, a0, a1, n, ry = r) => { for (let i = 0; i <= n; i++) { const a = a0 + ((a1 - a0) * i) / n; out.push([cx + r * Math.cos(a), cy + ry * Math.sin(a)]); } };
+    f(seg, arc);
+    return out;
+  };
+  // Wide, with flat lobes and a short point: used to fall through and open a window.
+  const boxy = build((seg, arc) => { seg([0, -0.3], [-0.6, 0.1], 20); arc(-0.3, 0.15, 0.3, Math.PI, 0, 25, 0.15); arc(0.3, 0.15, 0.3, Math.PI, 0, 25, 0.15); seg([0.6, 0.1], [0, -0.3], 20); });
+  assert.equal(analyzeHeart(P(boxy), eye).heart, true);
+  // Started in the dip, lopsided, and ran on past the start.
+  const over = build((seg, arc) => { arc(-0.25, 0.15, 0.27, 0, Math.PI + 0.38, 25); seg([-0.5, 0.05], [0, -0.55], 20); seg([0, -0.55], [0.55, 0.1], 20); arc(0.28, 0.15, 0.28, 0, Math.PI, 25); seg([0, 0.15], [-0.08, 0.2], 6); });
+  assert.equal(analyzeHeart(P(over), eye).heart, true);
+  const frame = (pts) => build((seg) => pts.forEach((p, i) => seg(p, pts[(i + 1) % pts.length], 20)));
+  assert.equal(analyzeHeart(P(frame([[-0.5, 0.45], [0.5, 0.55], [0.45, -0.5], [-0.5, -0.45]])), eye).heart, false); // a sloppy square
+  assert.equal(analyzeHeart(P(frame([[-0.5, 0.5], [0.5, 0.5], [0.3, -0.5], [-0.3, -0.5]])), eye).heart, false); // a trapezoid
+  assert.equal(analyzeHeart(P(frame([[-0.8, 0.5], [0.8, 0.5], [0.8, -0.5], [-0.8, -0.5]])), eye).heart, false); // a wide frame
+});
