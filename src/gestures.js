@@ -2,6 +2,7 @@ import * as THREE from "three";
 
 // Hand gestures (Quest hand tracking), on top of pinching:
 //  - Raise a hand to your mouth like a microphone → talk; lower it → send.
+//  - Thumbs up (either hand) → talk hands-free: lower your hand and keep talking; thumbs up again → send.
 //  - Part both hands like curtains → step into the focused window; bring them back together → step out.
 //  - Shake both hands in front of you (wipe away) → close the focused window (or step out when inside).
 //  - Turn your LEFT palm toward your face and hold it there → show / hide the buttons.
@@ -19,6 +20,25 @@ const SWING = 0.045, SHAKE_TURNS = 3, SHAKE_WINDOW_MS = 1400;
 const MOVED = 0.08; // both hands must travel at least this far in a parting / closing motion
 const GAP_MS = 300; // tracking gap after which half-finished two-hand motions are forgotten
 const PALM_HOLD_MS = 600;
+// Thumbs up: thumb pointing up, the four fingers curled into a fist, held a moment. Measured against the
+// hand's own size (wrist to middle knuckle), so it works for any hand.
+const THUMB_HOLD_MS = 300, THUMB_REARM_MS = 250, THUMB_TALK_MAX_MS = 60000;
+const CURLED = 1.35; // a fingertip closer to the wrist than this × hand size is curled (stretched out ≈ 1.9)
+const THUMB_UP = 0.7; // how upright the thumb must point (cosine to straight up)
+
+/**
+ * Is this hand making a thumbs up? `f` = { wrist, knuckle (middle-finger-phalanx-proximal), thumbTip,
+ * thumbBase (thumb-phalanx-proximal), tips: [index, middle, ring, pinky] }, all [x, y, z] world positions.
+ */
+export function isThumbsUp(f) {
+  if (!f?.wrist || !f.knuckle || !f.thumbTip || !f.thumbBase || f.tips?.length !== 4 || f.tips.some((t) => !t)) return false;
+  const size = len(sub(f.knuckle, f.wrist));
+  if (size < 0.04) return false;
+  const curled = f.tips.every((t) => len(sub(t, f.wrist)) < CURLED * size);
+  const thumbDir = norm(sub(f.thumbTip, f.thumbBase));
+  const above = f.tips.every((t) => f.thumbTip[1] > t[1] + 0.025) && f.thumbTip[1] > f.knuckle[1] + 0.02;
+  return curled && above && thumbDir[1] > THUMB_UP;
+}
 
 const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
 const len = (a) => Math.hypot(a[0], a[1], a[2]);
@@ -44,6 +64,10 @@ export class GestureDetector {
     this._resetTwoHand();
     this.palmSince = 0;
     this.palmArmed = true;
+    this.talkBy = null; // "mouth" | "thumb": what started the current talk
+    this.thumbSince = 0;
+    this.thumbArmed = true;
+    this.thumbOffSince = 0;
   }
 
   _resetTwoHand() {
@@ -60,6 +84,9 @@ export class GestureDetector {
     const events = this.talking ? ["talk-end"] : [];
     this.talking = false;
     this.talkHand = null;
+    this.talkBy = null;
+    this.thumbSince = 0;
+    this.thumbArmed = true;
     this.nearSince = 0;
     this.palmSince = 0;
     this._resetTwoHand();
@@ -95,6 +122,34 @@ export class GestureDetector {
     const dMouth = (h) => (h ? len(sub(h.palm, mouth)) : Infinity);
     // While talking only the hand that started it counts; if it drops out of tracking (it is right
     // under the headset) keep listening for a while rather than cutting the speaker off.
+    // Thumbs up starts (or, when it started the talk, ends) a hands-free talk. It needs re-arming: the
+    // pose has to be let go of for a moment before it can fire again.
+    const thumbSide = ["right", "left"].find((side) => isThumbsUp(hands[side]?.fingers));
+    if (thumbSide) {
+      this.thumbOffSince = 0;
+      this.thumbSince ||= now;
+      if (this.thumbArmed && now - this.thumbSince >= THUMB_HOLD_MS) {
+        this.thumbArmed = false;
+        if (!this.talking) {
+          this.talking = true;
+          this.talkBy = "thumb";
+          this.talkHand = thumbSide;
+          this.talkStarted = now;
+          events.push("talk-start");
+        } else if (this.talkBy === "thumb") {
+          this._endTalk(events);
+        }
+      }
+    } else {
+      this.thumbSince = 0;
+      this.thumbOffSince ||= now;
+      if (now - this.thumbOffSince >= THUMB_REARM_MS) this.thumbArmed = true;
+    }
+    if (this.talkBy === "thumb") {
+      // Hands-free: lowering or losing the hand doesn't stop it; a second thumbs up does (or a minute).
+      if (this.talking && now - this.talkStarted > THUMB_TALK_MAX_MS) this._endTalk(events);
+      return this._afterTalk(events, now, hands, head);
+    }
     const talkHand = this.talking ? hands[this.talkHand] : null;
     if (talkHand || !this.talking) this.talkSeen = now;
     const toMouth = this.talking
@@ -105,16 +160,25 @@ export class GestureDetector {
         this.nearSince ||= now;
         if (now - this.nearSince >= MIC_HOLD_MS) {
           this.talking = true;
+          this.talkBy = "mouth";
           this.talkHand = dMouth(hands.left) < dMouth(hands.right) ? "left" : "right";
           events.push("talk-start");
         }
       } else this.nearSince = 0;
-    } else if (toMouth > MIC_OFF) {
-      this.talking = false;
-      this.talkHand = null;
-      this.nearSince = 0;
-      events.push("talk-end");
-    }
+    } else if (toMouth > MIC_OFF) this._endTalk(events);
+    return this._afterTalk(events, now, hands, head);
+  }
+
+  _endTalk(events) {
+    this.talking = false;
+    this.talkHand = null;
+    this.talkBy = null;
+    this.nearSince = 0;
+    events.push("talk-end");
+  }
+
+  /** Everything after the talk logic: the two-hand gestures and the palm. */
+  _afterTalk(events, now, hands, head) {
 
     // Two-hand gestures: both hands raised in front of you, and not while talking.
     const right = cross(head.fwd, head.up);
@@ -225,7 +289,19 @@ export class HandGestures {
     const palm = j.getWorldPosition(this._v).toArray();
     // WebXR hand joints: -Y points out of the palm.
     const n = new THREE.Vector3(0, -1, 0).applyQuaternion(j.getWorldQuaternion(this._q)).toArray();
-    return { palm, palmNormal: n };
+    // The joints a thumbs up is read from (see isThumbsUp).
+    const at = (name) => {
+      const t = hand.joints?.[name];
+      return t?.visible ? t.getWorldPosition(new THREE.Vector3()).toArray() : null;
+    };
+    const fingers = {
+      wrist: at("wrist"),
+      knuckle: at("middle-finger-phalanx-proximal"),
+      thumbTip: at("thumb-tip"),
+      thumbBase: at("thumb-phalanx-proximal"),
+      tips: ["index", "middle", "ring", "pinky"].map((f) => at(`${f}-finger-tip`)),
+    };
+    return { palm, palmNormal: n, fingers };
   }
 
   /** Flash both palms in a colour: "this gesture registered". */

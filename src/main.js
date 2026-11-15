@@ -479,7 +479,14 @@ async function startTalking(gesture = false) {
     micOrb.scale.setScalar(1.4);
     chime("talk");
     buzz(0.5, 60);
-    flash(byGesture ? "Listening… lower your hand when you're done" : "Listening… let go when you're done", 60000);
+    flash(
+      !byGesture
+        ? "Listening… let go when you're done"
+        : gestures.detector.talkBy === "thumb"
+          ? "Listening… 👍 thumbs up again when you're done"
+          : "Listening… lower your hand when you're done",
+      60000,
+    );
   } catch (e) {
     wantTalk = false;
     buddy.attend(false);

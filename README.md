@@ -169,6 +169,7 @@ fallback. Besides pointing and pinching (open, move, tap to touch, press buttons
 | Gesture | Does | Controller fallback |
 |---|---|---|
 | Raise a hand to your mouth, like a microphone | Talk; lower it to send. A red mic badge floats by that hand while it records. Bonnie, if she is in the room, runs over and faces you while you talk | Hold A / X |
+| Thumbs up (either hand, held a moment) | Talk hands-free: lower your hand and keep talking; thumbs up again to send (it sends by itself after a minute) | Hold A / X |
 | Part both hands, like opening curtains | Step into the focused window | B / Y |
 | Bring both hands back together | Step back out | B / Y |
 | Shake both hands in front of you, like wiping something away | Close the focused window (inside a world: step back out) | Grip while pointing at it |
