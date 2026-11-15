@@ -77,7 +77,7 @@ export async function relayPost(store, body) {
   if (!allowed(role, body.t)) return err(403, `not allowed for ${role}`);
 
   const ctx = { role, voter: typeof body.voter === "string" ? body.voter.slice(0, 40) : null };
-  const { event, snapshot } = await store.withLock(room, async () => {
+  const { event } = await store.withLock(room, async () => {
     const s = await store.getState(room);
     const { events, director: ev } = reduce(s, body, ctx);
     // Number each director request, so a slow reply can't overwrite a newer one.
@@ -85,20 +85,44 @@ export async function relayPost(store, body) {
     await store.setState(room, s);
     await store.pushEvents(room, events);
     await store.touchPublic(room, s.meta.shared);
-    return { event: ev, snapshot: s };
+    return { event: ev };
   });
 
-  if (event) {
-    const started = Date.now();
-    const out = await askDirector(director, snapshot, event);
-    await store.withLock(room, async () => {
-      const fresh = await store.getState(room); // others may have changed it while the director thought
-      const more = applyDirection(fresh, out, Date.now() - started, event.seq, event);
-      await store.setState(room, fresh);
-      await store.pushEvents(room, more);
-    });
-  }
+  if (event) await thinkInTurn(store, room, event);
   return ok({ ok: true, role });
+}
+
+// The director answers one request at a time per room, in the order they came: each starts from the story as
+// the one before it left it, so a touch and a spoken line build on each other instead of overwriting each
+// other. (One server process; on serverless instances this is best effort.)
+const turns = new Map(); // room -> { tail: Promise, waiting: number, touches: number }
+function thinkInTurn(store, room, event) {
+  const q = turns.get(room) || { tail: Promise.resolve(), waiting: 0, touches: 0 };
+  turns.set(room, q);
+  // Another touch while one is waiting or being answered is skipped: the frame would be of the same scene.
+  if (event.type === "touch" && q.touches > 0) return Promise.resolve();
+  const touch = event.type === "touch";
+  if (touch) q.touches++;
+  q.waiting++;
+  const run = async () => {
+    try {
+      const snapshot = await store.getState(room); // after everything answered so far
+      const started = Date.now();
+      const out = await askDirector(director, snapshot, event);
+      await store.withLock(room, async () => {
+        const fresh = await store.getState(room); // others may have changed it while the director thought
+        const more = applyDirection(fresh, out, Date.now() - started, event.seq, event);
+        await store.setState(room, fresh);
+        await store.pushEvents(room, more);
+      });
+    } finally {
+      if (touch) q.touches--;
+      if (--q.waiting === 0) turns.delete(room);
+    }
+  };
+  const result = q.tail.then(run);
+  q.tail = result.catch(() => {});
+  return result;
 }
 
 /** Orbis tokens only for the room's owner headset, so strangers can't spend the team's credits. */
