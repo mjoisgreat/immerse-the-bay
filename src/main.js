@@ -1367,7 +1367,7 @@ async function toggleBackdrop() {
   }
   const info = worldInfo(next);
   const quality = splatQuality(renderer);
-  const light = next !== "moon" && quality === "low" ? " (light version)" : "";
+  const light = next !== "moon" && quality === "low" && backdrop.worlds.hasLight(next) ? " (light version)" : "";
   showLoading(next === "moon" ? "Flying to the Moon…" : `Loading ${info.name}${light}…`, next === "moon" ? null : 0);
   const ok = await backdrop
     .show(next, {

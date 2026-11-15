@@ -126,6 +126,11 @@ export class SplatWorlds {
     return WORLDS.has(id);
   }
 
+  /** Whether the world has a light version (otherwise "low" quality loads the full one too). */
+  hasLight(id) {
+    return Boolean(WORLDS.get(id)?.spzLow);
+  }
+
   /**
    * Resolves to a Group holding the world (floor at y = 0, start point at the origin), or null.
    * `onProgress({ stage: "download", fraction })` then `({ stage: "build" })`.
