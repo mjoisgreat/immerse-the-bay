@@ -6,6 +6,7 @@ import { $, camera, renderer, scene } from "./stage.js";
 import { state } from "./state.js";
 import { BUDDY, WORLD_CYCLE, worldInfo } from "./config.js";
 import { flash } from "./feedback.js";
+import { send } from "./room.js";
 import { buddy, toggleBuddy } from "./buddy.js";
 import { camView, haptic, toggleCamera } from "./desktop.js";
 import { cheatSheet, showCheatSheet } from "./guide.js";
@@ -24,6 +25,23 @@ export const toolbar = new Toolbar(camera);
 renderer.xr.addEventListener("sessionstart", () => toolbar.recenter());
 scene.add(toolbar.group); // in the scene, not on the camera: it follows your gaze (see Toolbar.update)
 const STANFORD = WORLD_CYCLE.find((id) => id !== "moon") || "stanford-church";
+// ---------- Community: share this story so anyone can watch it, suggest and vote ----------
+const isShared = () => Boolean(state.roomState?.meta?.shared);
+export function toggleShare() {
+  const on = !isShared();
+  send({ t: "set_meta", shared: on });
+  if (state.roomState) state.roomState.meta = { ...state.roomState.meta, shared: on }; // shown right away; the server confirms
+  flash(
+    on
+      ? "Your story is on the community page now: anyone can watch, suggest what happens next and vote. Press again to stop sharing."
+      : "Your story is private again (no longer on the community page).",
+    6000,
+  );
+}
+function openCommunity() {
+  window.open("/community.html", "_blank", "noopener");
+}
+
 function menuItems() {
   const act = {
     exitwin: stepOut,
@@ -33,11 +51,12 @@ function menuItems() {
     moon: () => void toggleWorld("moon"),
     "exit-moon": () => void toggleWorld("moon"),
     wide: toggleWide,
+    share: toggleShare,
     cheat: showCheatSheet,
     invite: showJoinCard,
     exitvr: () => renderer.xr.getSession()?.end(),
   };
-  const entries = menuFor({ inside: immersion.inside, world: worldKey(), loading: backdrop.loading, armed: state.armed, wideOn: state.wideOn });
+  const entries = menuFor({ inside: immersion.inside, world: worldKey(), loading: backdrop.loading, armed: state.armed, wideOn: state.wideOn, shared: isShared() });
   return entries.map((e) => ({ ...e, press: act[e.id] }));
 }
 // How close (metres) a ray must pass to a menu item to zone in on it.
@@ -153,6 +172,8 @@ export function syncButtons() {
   setClass(bar.wide, "on", state.wideOn);
   setText(bar.camera, camView.on ? "Camera: on" : "Camera");
   setClass(bar.camera, "on", camView.on);
+  setText(bar.share, isShared() ? "🌐 Shared: on" : "🌐 Share story");
+  setClass(bar.share, "on", isShared());
   setText(bar.talk, state.talking ? "Listening…" : "Hold to talk");
   setClass(bar.talk, "on", state.talking);
   setText(bar.step, inside ? "Step out" : "Step inside");
@@ -180,6 +201,8 @@ bar.hide.onclick = () => setButtonsHidden(true);
 bar.world.onclick = toggleBackdrop;
 bar.wide.onclick = toggleWide;
 bar.camera.onclick = toggleCamera;
+bar.share.onclick = toggleShare;
+bar.community.onclick = openCommunity;
 bar.buddy.onclick = toggleBuddy;
 bar.buddy.textContent = BUDDY.name;
 setStartScreen(true); // the start screen first; the bar appears once you are past it

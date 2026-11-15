@@ -16,7 +16,7 @@ import { closeMenu, menuSnap, pressMenuPart, toolbar } from "./buttons.js";
 import { cheatSheet } from "./guide.js";
 import { joinCardMesh, pressJoinCard } from "./join.js";
 import { closePortal, immersion, openPortal, portals, setFocus, stepInside, stepOut } from "./portals.js";
-import { disarm, pickChoice, touchPortal, touchWorld } from "./story.js";
+import { touchPortal, touchWorld } from "./story.js";
 import { startTalking, stopTalking } from "./talk.js";
 import { trail } from "./trail.js";
 import { loco } from "./world.js";

@@ -280,3 +280,17 @@ test("a slow director reply can't overwrite a newer one", () => {
   assert.equal(s.portals[0].prompt, "newer scene");
   assert.deepEqual(ev.updates, []);
 });
+
+import { autoTitle, summary } from "../server/core.js";
+test("a shared story without a title is named after its first window's world", () => {
+  const s = initialState();
+  assert.equal(summary("abc", s).title, "A new story");
+  s.portals = [{ id: "A" }];
+  s.threads = { A: { seed: "a misty pine forest at dawn." } };
+  assert.equal(autoTitle(s), "A misty pine forest at dawn");
+  assert.equal(summary("abc", s).title, "A misty pine forest at dawn");
+  s.meta.title = "My forest";
+  assert.equal(summary("abc", s).title, "My forest");
+  s.threads.A.seed = "an enormous sprawling underwater city of glass domes and coral towers lit by lanterns";
+  assert.ok(autoTitle(s).length <= 60 && autoTitle(s).endsWith("…"));
+});

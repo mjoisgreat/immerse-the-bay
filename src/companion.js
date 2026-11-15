@@ -610,6 +610,7 @@ export class Companion {
     this.errand = null; // { point, done, until }: walking somewhere to do something (see goTo)
     this.attendUntil = 0; // you are talking: she comes over and faces you until then (see attend)
     this.nextShowOff = performance.now() + 40000; // now and then, when idle, she does a trick on her own
+    this.wanderDeg = 50; // how far to either side of where you look she wanders (narrower on a phone screen)
     this.returnAt = 0; // when to walk back to you after a throw (0 = not pending)
     this.strayT = 0; // ms spent too far away
     rig.onFinished = () => {
@@ -775,12 +776,12 @@ export class Companion {
   }
 
   _pickWanderTarget(eye) {
-    // Somewhere on the floor in front of you (within ±50° of where you're facing), so it stays
+    // Somewhere on the floor in front of you (within ±wanderDeg of where you're facing), so it stays
     // where you can see it instead of wandering behind you.
     const fwd = _fwd.set(0, 0, -1).applyQuaternion(this.camera.getWorldQuaternion(_q1));
     const facing = Math.atan2(fwd.x, fwd.z);
     for (let i = 0; i < 8; i++) {
-      const a = facing + THREE.MathUtils.degToRad((Math.random() * 2 - 1) * 50);
+      const a = facing + THREE.MathUtils.degToRad((Math.random() * 2 - 1) * this.wanderDeg);
       const r = this.range[0] + Math.random() * (this.range[1] - this.range[0]);
       const p = new THREE.Vector3(eye.x + Math.sin(a) * r, 0, eye.z + Math.cos(a) * r);
       if (p.distanceTo(this.root.position) > 0.5) return p;
