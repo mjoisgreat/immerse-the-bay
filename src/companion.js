@@ -12,6 +12,9 @@ import { stepBody, VelocityTracker, isTap } from "./physics.js";
 // and onFinished (called when a one-shot gesture ends).
 const WALK_SPEED = 0.45; // m/s
 const RUN_SPEED = 1.3; // when it has fallen behind
+const RETURN_AFTER = 6000; // ms after landing from a throw before it trots back to you
+const STRAY_DIST = 4; // m: farther than this from you and it comes back on its own
+const LOST_DIST = 12; // m: farther than this (or NaN) and it is simply put back next to you
 const GESTURES = { wave: "Wave", yes: "Yes", no: "No", thumbs_up: "ThumbsUp", jump: "Jump", dance: "Dance" };
 const ONE_SHOT = new Set(Object.values(GESTURES));
 // Grab and throw: how the throw feels.
@@ -387,6 +390,8 @@ export class Companion {
     this.range = [1.2, 2.4];
     this.comeDistance = 0.8;
     this.following = false; // walks beside you wherever you go
+    this.returnAt = 0; // when to walk back to you after a throw (0 = not pending)
+    this.strayT = 0; // ms spent too far away
     rig.onFinished = () => {
       this.emoting = false;
       this.rig.play(this.mode === "walk" ? "Walking" : "Idle");
@@ -461,6 +466,8 @@ export class Companion {
     // A little to your left, so it doesn't stand in front of the window you're looking at.
     const left = new THREE.Vector3(fwd.z, 0, -fwd.x);
     this._endPhysics();
+    this.returnAt = 0;
+    this.strayT = 0;
     this.root.position.set(eye.x + fwd.x * distance + left.x * distance * 0.4, 0, eye.z + fwd.z * distance + left.z * distance * 0.4);
     this.root.lookAt(eye.x, 0, eye.z);
     this.root.visible = true;
@@ -553,6 +560,19 @@ export class Companion {
     const moving = () => this.rig.current === "Walking" || this.rig.current === "Running";
     if (this.phys) return this._updatePhysics(dt, now, toUser);
 
+    // It is always around: after a throw, or if it ends up far from you, it comes back by itself.
+    const pos = this.root.position;
+    if (!Number.isFinite(pos.x + pos.y + pos.z) || distUser > LOST_DIST) {
+      this.summon(this.comeDistance + 0.6); // lost it (out of the room, bad numbers): put it back
+      return;
+    }
+    this.strayT = distUser > STRAY_DIST ? this.strayT + dt * 1000 : 0;
+    if ((this.returnAt && now > this.returnAt) || this.strayT > RETURN_AFTER) {
+      this.returnAt = 0;
+      this.strayT = 0;
+      if (!this.following && !this.listening && !this.talking) this.followUser = true;
+    }
+
     let speed = WALK_SPEED;
     if (this.listening || this.talking) {
       this.mode = "talk";
@@ -584,6 +604,7 @@ export class Companion {
       // Come to just in front of you.
       this.target = new THREE.Vector3(eye.x, 0, eye.z).addScaledVector(toUser.clone().normalize(), -this.comeDistance);
       this.mode = "walk";
+      if (distUser > 3) speed = RUN_SPEED;
     } else if (this.mode === "talk" && now > this.idleUntil) {
       this.mode = "idle";
       this.idleUntil = now + 4000 + Math.random() * 4000;
@@ -652,6 +673,8 @@ export class Companion {
       travel: 0,
     };
     this.tracker.reset();
+    this.returnAt = 0;
+    this.strayT = 0;
     this.target = null;
     this.emoting = false;
     this.rig.play("Idle");
@@ -754,6 +777,7 @@ export class Companion {
       if (p.t >= 1) {
         this.root.quaternion.copy(p.toQ);
         this._endPhysics();
+        this.returnAt = performance.now() + RETURN_AFTER;
         this.onPhysics?.("landed", p.hardest);
       }
     }

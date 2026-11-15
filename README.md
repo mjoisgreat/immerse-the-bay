@@ -103,7 +103,7 @@ tilted, black headset visor with side straps, an "x" nose and a round tail) hops
 soft shadow under it. It's built from simple shapes and animated in code (no model file): it hops with squash and
 stretch and flowing ears, breathes and twitches its ears when idle, waves an ear, nods, shakes its head, does happy
 hops, spins in the air and dances, and its visor glows while it listens and pulses while it talks.
-It wanders in front of you, and comes over when you ask. **Pinch Bonnie, or say "follow me",** and it hops beside you
+If you throw it far or leave it behind, it trots back to you a few seconds after landing. It wanders in front of you, and comes over when you ask. **Pinch Bonnie, or say "follow me",** and it hops beside you
 wherever you go (a little ahead and to your left, bounding to catch up, popping back if you leave the room); pinch
 again or say "stay" to stop. **Pick Bonnie up and throw it:** pinch (or trigger) and hold while pointing at
 Bonnie, or reach out and pinch it directly, and it comes to your hand; let go and it flies off with your hand's speed,
