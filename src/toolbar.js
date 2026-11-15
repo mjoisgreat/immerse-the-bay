@@ -314,9 +314,9 @@ export class Toolbar {
       m.userData.tex.needsUpdate = true;
       return;
     }
-    // Votes (and, with several windows open, which one it steers) in a pill on the right.
+    // Votes in a pill on the right.
     g.font = "700 30px system-ui, sans-serif";
-    const pill = `${item.to ? `→ ${item.to}  ` : ""}▲ ${item.votes ?? 0}`;
+    const pill = `▲ ${item.votes ?? 0}`;
     const pw = g.measureText(pill).width + 28;
     g.fillStyle = hovered ? "rgba(27,18,6,0.18)" : item.top ? "#ffb36b" : "#2f2f35";
     g.beginPath();

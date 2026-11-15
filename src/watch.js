@@ -46,8 +46,6 @@ function render(s) {
   $("#crowdNote").textContent = s.meta?.crowd
     ? "Crowd Mode is on: the top-voted idea becomes the next scene every 20 seconds."
     : "The storyteller picks from the most-voted ideas.";
-  // Each window is its own story; an idea steers the one the storyteller is looking at.
-  if ((s.portals || []).length > 1 && s.focusId) $("#crowdNote").textContent += ` Ideas steer window ${s.focusId}, the one the storyteller is looking at now.`;
 
   const choices = s.choices || [];
   $("#nextBox").hidden = !choices.length;
@@ -123,32 +121,30 @@ function renderIdeas(s) {
   firstIdeas = false;
 }
 
-// Portal snapshots (posted by the storyteller's headset every few seconds).
-let snaps = {};
+// A snapshot of the window (posted by the storyteller's headset every few seconds).
+let snap = null;
 let snapsHtml = "";
 async function pollSnaps() {
-  snaps = await fetch(`/api/snapshot?room=${room}`, { cache: "no-store" })
+  snap = await fetch(`/api/snapshot?room=${room}`, { cache: "no-store" })
     .then((r) => r.json())
-    .catch(() => snaps);
+    .then((j) => j.image)
+    .catch(() => snap);
   renderSnaps();
   // Fast while pictures are all you have; slow once the live video is playing.
   setTimeout(pollSnaps, document.hidden ? 15000 : live === "live" ? 6000 : 1200);
 }
 function renderSnaps() {
-  const ids = (state?.portals || []).map((p) => p.id).filter((id) => snaps[id]);
-  if (!ids.length) {
+  if (!state?.window || !snap) {
     $("#snaps").innerHTML = `<div class="empty">Waiting for the storyteller to open a window…</div>`;
     snapsHtml = "";
     return;
   }
-  const html = ids
-    .map((id) => `<div class="snap ${id === state.focusId ? "focus" : ""}"><img alt="Portal ${esc(id)}" src="${esc(snaps[id])}"><span>Window ${esc(id)}${id === state.immersedId ? " · storyteller inside" : ""}</span></div>`)
-    .join("");
+  const html = `<div class="snap focus"><img alt="The window" src="${esc(snap)}"><span>The window${state.immersed ? " · storyteller inside" : ""}</span></div>`;
   if (html !== snapsHtml) $("#snaps").innerHTML = snapsHtml = html; // same frames: don't reload the images
 }
 pollSnaps();
 
-// ---------- Live view: the storyteller's device passes the focused window on, peer to peer ----------
+// ---------- Live view: the storyteller's device passes the window on, peer to peer ----------
 // (See src/app/livecast.js.) Ask once a window is streaming; if the live view is full, blocked by the
 // network, or stops, the pictures above carry on (refreshing about once a second) and we try again later.
 let ICE_SERVERS = [{ urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"] }];
@@ -179,7 +175,7 @@ function fallBack(note, retryMs) {
   liveNote(note);
 }
 function maybeAskLive() {
-  const streaming = (state?.portals || []).some((p) => p.status === "streaming");
+  const streaming = state?.window?.status === "streaming";
   const now = performance.now();
   if (live === "asking" && now - askedAt > 15000) return fallBack("The live video didn't start. Showing pictures instead; trying again shortly.", 20000);
   if (live !== "idle" || !streaming || now < retryAt || document.hidden) return;
@@ -195,12 +191,10 @@ const iceDone = (p, ms = 3000) =>
         const t = setTimeout(r, ms);
         p.addEventListener("icegatheringstatechange", () => p.iceGatheringState === "complete" && (clearTimeout(t), r()));
       });
-const setWhich = (id) => ($("#liveWhich").textContent = id ? `Window ${id}` : "");
 async function onLive(m) {
   if (m.to !== viewerId || m.from !== "host") return;
   if (m.kind === "full") return fallBack("Live video is full right now (4 viewers). Showing pictures instead.", 60000);
   if (m.kind === "bye") return fallBack("The live video stopped. Showing pictures instead.", 15000);
-  if (m.kind === "join") return setWhich(m.portal); // the storyteller moved to another window
   if (m.kind !== "offer") return;
   closeLive();
   live = "connecting";
@@ -220,7 +214,6 @@ async function onLive(m) {
     } else if (conn.connectionState === "failed") fallBack("Couldn't connect to the live video from this network. Showing pictures instead.", 30000);
     else if (conn.connectionState === "disconnected" && live === "live") fallBack("The live video dropped. Reconnecting…", 4000);
   };
-  setWhich(m.portal);
   try {
     await conn.setRemoteDescription({ type: "offer", sdp: m.sdp });
     await conn.setLocalDescription(await conn.createAnswer());

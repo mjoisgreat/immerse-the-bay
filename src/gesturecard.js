@@ -8,7 +8,7 @@ import { LAYER } from "./layers.js";
 export function gestureRows(name = "Bonnie") {
   return [
     ["🎙", "Talk", `Thumbs up held to your mouth like a microphone (${name} comes to listen); lower your hand to send`],
-    ["＋", "Open a window", "Pinch and draw a square in the air"],
+    ["＋", "Open a window", "Pinch and draw a circle in the air, round and round (twice)"],
     ["❤️", `Send ${name} love`, `Pinch and draw a heart in the air: ${name} answers with hearts`],
     ["🐰", `Ask ${name} for a window`, `Say "${name}, open a window onto a snowy village": she walks over and opens it`],
     ["✋", "Move a window", "Pinch it and drag"],

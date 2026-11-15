@@ -1,4 +1,4 @@
-// app/portals.js: the windows: the portals Map, open/close/focus, stepping inside, the exit orb, retire().
+// app/portals.js: the window: open/close, stepping inside, setting its world, retire().
 import * as THREE from "three";
 import { Portal } from "../portal.js";
 import { Immersion } from "../immersion.js";
@@ -8,27 +8,30 @@ import { $, camera, listener, renderer, say, scene } from "./stage.js";
 import { state } from "./state.js";
 import { ROOM, send } from "./room.js";
 import { buzz, flash } from "./feedback.js";
-import { ASK, askWorld, clearAsk, refreshCards } from "./story.js";
+import { ASK, askWorld, clearAsk } from "./story.js";
 import { sides, stopSides } from "./wide.js";
+import { resolveWindow } from "../windowplace.js";
 
 // ---------- Step inside ----------
 export const immersion = new Immersion(scene, camera, {
   audioContext: listener.context,
-  onChange(id) {
-    send({ t: "immerse", id }); // the director reframes that world as a first-person view
+  onChange(portal) {
+    send({ t: "immerse", inside: Boolean(portal) }); // the director reframes the world as a first-person view
     buzz();
   },
 });
-export function stepInside(portal) {
+export function stepInside(portal = current?.portal) {
   if (!portal || (immersion.inside && immersion.portal === portal)) return;
-  setFocus(portal.id);
-  immersion.enter(portal, entryOf(portal)?.stream.video);
+  // Nothing to step into until the world's stream has started: its first frame has arrived (and stays "started"
+  // through a brief stall or reconnect, when the video element's own readiness dips).
+  if (!portal._videoReady) return flash("The world is still forming. Step in once it appears.", 3000);
+  immersion.enter(portal, current?.stream.video);
   flash(
     renderer.xr.isPresenting
-      ? `You stepped into window ${portal.id}. Bring your hands together, or shake them, to step back out (or press B/Y).`
+      ? "You stepped into the window. Bring your hands together, or shake them, to step back out (or press B/Y)."
       : CameraView.touch
-        ? `You stepped into window ${portal.id}. Pinch in or double-tap to step back out.`
-        : `You stepped into window ${portal.id}. Press E or Esc to step back out.`,
+        ? "You stepped into the window. Pinch in or double-tap to step back out."
+        : "You stepped into the window. Press E or Esc to step back out.",
     5000,
   );
 }
@@ -37,51 +40,53 @@ export function stepOut() {
   immersion.exit();
   flash("Back in your room.", 2000);
 }
-// ---------- Portals ----------
-export const portals = new Map(); // id -> { portal, stream }
-const LETTERS = "ABCDEF";
 
-/** The { portal, stream } entry (and id) of a Portal object. */
-export function entryOf(portal) {
-  for (const [id, e] of portals) if (e.portal === portal) return { id, ...e };
-  return null;
+// ---------- The window ----------
+let current = null; // { portal, stream } once the window is open
+/** The one window ({ portal, stream }), or null while none is open. */
+export const getWindow = () => current;
+
+/** A spot that is physically sound for the window: off the floor, under the ceiling, not in your face. */
+export function settledSpot(pos, scale) {
+  return resolveWindow(pos, scale, camera.getWorldPosition(new THREE.Vector3()).toArray());
 }
 
-function nextId() {
-  for (const l of LETTERS) if (!portals.has(l)) return l;
-  return null;
-}
-
-function placeInFront(obj, origin, dir, dist = 1.8) {
-  obj.position.copy(origin).addScaledVector(dir, dist);
-  const eye = new THREE.Vector3();
-  camera.getWorldPosition(eye);
-  obj.lookAt(eye.x, obj.position.y, eye.z); // stay upright, face the viewer
+/** After the window is moved or resized: lift / push it to an allowed spot and face you. */
+export function settlePortal(portal) {
+  const spot = settledSpot(portal.group.getWorldPosition(new THREE.Vector3()).toArray(), portal.group.scale.x);
+  portal.group.position.fromArray(spot);
+  const eye = camera.getWorldPosition(new THREE.Vector3());
+  portal.group.lookAt(eye.x, spot[1], eye.z);
 }
 
 /**
- * Opens a window. Every window is its own story, so unless a world was chosen ahead of time
- * (New story, Prepare demo, the console) it asks "what world is behind this window?".
- * opts.at: where it goes ([x, y, z] where you drew it, or {x, y, z} where the companion stands), facing you;
- * opts.scale: its size (a drawn window); opts.world: the world its story starts in (no question asked).
+ * Opens the window, which asks "what world is behind this window?" unless a world was chosen ahead of time
+ * (New story, Prepare demo, the console) or is given here.
+ * opts.at: where it goes ([x, y, z] where you drew it, or {x, y, z}), facing you; else in front of you
+ * (along opts.origin / opts.dir if given, else where you look); opts.scale: its size (a drawn window);
+ * opts.world: the world it starts in (no question asked).
  */
-export function openPortal(origin, dir, opts = {}) {
-  const { at = null, world = null, scale = 1 } = opts;
-  if (portals.size >= state.maxPortals) return flash(`At most ${state.maxPortals} portals. Close one first.`);
+export function openWindow({ at = null, origin = null, dir = null, world = null, scale = 1 } = {}) {
+  if (immersion.inside) return flash("Step back out before opening the window.", 2500);
+  if (current) return flash("The window is already open. Ask for a new world to change it.", 3500);
   const hasWorld = Boolean(state.pendingSeed || state.roomState?.nextSeed);
   state.pendingSeed = "";
   if (state.roomState) state.roomState.nextSeed = "";
-  const id = nextId();
-  const portal = new Portal(id, listener);
-  if (at) {
-    if (Array.isArray(at)) portal.group.position.fromArray(at);
-    else portal.group.position.set(at.x, at.y, at.z);
-    const eye = camera.getWorldPosition(new THREE.Vector3());
-    portal.group.lookAt(eye.x, portal.group.position.y, eye.z); // upright, facing you
-    portal.group.scale.setScalar(scale);
-  } else placeInFront(portal.group, origin, dir);
+  const eye = camera.getWorldPosition(new THREE.Vector3());
+  if (!origin || !dir) {
+    origin = eye;
+    dir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.getWorldQuaternion(new THREE.Quaternion()));
+    dir.y = Math.max(-0.2, Math.min(0.2, dir.y));
+    dir.normalize();
+  }
+  const wanted = at ? (Array.isArray(at) ? at : [at.x, at.y, at.z]) : origin.clone().addScaledVector(dir, 1.8).toArray();
+  const spot = settledSpot(wanted, scale);
+  const portal = new Portal(listener);
+  portal.group.position.fromArray(spot);
+  portal.group.lookAt(eye.x, spot[1], eye.z); // upright, facing you
+  portal.group.scale.setScalar(scale);
   scene.add(portal.group);
-  const stream = new OrbisStream(id, ROOM);
+  const stream = new OrbisStream("main", ROOM);
   stream.addEventListener("video", () => portal.attachVideo(stream.video));
   stream.addEventListener("audio", () => portal.attachAudio(stream.audioStream));
   stream.addEventListener("status", (e) => {
@@ -89,59 +94,60 @@ export function openPortal(origin, dir, opts = {}) {
     if (status !== "streaming") portal.setCaption(detail || labelFor(status), "status");
     else if (portal._lastStory) portal.setCaption(portal._lastStory, "story");
     else portal.setCaption("", "status");
-    send({ t: "portal_status", id, status });
+    send({ t: "window_status", status });
   });
-  portals.set(id, { portal, stream });
-  setFocus(id);
-  send({ t: "portal_added", id }); // with a world chosen ahead, the server asks the director for its first scene
+  current = { portal, stream };
+  send({ t: "window_opened" }); // with a world chosen ahead, the server asks the director for its first scene
   if (world) {
-    // The companion was told which world: this window's own story starts there, no question needed.
     clearAsk();
     portal.setCaption("The world is forming…", "status");
-    send({ t: "set_seed", id, seed: world });
+    send({ t: "set_seed", seed: world });
   } else if (hasWorld) clearAsk();
-  else askWorld("portal", id);
+  else askWorld("window");
 }
 
-export function closePortal(id) {
-  const p = portals.get(id);
-  if (!p) return;
-  if (immersion.portal === p.portal) immersion.reset();
-  p.stream.close();
-  p.portal.dispose();
-  portals.delete(id);
-  if (state.asking?.id === id) clearAsk();
-  send({ t: "portal_removed", id });
-  if (state.focusId === id) setFocus(portals.keys().next().value ?? null);
+export function closeWindow() {
+  if (!current) return;
+  const { portal, stream } = current;
+  if (immersion.portal === portal) immersion.reset();
+  stream.close();
+  portal.dispose();
+  current = null;
+  if (state.asking?.kind === "window") clearAsk();
+  send({ t: "window_closed" });
 }
 
-export function setFocus(id, tell = true) {
-  state.focusId = id;
-  for (const [pid, p] of portals) p.portal.setFocused(pid === id);
-  if (tell && id) send({ t: "focus", id });
-  refreshCards(); // idea cards say which window they will steer
+/**
+ * Shows a new world in the window, whenever it is asked for (by Bonnie, the world question, the console):
+ * the story restarts there and the director gives Orbis the new opening shot, which swaps the stream.
+ * With no window open yet, it opens onto that world.
+ */
+export function setWorld(world) {
+  if (!current) return openWindow({ world });
+  clearAsk();
+  current.portal.setCaption("The world is forming…", "status");
+  send({ t: "set_seed", seed: world });
 }
 
 export const labelFor = (s) =>
-  ({ asking: ASK.portal, connecting: "Opening a window…", retrying: "Waiting for a free world…", reconnecting: "Reconnecting…", closed: "" })[s] ??
+  ({ asking: ASK.window, connecting: "Opening a window…", retrying: "Waiting for a free world…", reconnecting: "Reconnecting…", closed: "" })[s] ??
   s;
 
 addEventListener("pagehide", () => {
-  portals.forEach((p) => p.stream.closeOnUnload());
+  current?.stream.closeOnUnload();
   for (const side of ["L", "R"]) sides[side]?.closeOnUnload();
 });
 
-/** Exiting VR: close every Orbis stream (each window's, and the wide view's side views), so no credits are spent out of the headset. The page stays open. */
+/** Exiting VR: close the window's Orbis stream and the wide view's side views, so no credits are spent out of the headset. The page stays open. */
 export function closeAllStreams() {
-  for (const p of portals.values()) p.stream.close();
+  current?.stream.close();
   stopSides();
 }
 export function retire(text = `Your room “${ROOM}” is now playing in another tab or device.`) {
-  // Stop our streams so credits aren't spent twice.
+  // Stop our stream so credits aren't spent twice.
   immersion.reset();
-  for (const p of portals.values()) p.stream.close(), p.portal.dispose();
-  portals.clear();
-  state.focusId = null;
+  if (current) current.stream.close(), current.portal.dispose();
+  current = null;
   state.retired = true;
   $("#overlay").hidden = false;
   $("#overlay .card").innerHTML = `<h1>Living Window</h1><p>${text}</p><button onclick="location.reload()">Take it back</button>`;

@@ -326,7 +326,7 @@ export class Immersion {
     this.entryEye.copy(eye);
     portal.setImmersed(true);
     this._whoosh(true);
-    this.onChange(portal.id);
+    this.onChange(portal);
   }
 
   exit() {

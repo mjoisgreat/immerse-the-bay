@@ -3,7 +3,7 @@ import { LAYER } from "./layers.js";
 import { RimSparks } from "./sparks.js";
 import { rimRadiusGLSL } from "./rimshape.js";
 
-const W = 1.6, H = 0.9; // metres, 16:9 like Orbis output
+import { WIN_W as W, WIN_H as H } from "./windowplace.js"; // metres, 16:9 like Orbis output
 
 // A wall around the opening that only writes depth: the real room (passthrough) hides what is behind
 // so the picture looks cut into your wall.
@@ -24,7 +24,7 @@ void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(
 // See-through until the world's video arrives, then it fades in (`shown`, 0..1). A square iris opens on
 // creation, and the edges are feathered and burning so it reads as a hole in space.
 const screenFrag = /* glsl */ `
-uniform sampler2D map; uniform float shown; uniform float time; uniform float reveal; uniform float focus; uniform float fade;
+uniform sampler2D map; uniform float shown; uniform float time; uniform float reveal; uniform float fade;
 varying vec2 vUv;
 float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7))) * 43758.5453); }
 ${rimRadiusGLSL(W, H)}
@@ -40,7 +40,6 @@ void main(){
   float feather = smoothstep(0.0, 0.012 + 0.02 * n, e);
   float iris = step(0.0, e);
   col += vec3(1.0, 0.45, 0.12) * exp(-max(e, 0.0) * 55.0) * (0.5 + 0.7 * n);
-  col *= 0.92 + 0.08 * focus;
   gl_FragColor = vec4(col, feather * iris * fade * shown);
 }`;
 
@@ -80,13 +79,13 @@ export class Caption {
   }
 }
 
+const HIT_MARGIN = 0.3, HIT_FRONT = 0.3, HIT_BACK = 0.5; // metres at scale 1
+
 export class Portal {
-  constructor(id, listener) {
-    this.id = id;
+  constructor(listener) {
     this.group = new THREE.Group();
-    this.group.name = `portal-${id}`;
+    this.group.name = "window";
     this.created = performance.now();
-    this.focused = false;
 
     this.texture = new THREE.Texture(); // replaced by a VideoTexture once frames arrive
     this.screenMat = new THREE.ShaderMaterial({
@@ -96,15 +95,26 @@ export class Portal {
       uniforms: {
         map: { value: this.texture },
         shown: { value: 0 },
+        hasVideo: { value: 0 }, // 1 once the first frame has arrived (the step-inside dome shares this)
         time: { value: 0 },
         reveal: { value: 0 },
-        focus: { value: 0 },
         fade: { value: 1 },
       },
     });
     this.screen = new THREE.Mesh(new THREE.PlaneGeometry(W, H), this.screenMat);
     this.screen.userData.portal = this;
     this.group.add(this.screen);
+
+    // An invisible solid around the opening, for pointing at and reaching into: bigger than the picture in
+    // every direction (a margin around it, and depth in front and behind), so a ray or a pinch that is a
+    // little off still grabs the window instead of drawing.
+    this.hitbox = new THREE.Mesh(
+      new THREE.BoxGeometry(W + 2 * HIT_MARGIN, H + 2 * HIT_MARGIN, HIT_FRONT + HIT_BACK),
+      new THREE.MeshBasicMaterial({ visible: false }),
+    );
+    this.hitbox.position.z = (HIT_FRONT - HIT_BACK) / 2;
+    this.hitbox.userData.portal = this;
+    this.group.add(this.hitbox);
 
     this.sparks = new RimSparks(this.group, W, H); // the burning rim (see sparks.js)
 
@@ -125,6 +135,31 @@ export class Portal {
     this.sound = null;
   }
 
+  /** Where a world point falls on the picture (u right, v up, 0..1, clamped): what a touch there means. */
+  uvAt(point) {
+    const p = this.group.worldToLocal(point.clone());
+    return new THREE.Vector2(Math.min(1, Math.max(0, p.x / W + 0.5)), Math.min(1, Math.max(0, p.y / H + 0.5)));
+  }
+
+  /**
+   * Is a pointing ray aimed at the window, roughly? True when it passes within about a window's width of
+   * its middle. Pinching is also how a window is drawn, and a hand's ray is shaky, so a generous aim grabs
+   * the window rather than starting a drawing. Returns the point on the ray nearest the middle, or null.
+   */
+  aimedBy(ray) {
+    const mid = this.group.getWorldPosition(new THREE.Vector3());
+    const s = this.group.scale.x;
+    if (ray.distanceToPoint(mid) > (W / 2 + HIT_MARGIN + 0.3) * s) return null;
+    return ray.closestPointToPoint(mid, new THREE.Vector3());
+  }
+
+  /** Is this world point inside the invisible solid (reaching into the window with a pinch)? */
+  containsWorld(point) {
+    const p = this.group.worldToLocal(point.clone());
+    const z = p.z - this.hitbox.position.z;
+    return Math.abs(p.x) <= W / 2 + HIT_MARGIN && Math.abs(p.y) <= H / 2 + HIT_MARGIN && Math.abs(z) <= (HIT_FRONT + HIT_BACK) / 2;
+  }
+
   attachVideo(video) {
     const tex = new THREE.VideoTexture(video);
     tex.colorSpace = THREE.NoColorSpace; // shader passes sRGB through untouched
@@ -133,7 +168,7 @@ export class Portal {
     tex.generateMipmaps = true;
     this.texture = tex;
     this.screenMat.uniforms.map.value = tex;
-    const onFrame = () => (this._videoReady = true);
+    const onFrame = () => ((this._videoReady = true), (this.screenMat.uniforms.hasVideo.value = 1));
     if (video.readyState >= 2) onFrame();
     else video.addEventListener("loadeddata", onFrame, { once: true });
   }
@@ -177,11 +212,6 @@ export class Portal {
     this.group.visible = k > 0.001;
   }
 
-  setFocused(f) {
-    this.focused = f;
-    this.screenMat.uniforms.focus.value = f ? 1 : 0;
-  }
-
   setCaption(text, kind = "story") {
     this.caption.set(text, kind);
   }
@@ -197,7 +227,7 @@ export class Portal {
     this._shownK = Math.min(1, (this._shownK ?? 0) + (this._videoReady ? dt / 1.2 : 0));
     const shown = this._shownK * this._shownK * (3 - 2 * this._shownK);
     this.screenMat.uniforms.shown.value = shown;
-    this.sparks.set(reveal, this.group.visible ? this.screenMat.uniforms.fade.value * (0.8 + 0.3 * this.screenMat.uniforms.focus.value) : 0, t);
+    this.sparks.set(reveal, this.group.visible ? this.screenMat.uniforms.fade.value * 1.1 : 0, t);
     // Ease the sound between "from the window" and "all around you" (about half a second).
     const want = this.immersed ? 1 : 0;
     if (this.sound && this._audioK !== want) {

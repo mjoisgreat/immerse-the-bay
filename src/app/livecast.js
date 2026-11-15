@@ -1,7 +1,7 @@
-// app/livecast.js: friends watch live. The storyteller's device passes the focused window's video and
+// app/livecast.js: friends watch live. The storyteller's device passes the window's video and
 // sound on to a few viewers, peer to peer (WebRTC).
 //
-// Each window's video is a private Reactor session (one viewer per session), so this device, which already
+// The window's video is a private Reactor session (one viewer per session), so this device, which already
 // receives it, is the only place a live copy can come from. A viewer's watch page asks ("join"); this device
 // answers with an offer; the viewer answers back; all through the room's relay (see "rtc" in server/core.js).
 // Candidates are gathered before sending (no trickle), so it's one message each way.
@@ -10,7 +10,7 @@
 // Anyone beyond that, or on a network that blocks peer-to-peer, gets the snapshots instead (about once a
 // second while anyone is watching, see story.js).
 import { state } from "./state.js";
-import { portals } from "./portals.js";
+import { getWindow } from "./portals.js";
 import { send } from "./room.js";
 
 export const MAX_VIEWERS = 4;
@@ -21,7 +21,7 @@ fetch("/api/config")
   .then((c) => Array.isArray(c.iceServers) && c.iceServers.length && (ICE_SERVERS = c.iceServers))
   .catch(() => {});
 const CONNECT_MS = 25000; // a viewer that hasn't connected by then is dropped
-const peers = new Map(); // viewer id -> { pc, video: RTCRtpSender, audio: RTCRtpSender, at, portal }
+const peers = new Map(); // viewer id -> { pc, video: RTCRtpSender, audio: RTCRtpSender, at }
 
 /** How many viewers are watching live right now. */
 export const liveViewers = () => peers.size;
@@ -43,12 +43,10 @@ export function iceGathered(pc, ms = 3000) {
   });
 }
 
-/** The window everyone is looking at, and its live tracks (null until it streams). */
-function focused() {
-  const id = portals.has(state.focusId) ? state.focusId : portals.keys().next().value;
-  const p = portals.get(id);
+/** The window's live tracks (null until it streams). */
+function tracks() {
+  const p = getWindow();
   return {
-    id: id ?? null,
     video: p?.stream.video.srcObject?.getVideoTracks?.()[0] ?? null,
     audio: p?.stream.audioStream?.getAudioTracks?.()[0] ?? null,
   };
@@ -67,11 +65,11 @@ function drop(id, tell = false) {
 async function offerTo(viewer) {
   drop(viewer); // a viewer reloading the page asks again: start fresh
   if (peers.size >= MAX_VIEWERS) return send({ t: "rtc", kind: "full", to: viewer, from: "host" });
-  const now = focused();
+  const now = tracks();
   const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
   const video = pc.addTransceiver("video", { direction: "sendonly" }).sender;
   const audio = pc.addTransceiver("audio", { direction: "sendonly" }).sender;
-  const peer = { pc, video, audio, at: performance.now(), portal: now.id };
+  const peer = { pc, video, audio, at: performance.now() };
   peers.set(viewer, peer);
   await video.replaceTrack(now.video).catch(() => {});
   await audio.replaceTrack(now.audio).catch(() => {});
@@ -82,7 +80,7 @@ async function offerTo(viewer) {
     await pc.setLocalDescription(await pc.createOffer());
     await iceGathered(pc);
     if (peers.get(viewer) !== peer) return; // dropped meanwhile
-    send({ t: "rtc", kind: "offer", to: viewer, from: "host", sdp: pc.localDescription.sdp, ...(now.id && { portal: now.id }) });
+    send({ t: "rtc", kind: "offer", to: viewer, from: "host", sdp: pc.localDescription.sdp });
   } catch {
     drop(viewer);
   }
@@ -108,18 +106,14 @@ export function onRtc(m) {
   else if (m.kind === "bye") drop(m.from);
 }
 
-// Every second: follow the focused window (and a reconnected stream's new tracks), and drop viewers that
+// Every second: follow the window's tracks (a reconnected stream has new ones), and drop viewers that
 // never connected.
 setInterval(() => {
   if (!peers.size) return;
-  const now = focused();
+  const now = tracks();
   for (const [id, peer] of peers) {
     if (peer.video.track !== now.video) peer.video.replaceTrack(now.video).catch(() => {});
     if (peer.audio.track !== now.audio) peer.audio.replaceTrack(now.audio).catch(() => {});
-    if (peer.portal !== now.id && now.id) {
-      peer.portal = now.id;
-      send({ t: "rtc", kind: "join", to: id, from: "host", portal: now.id }); // tells the viewer which window is live now
-    }
     const connected = peer.pc.connectionState === "connected";
     if (!connected && performance.now() - peer.at > CONNECT_MS) drop(id);
   }

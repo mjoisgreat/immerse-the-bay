@@ -27,7 +27,7 @@ function start() {
   QRCode.toDataURL(watchUrl, { margin: 1, width: 440, color: { dark: "#07080d", light: "#ffffff" } }).then((d) => ($("#qr").src = d));
 
   let state = null;
-  let snaps = {};
+  let snap = null;
   let speechTimer;
 
   const link = createLink(room, {
@@ -101,7 +101,7 @@ function start() {
     const here = peopleSummary(s.people);
     $("#people").hidden = !here;
     $("#people").textContent = `here: ${here}`;
-    $("#inside").hidden = !s.immersedId;
+    $("#inside").hidden = !s.immersed;
     renderChoices(s.choices || []);
     renderChat(s);
     renderSnaps();
@@ -115,8 +115,6 @@ function start() {
     const top = topIdeaOf(sug);
     const label = s.meta?.crowd ? "⏭ Up next" : "📌 Top idea";
     $("#suggCount").textContent = sug.length ? `· ${sug.length}` : "";
-    // Ideas steer the window the storyteller is looking at; say which when there are several.
-    $("#ideasTitle").textContent = (s.portals || []).length > 1 && s.focusId ? `Ideas steer window ${s.focusId}` : "";
     const line = (x) => `<b class="who">${esc(x.by || "Someone")}</b>: ${esc(x.text)}<span class="vote">▲ ${x.voters.length}</span>`;
     setHtml("#ideas", sug.length
       ? [...sug]
@@ -134,15 +132,14 @@ function start() {
     $("#pinned").hidden = !top;
   }
 
-  // Main screen: the window the storyteller is in (or focused on), cross-fading as new frames arrive.
+  // Main screen: the window's live world, cross-fading as new frames arrive.
   let shown = "", front = "imgA";
   function renderSnaps() {
     if (!state) return;
-    const ids = (state.portals || []).map((p) => p.id).filter((id) => snaps[id]);
-    const mainId = [state.immersedId, state.focusId, ...ids].find((id) => id && snaps[id]);
-    $("#empty").hidden = Boolean(mainId);
-    if (mainId && snaps[mainId] !== shown) {
-      shown = snaps[mainId];
+    const has = Boolean(state.window && snap);
+    $("#empty").hidden = has;
+    if (has && snap !== shown) {
+      shown = snap;
       const back = front === "imgA" ? "imgB" : "imgA";
       const img = $(`#${back}`);
       const frame = shown;
@@ -154,16 +151,13 @@ function start() {
       };
       img.src = frame;
     }
-    setHtml("#thumbs", ids
-      .filter((id) => id !== mainId)
-      .map((id) => `<div class="thumb"><img alt="Window ${esc(id)}" src="${esc(snaps[id])}"><span>Window ${esc(id)}</span></div>`)
-      .join(""));
   }
 
   async function pollSnaps() {
-    snaps = await fetch(`/api/snapshot?room=${room}`, { cache: "no-store" })
+    snap = await fetch(`/api/snapshot?room=${room}`, { cache: "no-store" })
       .then((r) => r.json())
-      .catch(() => snaps);
+      .then((j) => j.image)
+      .catch(() => snap);
     renderSnaps();
     setTimeout(pollSnaps, document.hidden ? 15000 : 2500);
   }

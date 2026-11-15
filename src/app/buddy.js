@@ -1,7 +1,6 @@
 // app/buddy.js: the companion (Bonnie / Pip): replies, physics, follow/call/toggle, aiming and cradle helpers.
 import * as THREE from "three";
 import { PORTAL_SIZE } from "../portal.js";
-import { windowSlot } from "../errand.js";
 import { Companion, RobotRig, BunnyRig } from "../companion.js";
 import { CameraView } from "../cameraview.js";
 import { camera, renderer, scene } from "./stage.js";
@@ -10,8 +9,9 @@ import { BUDDY, USE_PIP } from "./config.js";
 import { camView } from "./desktop.js";
 import { send } from "./room.js";
 import { buzz, chime, flash } from "./feedback.js";
-import { immersion, openPortal, portals } from "./portals.js";
+import { getWindow, immersion, setWorld } from "./portals.js";
 import { speak } from "./talk.js";
+import { askWorld } from "./story.js";
 import { tmpMat } from "./xrinput.js";
 
 // ---------- The companion (Bonnie, or Pip the robot with ?companion=pip) ----------
@@ -66,20 +66,18 @@ buddy.physicsEnv = () => {
     maxY: Math.max(3, c.y + 0.5),
   };
   const rects = [];
-  if (!immersion.inside)
-    for (const { portal } of portals.values()) {
-      const g = portal.group;
-      if (!g.visible) continue;
-      const q = g.getWorldQuaternion(new THREE.Quaternion());
-      rects.push({
-        center: g.getWorldPosition(new THREE.Vector3()),
-        normal: new THREE.Vector3(0, 0, 1).applyQuaternion(q),
-        right: new THREE.Vector3(1, 0, 0).applyQuaternion(q),
-        up: new THREE.Vector3(0, 1, 0).applyQuaternion(q),
-        halfW: PORTAL_SIZE.W / 2,
-        halfH: PORTAL_SIZE.H / 2,
-      });
-    }
+  const g = getWindow()?.portal.group;
+  if (!immersion.inside && g?.visible) {
+    const q = g.getWorldQuaternion(new THREE.Quaternion());
+    rects.push({
+      center: g.getWorldPosition(new THREE.Vector3()),
+      normal: new THREE.Vector3(0, 0, 1).applyQuaternion(q),
+      right: new THREE.Vector3(1, 0, 0).applyQuaternion(q),
+      up: new THREE.Vector3(0, 1, 0).applyQuaternion(q),
+      halfW: PORTAL_SIZE.W / 2,
+      halfH: PORTAL_SIZE.H / 2,
+    });
+  }
   return { bounds, rects };
 };
 const pick = (list) => list[Math.floor(Math.random() * list.length)];
@@ -95,43 +93,14 @@ buddy.onPhysics = (event, amount) => {
 };
 
 /**
- * "Bonnie, go over there and open a window": she walks to the place (relative to where you look) and
- * opens a window just behind her. `open_window` is the world behind it, or "" to ask you which.
+ * "Bonnie, take us to the desert": she changes the window's world, whether or not you are inside it (with no
+ * window open yet, it opens onto that world). The story restarts there and the director gives Orbis the new
+ * opening shot, which swaps the stream. `world` is "" when they asked for a new world without saying which.
  */
-// Several windows (asked for at once, or one after another) line up side by side on an arc around
-// you, each facing you, and Bonnie stands beside each one as she opens it rather than in front of it.
-// See windowSlot (errand.js).
-export function buddyOpensWindow({ open_window: world, place, more_windows: more = [] }) {
-  const free = state.maxPortals - portals.size;
-  if (free <= 0) return buddy.say(`I'm holding all ${state.maxPortals} windows already. Close one first!`, 5000);
-  const worlds = [world, ...(Array.isArray(more) ? more : [])].slice(0, free);
-  if (worlds.length < 1 + (more?.length || 0)) flash(`Room for ${free} more window${free === 1 ? "" : "s"}: opening ${free}.`, 4000);
-  // The arrangement is worked out from where you are and look now, so it stays tidy even if you turn.
-  const eye = camera.getWorldPosition(new THREE.Vector3());
-  const f = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.getWorldQuaternion(new THREE.Quaternion()));
-  const l = Math.hypot(f.x, f.z);
-  const fwd = l > 1e-3 ? { x: f.x / l, z: f.z / l } : { x: 0, z: -1 };
-  const xr = renderer.xr.isPresenting;
-  // Further away on a flat screen, so a row of windows fits the view; the gap keeps them from touching.
-  const r = xr ? 2.2 : 3.4;
-  const gapDeg = (2 * Math.atan((PORTAL_SIZE.W / 2 + 0.2) / r) * 180) / Math.PI;
-  const y = Math.min(1.7, Math.max(1.1, eye.y - 0.1));
-  const openNext = (i) => {
-    if (i >= worlds.length || !buddy.visible || portals.size >= state.maxPortals) return;
-    const existing = [...portals.values()].map(({ portal }) => portal.group.position);
-    const slot = windowSlot(place, eye, fwd, existing, { r, gapDeg, halfWidth: PORTAL_SIZE.W / 2 });
-    buddy.goTo(slot.stand, () => {
-      if (!buddy.visible || portals.size >= state.maxPortals) return;
-      openPortal(eye, new THREE.Vector3(0, 0, -1), { at: { x: slot.window.x, y, z: slot.window.z }, world: worlds[i] || null });
-      const last = i === worlds.length - 1;
-      buddy.say(
-        !worlds[i] ? "Ta-da! What world should it show?" : worlds.length > 1 ? (last ? "And that's all of them!" : `That's ${i + 1}…`) : "Ta-da! Here's your window.",
-        4000,
-      );
-      if (!last) setTimeout(() => openNext(i + 1), 700);
-    });
-  };
-  openNext(0);
+export function buddyChangesWorld(world) {
+  if (!world) return askWorld("window"), buddy.say("What world should it show?", 4000);
+  flash(`“${world}”`, 5000);
+  setWorld(world);
 }
 
 // A quick pinch / tap on the companion toggles following you around.

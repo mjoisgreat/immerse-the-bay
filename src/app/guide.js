@@ -59,7 +59,7 @@ export function updateTitle() {
 
 // Steps: open a window → tell the story → touch / step inside. Each is spoken once.
 const GUIDE = [
-  "Welcome, storyteller. Pinch the air and draw a square, like a window frame, to open your first window.",
+  "Welcome, storyteller. Pinch the air and draw a circle, round and round at least twice, like a sorcerer, to open your first window.",
   "A world is waking. Hold a thumbs up to your mouth like a microphone, and tell me what happens next. Lower it when you're done.",
   "Now part your hands like curtains, and step inside. Shake both hands to wipe a window away.",
 ];

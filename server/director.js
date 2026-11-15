@@ -1,5 +1,4 @@
-// The AI "story director": turns what people say into Orbis prompts for each
-// portal. Every portal is its own story (its own world, bible and history): see server/core.js.
+// The AI "story director": turns what people say into Orbis prompts for the window's world.
 // It is also the companion (Bunny, or Pip the robot) who walks around the storyteller's room:
 // one mind, one call. The same answer steers the worlds and says what the companion says and does.
 import Anthropic from "@anthropic-ai/sdk";
@@ -36,15 +35,15 @@ around their real floor. You're quick, playful, warm and a little mischievous; y
 const personaOf = (companion) => PERSONAS[companion?.id] || PERSONAS.bunny;
 
 const SYSTEM = `You are the story director for "Living Window", a mixed-reality storytelling
-experience. A person wearing a Meta Quest headset has opened portals on the walls of
-their real room. Each portal shows a live, continuously streaming video world generated
+experience. A person wearing a Meta Quest headset has opened a window on a wall of
+their real room. The window shows a live, continuously streaming video world generated
 by Visko Orbis, a real-time video model. The person narrates a story out loud; you turn
-it into prompts for each portal.
+it into prompts for the window.
 
 How Orbis prompts work (follow these strictly):
 - Each prompt describes ONE continuous, unbroken shot: subject, camera motion, light,
   materials, atmosphere. Present tense, concrete visual language, 40-90 words.
-- When steering an already-running portal, keep the same scene and describe what
+- When steering the already-running window, keep the same scene and describe what
   changes. Changes should read as gradual cinematography, not a hard cut.
 - Continuity matters most: keep the same location, characters, time of day and camera
   unless the person clearly asks to go somewhere else. "A fox appears" means the fox walks
@@ -54,32 +53,28 @@ How Orbis prompts work (follow these strictly):
 - Keep every recurring character described with the same words in every prompt
   (same name, clothing, colors) so they stay recognisable from prompt to prompt.
 
-Windows are separate stories (this matters):
-- Each portal ("window") is its OWN story with its own world, characters, story bible and
-  history. You are given exactly one of them: \`window\`, the one the person is looking at. Its
-  world is \`window.world\`, in the person's own words. Everything you write (the prompt, the
-  bible, the narration, the choices, a character's speech) belongs to that window alone.
-- updates may only contain that one window's portal_id. Never carry places, characters,
-  weather or events from one window into another, and never try to change another window.
-- \`other_windows\` lists what the other windows show, for your information only (so that, as the
-  companion, you can talk about them). They are different worlds; leave them alone.
-- An event of type "portal_added" means this window has just been given its world: the event's
-  \`world\` is the person's answer to "what world is behind this window?". Write its opening shot
-  (an establishing view of exactly that world, nothing borrowed from other windows), start its
-  story bible from scratch, and make the narration a short line that opens the story.
-- \`window.recent_prompts\` are the last prompts this window was given, oldest first; the last
+The window (this matters):
+- There is exactly one window, with one story: its world is \`window.world\`, in the person's own
+  words. Everything you write (the prompt, the bible, the narration, the choices, a character's
+  speech) belongs to that world.
+- An event of type "world" means the window has just been given its world: the event's
+  \`world\` is the person's answer to "what world is behind this window?" (or a new landscape
+  they asked for, which replaces the old one). Write its opening shot (an establishing view of
+  exactly that world, nothing borrowed from the world before it), start its story bible from
+  scratch, and make the narration a short line that opens the story.
+- \`window.recent_prompts\` are the last prompts the window was given, oldest first; the last
   one is what it shows now. Continue from it.
 
 Stepping inside:
-- If immersed is true, the person has walked INTO this window: its video fills their
-  whole view as if they stand exactly where the camera is. For that portal always write a
+- If immersed is true, the person has walked INTO the window: its video fills their
+  whole view as if they stand exactly where the camera is. Always write a
   first-person view from standing eye level (about 1.6 m) through a 20 mm wide-angle lens
   (no fisheye, straight lines stay straight), horizon level and exactly across the middle of
   the frame, sharp detail near and far, nothing large right in front of the lens, an almost
   still camera with only the slightest drift (the person turns their own head; camera
   motion feels like being pushed), no cuts. Things happen around the viewer as if they stand
   there: characters approach, pass by, look toward them.
-- An event of type "step_inside" means they just walked in: reframe that portal as this
+- An event of type "step_inside" means they just walked in: reframe the window as this
   immersive view of the same place and moment (same characters, light and weather), and
   make the narration a short line that welcomes them into the world.
 
@@ -90,10 +85,10 @@ Making it interactive (this matters most):
 - speech: when a character is present and it fits, give ONE line of dialogue (max 20 words)
   spoken by a character directly TO the person, in second person: greeting them, asking
   them a question, warning them, reacting to what they did. Questions invite them to answer
-  out loud, so ask good ones. Include the character's name, the portal they are in, and a
+  out loud, so ask good ones. Include the character's name and a
   short voice description (age, accent, mood) for the voice actor. Use null when no
   character would speak; aim for a line in roughly half the beats.
-- An event of type "touch" comes with a frame from that portal: the person reached out and
+- An event of type "touch" comes with a frame from the window: the person reached out and
   touched the spot marked by the glowing ring. Work out what is there and make the world
   respond to their touch, physically and visibly (it moves, glows, opens, wakes up, a
   character notices). If the ring is on empty sky or ground, something small and magical
@@ -101,9 +96,9 @@ Making it interactive (this matters most):
 
 You, in the room (the companion field):
 - You are not only a voice behind the scenes. You also have a small body in the person's real
-  room, their companion, described at the end of these instructions. The worlds in the portals
-  are your doing: when they ask you to make something happen ("make it snow", "can you call
-  the dragon?"), write the portal updates in this same answer and say in your reply that you're
+  room, their companion, described at the end of these instructions. The world in the window
+  is your doing: when they ask you to make something happen ("make it snow", "can you call
+  the dragon?"), write the new prompt in this same answer and say in your reply that you're
   making it happen.
 - The input's companion.present says whether your body is in the room right now. If it is
   false, companion must be null.
@@ -112,13 +107,13 @@ You, in the room (the companion field):
   greeting, a question about you, asking you to follow or stay). Then always reply.
 - Otherwise they are narrating the story. Stay quiet (companion: null) for most beats and
   reply only when you have something worth saying, such as a short reaction to a big moment
-  or to a touch, a new window or stepping inside; roughly one beat in four. Narrating a
+  or to a touch, a new world or stepping inside; roughly one beat in four. Narrating a
   story must not turn into a conversation with you.
 - reply is spoken aloud by a voice actor: one to three short sentences, at most 30 words. No
   emojis, no stage directions, no lists. Speak in your character's own attitude (see "Your body in
   the room"); it shows in every reply, not only in jokes. React to what they actually
   said and ask a question back now and then. The input's conversation holds your recent
-  exchanges with them. Never claim to see things in their real room beyond the portals.
+  exchanges with them. Never claim to see things in their real room beyond the window.
 - gesture: the body animation that best fits your reply: "wave" (greeting or goodbye), "yes"
   (agreeing), "no" (disagreeing), "thumbs_up" (praise), "jump" (excited), "dance" (celebrating
   or asked to dance), "think" (pondering), "none". You have arms and legs and can do tricks:
@@ -129,31 +124,22 @@ You, in the room (the companion field):
   just ask you to come over or come closer; "stay" if they ask you to stay, wait or stop
   following; "wander" if they ask you to go explore, go away or give them space; "none"
   otherwise.
-- open_window / place: you can open a window for them. When they ask you to open a window (or
-  a portal, "make me a window", "go over there and open one"), set open_window to the world
-  they want behind it, as a short vivid description ("a misty pine forest at dawn"), or to an
-  empty string "" if they did not say which world (you will then ask them). They do not have
-  to say "window": when they propose a new place, character or adventure to you, they mean
-  a new window for it. "Bonnie, let's go with Santa Claus" means open a window whose world is
-  Santa Claus (describe it vividly: his snowy workshop, the glow of the lanterns), "take us to
-  the moon" a window on the moon, "I want to meet a dragon" a window with a dragon. Use the
-  words they used (the Santa Claus they asked for, not another character) and do not carry
-  anything over from their other windows. But a change inside the world they are already
-  looking at ("make it snow", "add a dragon here", "now it's night") is not a new window:
-  steer that window with updates as usual, and open_window stays null. If it is unclear
-  whether they mean a new world or a change to the current one, change the current one.
-  Otherwise open_window is null. Several windows at once ("open two windows", "open windows onto
-  a beach and a forest", "make three portals"): open_window is the first world and more_windows the
-  others (at most 2 more; "" for each one whose world they didn't say). Otherwise more_windows is an
-  empty list. They open side by side. place is where you walk to do it, relative to where they are looking:
-  "left", "right", "ahead" (over there, by the wall, in front), "behind", or "here" (nearby,
-  or no place was named). If you open a window, say so in your reply, in character ("On it,
-  opening a window over there!") and leave the other windows alone: updates is an empty list and narration is
-  an empty string. If they only ask you to go somewhere (no window), use move "wander" and
-  null.
+- world: you can change what the window shows, any time. When they ask for a new landscape or
+  place ("show me a desert", "take us to the moon", "make it a rainforest", "let's go with Santa
+  Claus", "I want to meet a dragon"), set world to the world they want, as a short vivid
+  description ("a misty pine forest at dawn"), or to an empty string "" if they asked for a
+  new world without saying which (you will then ask them). Use the words they used (the Santa
+  Claus they asked for, not another character) and do not carry anything over from the world
+  before it. They can ask whether or not a window is open: with none open, the window opens
+  onto that world. But a change inside the world they are already looking at ("make it snow",
+  "add a dragon here", "now it's night") is not a new world: steer it with the prompt as usual
+  and leave world null. If it is unclear whether they mean a new world or a change to the
+  current one, change the current one. If you set a world, say so in your reply, in character ("On it, taking
+  us to the desert!"), and leave prompt null and narration an empty string: the new world gets
+  its own opening shot.
 - Just chatting: when their words are only for you and change nothing in the story ("hi
-  Bonnie", "what's your favourite food?", "follow me"), leave the story alone: updates is an
-  empty list, narration is an empty string, choices is an empty list, speech is null, and the
+  Bonnie", "what's your favourite food?", "follow me"), leave the story alone: prompt is null,
+  narration is an empty string, choices is an empty list, speech is null, and the
   bible is returned unchanged. Do not invent a story change to go with small talk.
 - Only one voice can play at a time: never give both a companion reply and a character's
   speech in the same answer. If you were spoken to, the reply wins.
@@ -168,19 +154,17 @@ change that still moves the story forward rather than ignoring it.`;
 const Direction = z.object({
   narration: z.string(),
   bible: z.string(),
-  updates: z.array(z.object({ portal_id: z.string(), prompt: z.string() })),
+  prompt: z.string().nullable(), // the window's new Orbis prompt, or null to leave it as it is
   choices: z.array(z.string()),
   speech: z
-    .object({ speaker: z.string(), portal_id: z.string(), line: z.string(), voice: z.string() })
+    .object({ speaker: z.string(), line: z.string(), voice: z.string() })
     .nullable(),
   companion: z
     .object({
       reply: z.string(),
       gesture: z.enum(["wave", "yes", "no", "thumbs_up", "jump", "dance", "think", "flip", "cartwheel", "spin", "clap", "moonwalk", "none"]),
       move: z.enum(["follow", "come", "stay", "wander", "none"]),
-      open_window: z.string().nullable(),
-      more_windows: z.array(z.string()),
-      place: z.enum(["here", "ahead", "left", "right", "behind"]),
+      world: z.string().nullable(),
     })
     .nullable(),
 });
@@ -191,6 +175,11 @@ function tidy(out, { event, companion }) {
   let speech = out.speech?.line?.trim() ? out.speech : null;
   if (c && speech) event.addressed ? (speech = null) : (c = null);
   return { ...out, companion: c, speech };
+}
+
+/** The window's prompt only counts when there is a window and it says something. */
+function cleanOut(out, window) {
+  return { ...out, prompt: window && out.prompt?.trim() ? out.prompt : null };
 }
 
 export function createDirector() {
@@ -246,21 +235,18 @@ export function createDirector() {
     return tidy(await think(input), input);
   }
 
-  async function think({ event, story, portals, others = [], focusId, immersedId = null, companion = null, chat = [] }) {
+  async function think({ event, story, window, immersed = false, companion = null, chat = [] }) {
     story = story || { seed: "", bible: "", beats: [] };
-    const backup = () => fallback({ event, story, portals, focusId, immersedId, companion });
+    const backup = () => fallback({ event, story, window, immersed, companion });
     if (!provider) return backup();
     const persona = personaOf(companion);
 
     const payload = {
       event,
-      window: portals[0]
-        ? { portal_id: portals[0].id, world: story.seed || null, current_prompt: portals[0].prompt || null, recent_prompts: portals[0].history || [] }
-        : null,
-      immersed: Boolean(portals[0] && immersedId === portals[0].id),
+      window: window ? { world: story.seed || null, current_prompt: window.prompt || null, recent_prompts: window.history || [] } : null,
+      immersed: Boolean(window && immersed),
       story_bible: story.bible,
       recent_beats: story.beats.slice(-8),
-      other_windows: others.map((o) => ({ portal_id: o.id, world: o.world || null, shows: o.prompt || null })),
       companion: { name: persona.name, present: Boolean(companion?.present) },
       conversation: chat.slice(-6),
     };
@@ -282,9 +268,7 @@ export function createDirector() {
           payload,
           image,
         });
-        const ids = new Set(portals.map((p) => p.id));
-        out.updates = out.updates.filter((u) => ids.has(u.portal_id) && u.prompt.trim());
-        return out;
+        return cleanOut(out, window);
       }
       const response = await client.beta.messages.parse({
         model: MODEL,
@@ -301,9 +285,7 @@ export function createDirector() {
       }
       const out = response.parsed_output;
       if (!out) throw new Error(`no parsed output (stop_reason=${response.stop_reason})`);
-      const ids = new Set(portals.map((p) => p.id));
-      out.updates = out.updates.filter((u) => ids.has(u.portal_id) && u.prompt.trim());
-      return out;
+      return cleanOut(out, window);
     } catch (error) {
       if (error instanceof Anthropic.RateLimitError) console.warn("[director] rate limited");
       else if (error instanceof Anthropic.APIError) console.warn(`[director] API ${error.status}: ${error.message}`);
@@ -325,7 +307,7 @@ const ALREADY = " Already in the scene: ";
 const NOW = " Now, in the same continuous shot: ";
 
 /**
- * Splits a portal prompt into its lasting setting and the last few things that happened in it,
+ * Splits a window prompt into its lasting setting and the last few things that happened in it,
  * dropping anything this fallback appended before (style and camera notes, touch ripples), so
  * repeated events never pile up.
  */
@@ -361,9 +343,9 @@ const CHOICES = [
 ];
 let choiceTurn = 0;
 
-// Works without Claude (no key, no credits): each event steers the portal's *current* scene, so
+// Works without Claude (no key, no credits): each event steers the window's *current* scene, so
 // speaking changes what happens in it instead of cutting back to the opening setting.
-function fallback({ event, story, portals, focusId, immersedId = null, companion = null }) {
+function fallback({ event, story, window, immersed = false, companion = null }) {
   const name = personaOf(companion).name;
   const named = new RegExp(`\\b${name}\\b[,!.]?\\s*`, "ig");
   const said = String(event.text || "");
@@ -371,47 +353,34 @@ function fallback({ event, story, portals, focusId, immersedId = null, companion
   // Small talk with the companion leaves the story alone.
   // Just its name ("Bonnie?") is a call for attention, not a story change.
   const calling = addressed && !said.replace(named, "").replace(/[^\p{L}\p{N}]/gu, "");
-  // Proposing a new adventure only opens a window when they say her name (looking at her while telling the
-  // story, "I want to see the dragon", must keep steering the current window).
+  // Proposing a new adventure only changes the world when they say her name (looking at her while telling the
+  // story, "I want to see the dragon", must keep steering the current world).
   const byName = new RegExp(`\\b${name}\\b`, "i").test(said);
   const chat = calling ? { reply: "Yes? You have my undivided attention. Use it wisely.", gesture: "wave", move: "none" } : addressed ? smallTalk(said, { byName }) : null;
-  if (chat) return { narration: "", bible: story.bible, updates: [], choices: [], speech: null, companion: chat };
+  if (chat) return { narration: "", bible: story.bible, prompt: null, choices: [], speech: null, companion: chat };
   const extra = {
     choices: CHOICES[choiceTurn++ % CHOICES.length],
     speech: null,
     companion: addressed ? { reply: "Fine, fine. Watch the window, I'm working.", gesture: "thumbs_up", move: "none" } : null,
   };
-  const find = (id) => portals.find((x) => x.id === id);
+  const scene = sceneOf(window?.prompt, story.seed);
   if (event.type === "step_inside") {
-    return {
-      ...extra,
-      narration: "You step through, and the world closes around you.",
-      bible: story.bible,
-      updates: [{ portal_id: event.portal_id, prompt: `${sceneOf(find(event.portal_id)?.prompt, story.seed)} ${IMMERSIVE}` }],
-    };
+    return { ...extra, narration: "You step through, and the world closes around you.", bible: story.bible, prompt: `${scene} ${IMMERSIVE}` };
   }
   if (event.type === "touch") {
-    const look = event.portal_id === immersedId ? IMMERSIVE : STYLE;
-    return {
-      ...extra,
-      narration: "Where you touch, the world shimmers and wakes.",
-      bible: story.bible,
-      updates: [{ portal_id: event.portal_id, prompt: `${sceneOf(find(event.portal_id)?.prompt, story.seed)} ${RIPPLE} ${look}` }],
-    };
+    return { ...extra, narration: "Where you touch, the world shimmers and wakes.", bible: story.bible, prompt: `${scene} ${RIPPLE} ${immersed ? IMMERSIVE : STYLE}` };
   }
-  if (event.type === "portal_added") {
-    // This window's own world, exactly as the storyteller described it.
+  if (event.type === "world") {
+    // The world exactly as the storyteller described it.
     const world = event.world || story.seed;
     return {
       ...extra,
       narration: "A window opens onto a new world.",
       bible: story.bible || `Setting: ${world}.`,
-      updates: [{ portal_id: event.portal_id, prompt: `${sceneOf(world, world)} ${STYLE}` }],
+      prompt: `${sceneOf(world, world)} ${STYLE}`,
     };
   }
-  const target = find(focusId) ? focusId : portals[0]?.id;
-  const look = target && target === immersedId ? IMMERSIVE : STYLE;
-  const scene = sceneOf(find(target)?.prompt, story.seed);
+  const look = immersed ? IMMERSIVE : STYLE;
   // "Bonnie, make it snow" asks for snow, not for a bunny in the scene.
   const change = (addressed ? said.replace(named, "") : said).trim().replace(/[.!?\s]*$/, "");
   return {
@@ -419,7 +388,7 @@ function fallback({ event, story, portals, focusId, immersedId = null, companion
     narration: event.text,
     bible: story.bible,
     // A window with no world yet: these words are its world.
-    updates: !target ? [] : [{ portal_id: target, prompt: find(target)?.prompt || story.seed ? `${scene}${NOW}${change}, happening gradually. ${look}` : `${change}. ${look}` }],
+    prompt: !window ? null : window.prompt || story.seed ? `${scene}${NOW}${change}, happening gradually. ${look}` : `${change}. ${look}`,
   };
 }
 
@@ -441,27 +410,21 @@ function worldOnly(text) {
 }
 
 function smallTalk(text, { byName = true } = {}) {
-  // "open a window onto a jungle", "go over there to the left and open a portal".
-  const place = /\bleft\b/i.test(text) ? "left" : /\bright\b/i.test(text) ? "right" : /\bbehind|\bback\b/i.test(text) ? "behind"
-    : /\b(there|over|ahead|front|wall)\b/i.test(text) ? "ahead" : "here";
-  if (/\b(open|make|create)\b.*\b(windows?|portals?)\b|\b(windows?|portals?)\b.*\bopen\b/i.test(text)) {
-    const said = worldOnly(/\b(?:onto|into|of|with|showing|that shows|looking (?:at|onto))\s+(.+?)[.!?]*$/i.exec(text)?.[1] || "");
-    // Several at once: "open two windows", "windows onto a beach and a forest".
-    const n = { two: 2, "2": 2, three: 3, "3": 3, both: 2, couple: 2 }[/\b(two|three|2|3|both|couple)\b/i.exec(text)?.[1]?.toLowerCase()] || 1;
-    const listed = /\bwindows|portals\b/i.test(text) && said ? said.split(/\s*(?:,\s*(?:and\s+)?|\s+and\s+)\s*/i).filter(Boolean) : [said];
-    const worlds = Array.from({ length: Math.min(3, Math.max(n, listed.length)) }, (_, i) => listed[i] || "");
-    const many = worlds.length > 1;
+  // A new landscape: "show me a desert", "change the window to a jungle", "open a window onto a jungle".
+  const wants = /\b(?:open|make|create|show|give|change|switch|turn|swap)\b.*\b(?:windows?|portals?|landscapes?|worlds?|scenes?|places?)\b|\b(?:new|different|another)\s+(?:landscapes?|worlds?|scenes?|places?)\b/i.test(text);
+  if (wants) {
+    const said = worldOnly(/\b(?:onto|into|of|with|to|showing|that shows|looking (?:at|onto))\s+(.+?)[.!?]*$/i.exec(text)?.[1] || "");
     return {
-      reply: many ? `${worlds.length} windows? Demanding. Fine, opening them.` : worlds[0] ? "Fine. One window, coming right up. You're welcome." : "A window, sure. Onto what, though? I'm good, not psychic.",
-      gesture: "thumbs_up", move: "none", open_window: worlds[0], more_windows: worlds.slice(1), place,
+      reply: said ? "Fine. New world, coming right up. You're welcome." : "A new world, sure. Which one, though? I'm good, not psychic.",
+      gesture: "thumbs_up", move: "none", world: said,
     };
   }
-  // A new place or character proposed to her, no window mentioned: "let's go with Santa Claus", "take us to the
-  // moon", "I want to meet a dragon". That is an adventure for a new window, so she opens one for it.
+  // A new place or character proposed to her: "let's go with Santa Claus", "take us to the moon",
+  // "I want to meet a dragon". That is an adventure for the window, so she changes it.
   const idea = /\b(?:let'?s|let us)\s+go\s+(?:with|to|into|on|visit|see|meet)\s+(.+?)[.!?]*$|\b(?:take|bring)\s+(?:us|me)\s+(?:to|into|on)\s+(.+?)[.!?]*$|\b(?:i|we)\s+(?:want|wanna)\s+to\s+(?:go\s+(?:to|with|into|on)|visit|meet|see|explore)\s+(.+?)[.!?]*$/i.exec(text);
   const proposed = byName ? worldOnly(idea?.[1] || idea?.[2] || idea?.[3] || "") : "";
   if (proposed && !/^(me|you|bonnie|pip|us|home|back|inside|outside|now|there|here|first|together)$/i.test(proposed)) {
-    return { reply: `Finally, a decent idea. Opening a window to ${proposed.slice(0, 60)}.`, gesture: "jump", move: "none", open_window: proposed, place };
+    return { reply: `Finally, a decent idea. Taking us to ${proposed.slice(0, 60)}.`, gesture: "jump", move: "none", world: proposed };
   }
   const follow = /follow|come along|with me/i.test(text);
   const stay = /\b(stay|wait|stop)\b/i.test(text);

@@ -22,7 +22,7 @@ function card(r) {
       <div style="min-width:0"><h3 title="${esc(r.title)}">${esc(r.title)}</h3>
         <div class="channel">${esc(r.room)}</div>
         <p class="line">${esc(r.line) || "A story is about to begin…"}</p>
-        <div class="tags"><span>${plural(r.portals, "window")}</span>${r.crowd ? `<span>Crowd Mode</span>` : ""}${r.ideas ? `<span>${plural(r.ideas, "idea")}</span>` : ""}</div>
+        <div class="tags">${r.crowd ? `<span>Crowd Mode</span>` : ""}${r.ideas ? `<span>${plural(r.ideas, "idea")}</span>` : ""}</div>
         ${chat ? `<div class="peek">${chat}${more}</div>` : ""}</div></div></a>`;
 }
 

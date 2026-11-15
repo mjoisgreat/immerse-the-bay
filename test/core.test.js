@@ -4,17 +4,13 @@ import assert from "node:assert/strict";
 import { initialState, reduce, allowed, applyDirection } from "../server/core.js";
 
 const owner = { role: "owner" };
-/** A room with window A open onto a lake world (pass `null` to leave it without a world yet). */
+/** A room with the window open onto a lake world (pass `null` to leave it without a world yet). */
 const start = (world = "A misty lake at dusk") => {
   const s = initialState();
   reduce(s, { t: "hello", rid: "r1" }, owner);
-  reduce(s, { t: "portal_added", id: "A", rid: "r1" }, owner);
+  reduce(s, { t: "window_opened", rid: "r1" }, owner);
   if (world) reduce(s, { t: "utterance", text: world }, owner);
   return s;
-};
-const open = (s, id, world) => {
-  reduce(s, { t: "portal_added", id, rid: "r1" }, owner);
-  if (world) reduce(s, { t: "utterance", text: world }, owner);
 };
 
 test("roles can only do what they're allowed", () => {
@@ -29,22 +25,31 @@ test("roles can only do what they're allowed", () => {
   assert.equal(allowed("none", "immerse"), false);
 });
 
-test("a stale headset tab can't change portals", () => {
+test("a stale headset tab can't change the window", () => {
+  const s = initialState();
+  reduce(s, { t: "hello", rid: "r1" }, owner);
+  reduce(s, { t: "window_opened", rid: "old-tab" }, owner);
+  assert.equal(s.window, null);
+  reduce(s, { t: "window_opened", rid: "r1" }, owner);
+  assert.equal(s.window.status, "asking");
+});
+
+test("there is only ever one window", () => {
   const s = start();
-  reduce(s, { t: "portal_added", id: "B", rid: "old-tab" }, owner);
-  assert.deepEqual(s.portals.map((p) => p.id), ["A"]);
+  reduce(s, { t: "window_opened", rid: "r1" }, owner);
+  assert.equal(s.story.seed, "A misty lake at dusk"); // the second opening changed nothing
 });
 
 test("utterances ask the director; co-narrators are logged as guests", () => {
   const s = start();
   const { director } = reduce(s, { t: "utterance", text: "A fox appears" }, { role: "co" });
-  assert.deepEqual(director, { type: "utterance", text: "A fox appears", portal_id: "A" });
+  assert.deepEqual(director, { type: "utterance", text: "A fox appears" });
   assert.equal(s.log.at(-1).kind, "guest");
 });
 
 test("choices come from the director and can be picked once", () => {
   const s = start();
-  applyDirection(s, { narration: "n", bible: "b", updates: [], choices: ["Go left", "Go right"], speech: null }, 10);
+  applyDirection(s, { narration: "n", bible: "b", prompt: null, choices: ["Go left", "Go right"], speech: null }, 10);
   assert.deepEqual(s.choices, ["Go left", "Go right"]);
   const { director } = reduce(s, { t: "choose", index: 1 }, owner);
   assert.equal(director.text, "Go right");
@@ -54,11 +59,7 @@ test("choices come from the director and can be picked once", () => {
 
 test("character speech is logged and sent to the headset", () => {
   const s = start();
-  const [ev] = applyDirection(
-    s,
-    { narration: "n", bible: "b", updates: [], choices: [], speech: { speaker: "Mei", portal_id: "A", line: "Hello", voice: "warm" } },
-    10,
-  );
+  const [ev] = applyDirection(s, { narration: "n", bible: "b", prompt: null, choices: [], speech: { speaker: "Mei", line: "Hello", voice: "warm" } }, 10);
   assert.equal(ev.speech.line, "Hello");
   assert.equal(s.log.at(-1).text, "Mei: Hello");
 });
@@ -66,41 +67,40 @@ test("character speech is logged and sent to the headset", () => {
 test("touch sends the frame to the director but never stores it", () => {
   const s = start();
   const image = "data:image/jpeg;base64," + "A".repeat(100);
-  const { director } = reduce(s, { t: "touch", id: "A", image, rid: "r1" }, owner);
+  const { director } = reduce(s, { t: "touch", image, rid: "r1" }, owner);
   assert.equal(director.type, "touch");
   assert.equal(director.image, "A".repeat(100));
   assert.ok(!JSON.stringify(s).includes("AAAA"));
-  assert.equal(reduce(s, { t: "touch", id: "Z", image, rid: "r1" }, owner).director, null);
+  assert.equal(reduce(initialState(), { t: "touch", image }, owner).director, null); // no window to touch
 });
 
-test("stepping inside asks the director to reframe that portal", () => {
+test("stepping inside asks the director to reframe the window", () => {
   const s = start();
-  const { director } = reduce(s, { t: "immerse", id: "A", rid: "r1" }, owner);
-  assert.deepEqual(director, { type: "step_inside", portal_id: "A" });
-  assert.equal(s.immersedId, "A");
-  reduce(s, { t: "immerse", id: null, rid: "r1" }, owner);
-  assert.equal(s.immersedId, null);
+  const { director } = reduce(s, { t: "immerse", inside: true, rid: "r1" }, owner);
+  assert.deepEqual(director, { type: "step_inside" });
+  assert.equal(s.immersed, true);
+  reduce(s, { t: "immerse", inside: false, rid: "r1" }, owner);
+  assert.equal(s.immersed, false);
 });
 
-test("reset clears everything: windows, every story, ideas, choices and the seed", () => {
+test("reset clears everything: the window, the story, ideas, choices and the seed", () => {
   const s = start();
   reduce(s, { t: "utterance", text: "A fox appears" }, owner);
   reduce(s, { t: "suggest", text: "A whale" }, { role: "viewer", voter: "v1" });
-  s.threads.A.choices = ["x"];
+  s.choices = ["x"];
   const { events } = reduce(s, { t: "reset_story" }, { role: "console" });
   assert.deepEqual(events, [{ t: "reset", ask: false, open: false, seed: "" }]);
-  assert.deepEqual(s.threads, {});
-  assert.deepEqual(s.portals, []);
+  assert.equal(s.window, null);
   assert.deepEqual(s.story, { seed: "", bible: "", beats: [] });
   assert.equal(s.nextSeed, "");
   assert.equal(s.suggestions.length, 0);
   assert.equal(s.choices.length, 0);
   // The next window does not get the old world back: it has none until someone names one.
-  const { director } = reduce(s, { t: "portal_added", id: "A", rid: "r1" }, owner);
+  const { director } = reduce(s, { t: "window_opened", rid: "r1" }, owner);
   assert.equal(director, null);
-  assert.equal(s.threads.A.seed, "");
-  assert.equal(s.portals[0].status, "asking");
-  assert.ok(!JSON.stringify(s.threads).includes("lake"));
+  assert.equal(s.story.seed, "");
+  assert.equal(s.window.status, "asking");
+  assert.ok(!JSON.stringify(s.story).includes("lake"));
 });
 
 test("a new story can name its world up front, or have the headset ask for it", () => {
@@ -109,70 +109,38 @@ test("a new story can name its world up front, or have the headset ask for it", 
   assert.deepEqual(events, [{ t: "reset", ask: true, open: false, seed: "" }]);
   ({ events } = reduce(s, { t: "reset_story", seed: "A coral city", open: true }, owner));
   assert.deepEqual(events, [{ t: "reset", ask: false, open: true, seed: "A coral city" }]);
-  const { director } = reduce(s, { t: "portal_added", id: "A", rid: "r1" }, owner);
-  assert.deepEqual(director, { type: "portal_added", portal_id: "A", world: "A coral city" });
+  const { director } = reduce(s, { t: "window_opened", rid: "r1" }, owner);
+  assert.deepEqual(director, { type: "world", world: "A coral city" });
   assert.equal(s.nextSeed, ""); // used once, never again
-  assert.equal(reduce(s, { t: "portal_added", id: "B", rid: "r1" }, owner).director, null);
 });
 
 test("a new window has no world until the first line names it", () => {
   const s = start(null);
-  assert.equal(s.threads.A.seed, "");
+  assert.equal(s.story.seed, "");
   const { director } = reduce(s, { t: "utterance", text: "A tin-can moon base" }, owner);
-  assert.deepEqual(director, { type: "portal_added", portal_id: "A", world: "A tin-can moon base" });
-  assert.equal(s.threads.A.seed, "A tin-can moon base");
-  assert.deepEqual(s.threads.A.beats, []);
+  assert.deepEqual(director, { type: "world", world: "A tin-can moon base" });
+  assert.equal(s.story.seed, "A tin-can moon base");
+  assert.deepEqual(s.story.beats, []);
   // With no window open, the line waits for the next one.
   const empty = initialState();
   assert.equal(reduce(empty, { t: "utterance", text: "A coral city" }, { role: "console" }).director, null);
   assert.equal(empty.nextSeed, "A coral city");
 });
 
-test("each window keeps its own story; steering only reaches the focused one", () => {
-  const s = start("A misty lake at dusk");
-  applyDirection(s, { narration: "n", bible: "Lake bible", updates: [{ portal_id: "A", prompt: "lake shot" }], choices: ["Row out"], speech: null }, 10);
-  open(s, "B", "A tin-can moon base");
-  assert.equal(s.focusId, "B");
-  assert.deepEqual(s.choices, []); // B has no options yet; A's are not shown for it
-  const ev = reduce(s, { t: "utterance", text: "A rover rolls by" }, owner).director;
-  assert.equal(ev.portal_id, "B");
-  // The director tries to touch both windows: only B, the one it was asked about, changes.
-  const out = { narration: "n", bible: "Moon bible", updates: [{ portal_id: "A", prompt: "moon on the lake" }, { portal_id: "B", prompt: "rover shot" }], choices: ["Wave"], speech: null };
-  const [dir] = applyDirection(s, out, 10, 0, ev);
-  assert.deepEqual(dir.updates, [{ portal_id: "B", prompt: "rover shot" }]);
-  assert.equal(s.portals[0].prompt, "lake shot");
-  assert.deepEqual(s.threads.A.beats, []);
-  assert.deepEqual(s.threads.B.beats, ["A rover rolls by"]);
-  assert.equal(s.threads.A.bible, "Lake bible");
-  assert.equal(s.threads.B.bible, "Moon bible");
-  // Switching focus brings back that window's own world, options and prompt history.
-  reduce(s, { t: "focus", id: "A" }, owner);
-  assert.equal(s.story.seed, "A misty lake at dusk");
-  assert.deepEqual(s.choices, ["Row out"]);
-  assert.deepEqual(s.threads.A.prompts, ["lake shot"]);
-  assert.equal(reduce(s, { t: "choose", index: 0 }, owner).director.portal_id, "A");
+test("closing the window forgets its story", () => {
+  const s = start();
+  reduce(s, { t: "window_closed", rid: "r1" }, owner);
+  assert.equal(s.window, null);
+  assert.equal(s.story.seed, "");
+  assert.deepEqual(s.choices, []);
 });
 
-test("an answer that arrives after the focus moved still lands on the window it was for", () => {
+test("an audience idea steers the window's story", () => {
   const s = start();
-  const ev = reduce(s, { t: "utterance", text: "A fox appears" }, owner).director;
-  open(s, "B", "A coral city");
-  const [dir] = applyDirection(s, { narration: "A fox.", bible: "b", updates: [{ portal_id: "A", prompt: "fox shot" }], choices: ["Follow it"], speech: null }, 10, 0, ev);
-  assert.equal(dir.portal_id, "A");
-  assert.equal(s.portals.find((p) => p.id === "A").prompt, "fox shot");
-  assert.deepEqual(s.threads.A.choices, ["Follow it"]);
-  assert.deepEqual(dir.choices, []); // the cards show the focused window (B), which has none
-});
-
-test("an audience idea steers the focused window", () => {
-  const s = start();
-  open(s, "B", "A coral city");
   reduce(s, { t: "suggest", text: "A full moon rises", name: "Maya" }, { role: "viewer", voter: "v1" });
-  reduce(s, { t: "focus", id: "A" }, owner);
   const { director } = reduce(s, { t: "use_suggestion", id: s.suggestions[0].id }, owner);
-  assert.deepEqual(director, { type: "utterance", text: "A full moon rises", portal_id: "A" });
-  assert.deepEqual(s.threads.A.beats, ["A full moon rises"]);
-  assert.deepEqual(s.threads.B.beats, []);
+  assert.deepEqual(director, { type: "utterance", text: "A full moon rises" });
+  assert.deepEqual(s.story.beats, ["A full moon rises"]);
   // With no window open the idea is kept for later.
   const empty = initialState();
   reduce(empty, { t: "suggest", text: "A whale" }, { role: "viewer", voter: "v1" });
@@ -180,15 +148,33 @@ test("an audience idea steers the focused window", () => {
   assert.equal(empty.suggestions.length, 1);
 });
 
-test("setting a seed restarts the focused window's story, or waits for the next window", () => {
+test("setting a seed restarts the window's story, or waits for the window", () => {
   const s = start();
   reduce(s, { t: "utterance", text: "A fox appears" }, owner);
   const { director } = reduce(s, { t: "set_seed", seed: "A coral city" }, { role: "console" });
-  assert.deepEqual(director, { type: "portal_added", portal_id: "A", world: "A coral city" });
-  assert.deepEqual(s.threads.A.beats, []);
+  assert.deepEqual(director, { type: "world", world: "A coral city" });
+  assert.deepEqual(s.story.beats, []);
   const empty = initialState();
   assert.equal(reduce(empty, { t: "set_seed", seed: "A coral city" }, { role: "console" }).director, null);
   assert.equal(empty.nextSeed, "A coral city");
+});
+
+test("older saved rooms (several windows) upgrade to the single window", () => {
+  const old = {
+    portals: [{ id: "A", prompt: "lake shot", status: "streaming" }, { id: "B", prompt: "moon", status: "streaming" }],
+    threads: { A: { seed: "A lake", bible: "Lake bible", beats: ["x"], choices: ["Row"], prompts: ["lake shot"] }, B: { seed: "Moon", bible: "", beats: [], choices: [], prompts: [] } },
+    focusId: "A",
+    immersedId: "A",
+    suggestions: [],
+    log: [],
+    meta: {},
+  };
+  reduce(old, { t: "heartbeat" }, owner);
+  assert.deepEqual(old.window, { prompt: "lake shot", status: "streaming" });
+  assert.equal(old.story.seed, "A lake");
+  assert.deepEqual(old.choices, ["Row"]);
+  assert.equal(old.immersed, true);
+  assert.ok(!("threads" in old) && !("portals" in old));
 });
 
 test("suggestions and votes", () => {
@@ -213,7 +199,7 @@ test("ideas keep their author's name, cleaned and optional", () => {
 
 test("using a crowd idea moves the story on and clears the director's old options", () => {
   const s = start();
-  applyDirection(s, { narration: "n", bible: "b", updates: [], choices: ["Go left"], speech: null }, 10);
+  applyDirection(s, { narration: "n", bible: "b", prompt: null, choices: ["Go left"], speech: null }, 10);
   reduce(s, { t: "suggest", text: "A full moon rises", name: "Maya" }, { role: "viewer", voter: "v1" });
   const { director } = reduce(s, { t: "use_suggestion", id: s.suggestions[0].id }, owner);
   assert.equal(director.text, "A full moon rises");
@@ -222,29 +208,26 @@ test("using a crowd idea moves the story on and clears the director's old option
   assert.equal(s.log.at(-1).kind, "crowd");
 });
 
-const bunny = (reply, more = {}) => ({ narration: "", bible: "b", updates: [], choices: [], speech: null, companion: { reply, gesture: "wave", move: "none" }, ...more });
+const bunny = (reply, more = {}) => ({ narration: "", bible: "b", prompt: null, choices: [], speech: null, companion: { reply, gesture: "wave", move: "none" }, ...more });
 
-test("asked to open a window, the companion's reply carries the world and the place; other replies carry neither", () => {
+test("asked for a new landscape, the companion's reply carries the world; other replies carry none", () => {
   const s = start();
   reduce(s, { t: "companion", id: "bunny", present: true, rid: "r1" }, owner);
-  const withWindow = bunny("On it!", { companion: { reply: "On it!", gesture: "thumbs_up", move: "none", open_window: "  a snowy   village ", place: "left" } });
-  const [ev] = applyDirection(s, withWindow, 10);
-  assert.equal(ev.companion.open_window, "a snowy village");
-  assert.equal(ev.companion.place, "left");
-  assert.deepEqual(ev.updates, []); // the other windows are left alone
-  const [ask] = applyDirection(s, bunny("Sure!", { companion: { reply: "Sure!", gesture: "none", move: "none", open_window: "", place: "somewhere odd" } }), 10);
-  assert.equal(ask.companion.open_window, "");
-  assert.equal(ask.companion.place, "here"); // an unknown place falls back to "here"
+  const [ev] = applyDirection(s, bunny("On it!", { companion: { reply: "On it!", gesture: "thumbs_up", move: "none", world: "  a snowy   village " } }), 10);
+  assert.equal(ev.companion.world, "a snowy village");
+  assert.equal(ev.prompt, null); // the new world gets its own opening shot
+  const [ask] = applyDirection(s, bunny("Sure!", { companion: { reply: "Sure!", gesture: "none", move: "none", world: "" } }), 10);
+  assert.equal(ask.companion.world, "");
   const [plain] = applyDirection(s, bunny("Hello!"), 10);
-  assert.ok(!("open_window" in plain.companion) && !("place" in plain.companion));
+  assert.ok(!("world" in plain.companion));
 });
 
 test("small talk with the companion is spoken and logged but leaves the story alone", () => {
   const s = start();
   reduce(s, { t: "companion", id: "bunny", present: true, rid: "r1" }, owner);
-  applyDirection(s, { narration: "n", bible: "b", updates: [], choices: ["Go left", "Go right"], speech: null, companion: null }, 10);
+  applyDirection(s, { narration: "n", bible: "b", prompt: null, choices: ["Go left", "Go right"], speech: null, companion: null }, 10);
   const { director } = reduce(s, { t: "utterance", text: "Hi Bonnie", addressed: true }, owner);
-  assert.deepEqual(director, { type: "utterance", text: "Hi Bonnie", portal_id: "A", addressed: true });
+  assert.deepEqual(director, { type: "utterance", text: "Hi Bonnie", addressed: true });
   const [ev] = applyDirection(s, bunny("Hello!"), 10, 0, director);
   assert.deepEqual(ev.companion, { name: "Bonnie", reply: "Hello!", gesture: "wave", move: "none" });
   assert.deepEqual(s.story.beats, []);
@@ -257,10 +240,10 @@ test("small talk with the companion is spoken and logged but leaves the story al
 test("a companion reply that comes with a story change keeps the beat", () => {
   const s = start();
   const { director } = reduce(s, { t: "utterance", text: "Bonnie, make it snow" }, owner);
-  const out = bunny("Snow coming up!", { narration: "Snow begins to fall.", updates: [{ portal_id: "A", prompt: "snowy pier" }] });
+  const out = bunny("Snow coming up!", { narration: "Snow begins to fall.", prompt: "snowy pier" });
   const [ev] = applyDirection(s, out, 10, 0, director);
   assert.deepEqual(s.story.beats, ["Bonnie, make it snow"]);
-  assert.equal(s.portals[0].prompt, "snowy pier");
+  assert.equal(s.window.prompt, "snowy pier");
   assert.equal(ev.companion.reply, "Snow coming up!");
 });
 
@@ -274,24 +257,23 @@ test("only the headset can say where the companion is or that it was addressed",
 
 test("a slow director reply can't overwrite a newer one", () => {
   const s = start();
-  const dir = (prompt) => ({ narration: "n", bible: "b", updates: [{ portal_id: "A", prompt }], choices: [], speech: null });
+  const dir = (prompt) => ({ narration: "n", bible: "b", prompt, choices: [], speech: null });
   applyDirection(s, dir("newer scene"), 10, 2); // request 2 answered first
   const [ev] = applyDirection(s, dir("older scene"), 10, 1); // request 1 answered late
-  assert.equal(s.portals[0].prompt, "newer scene");
-  assert.deepEqual(ev.updates, []);
+  assert.equal(s.window.prompt, "newer scene");
+  assert.equal(ev.prompt, null);
 });
 
 import { autoTitle, summary } from "../server/core.js";
-test("a shared story without a title is named after its first window's world", () => {
+test("a shared story without a title is named after the window's world", () => {
   const s = initialState();
   assert.equal(summary("abc", s).title, "A new story");
-  s.portals = [{ id: "A" }];
-  s.threads = { A: { seed: "a misty pine forest at dawn." } };
+  s.story.seed = "a misty pine forest at dawn.";
   assert.equal(autoTitle(s), "A misty pine forest at dawn");
   assert.equal(summary("abc", s).title, "A misty pine forest at dawn");
   s.meta.title = "My forest";
   assert.equal(summary("abc", s).title, "My forest");
-  s.threads.A.seed = "an enormous sprawling underwater city of glass domes and coral towers lit by lanterns";
+  s.story.seed = "an enormous sprawling underwater city of glass domes and coral towers lit by lanterns";
   assert.ok(autoTitle(s).length <= 60 && autoTitle(s).endsWith("…"));
 });
 
@@ -300,10 +282,9 @@ test("live viewing: offers and answers pass through the room, addressed and chec
   const viewer = { role: "audience", voter: "v1" }, owner = { role: "owner", voter: "o1" };
   const ev = (m, ctx) => reduce(s, { ...m }, ctx).events.filter((e) => e.t === "rtc");
   assert.deepEqual(ev({ t: "rtc", kind: "join", to: "host", from: "abc123" }, viewer), [{ t: "rtc", kind: "join", to: "host", from: "abc123" }]);
-  const offer = ev({ t: "rtc", kind: "offer", to: "abc123", from: "host", sdp: "v=0...", portal: "A" }, owner);
+  const offer = ev({ t: "rtc", kind: "offer", to: "abc123", from: "host", sdp: "v=0..." }, owner);
   assert.equal(offer.length, 1);
   assert.equal(offer[0].sdp, "v=0...");
-  assert.equal(offer[0].portal, "A");
   // A viewer can't pretend to be the storyteller's device; offers need an SDP; junk is dropped.
   assert.deepEqual(ev({ t: "rtc", kind: "offer", to: "x1", from: "host", sdp: "v=0" }, viewer), []);
   assert.deepEqual(ev({ t: "rtc", kind: "answer", to: "host", from: "abc123" }, viewer), []);

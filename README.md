@@ -3,11 +3,11 @@
 **A campfire story you can step into.**
 One person speaks, the room becomes the story, and everyone watching shapes what happens next, live.
 
-You wear a Meta Quest 3S and still see your real room. Draw a square in the air and a portal opens onto a
+You wear a Meta Quest 3S and still see your real room. Draw a circle in the air, round and round like a sorcerer, and a portal opens onto a
 living world streamed live by Visko Orbis, with its own spatial sound. Raise a hand to your mouth
 like a microphone (or hold the A/X button) and narrate. An AI story director (Claude) turns your words into Orbis
-prompts, and the world changes within about 2 seconds without cutting away. You can open up to
-3 portals, each its own story in its own world (see "One story per window"). Grab a portal to move it.
+prompts, and the world changes within about 2 seconds without cutting away. There is one window and one
+story (see "One window, one story"). Grab the window to move it.
 
 Built for Immerse the Bay 2026. Tracks: Visko Living Worlds, AI Horizons, Creative Zenith.
 
@@ -23,34 +23,32 @@ npm run dev            # API on :8787 + HTTPS Vite on :5173
   Vite prints (e.g. `https://192.168.x.x:5173`) in the **Quest Browser**. Accept the self-signed
   certificate warning (Advanced → Proceed), then tap **Enter Living Window** and allow the mic.
 * **Director console (laptop):** `https://localhost:5173/console.html`. Type story lines, override
-  prompts, switch story seeds, focus or close portals. This is the backup if voice fails in the hall.
+  prompts, switch story seeds, or close the window. This is the backup if voice fails in the hall.
 * **Desktop preview:** `https://localhost:5173`. Click empty space to open a portal, drag to look,
   hold Space to talk.
 * If the venue Wi-Fi blocks device-to-device traffic: `ngrok http https://localhost:5173` and open
   the ngrok URL on the Quest.
 
-## One story per window
+## One window, one story
 
-Every window is its own story thread: its own world (seed), story bible, beats, choice chips and prompt
-history, kept per `portal_id` in `server/core.js` (`state.threads`). Each window still has its own Orbis session.
+There is one window and one story: its world (seed), story bible, beats, choice chips and prompt history live
+in `server/core.js` (`state.window`, `state.story`, `state.prompts`).
 
 * **A new window asks "What world is behind this window?"** Answer in one line, by voice (hold to talk) or by
-  typing (desktop preview, console). Skip it and the first thing you say becomes that window's world. A new
-  window never inherits another window's story.
-* **Steering only reaches the focused window.** What you say, the choice chips, touches and prompt updates go
-  to the window you are looking at; the director is given that one thread and cannot change any other window.
-* **Switching focus brings back that window's own story:** its world, bible, choices and prompt history. The
-  other windows keep streaming their own worlds untouched.
-* **Audience ideas belong to the room, not to a window.** There is one list and one vote count. An idea steers
-  whichever window is focused at the moment it is used: a pinch on an idea card, "Use" in the console, or Crowd
-  Mode's pick every 20 s. When more than one window is open, each idea card says where it will land
-  ("→ WINDOW B"), and the console, watch page and theater view name the focused window too. With no window
-  open, ideas wait on the list.
+  typing (desktop preview, console). Skip it and the first thing you say becomes the window's world.
+* **A new world can be asked for at any time**, from inside the window or outside it: say "Bonnie, take us to
+  the desert", answer the world question, or use the console. The story restarts there and the director gives
+  Orbis a new opening shot, which swaps the stream. With no window open, asking opens one onto that world.
+* **Audience ideas** steer the window's story: a pinch on an idea card, "Use" in the console, or Crowd Mode's
+  pick every 20 s. With no window open, ideas wait on the list.
+* **Where the window may be:** it stays off the floor, under the ceiling and at least about 1.35 m from you
+  wherever you put it (`src/windowplace.js`, tests in `test/windowplace.test.js`).
+  Opening another while one exists, or while you are inside, does nothing.
 
 ## New story, Reset, Prepare demo
 
 * **Reset story** (one tap arms it; the button reads **Tap again to confirm** until you do, press another
-  button, or hit Esc): closes every window and forgets every story, the ideas and the seed. Nothing is reused.
+  button, or hit Esc): closes the window and forgets the story, the ideas and the seed. Nothing is reused.
 * **New story:** the same reset, then the narrator asks **"What world is this story set in?"**. Your answer
   opens the first window onto that world. Skip it and the first window asks its own question.
 * **Prepare demo** (start card and console): a fresh story in a chosen world with its first window opened
@@ -65,7 +63,7 @@ history, kept per `portal_id` in `server/core.js` (`state.threads`). Each window
 ## Rooms and community (live site)
 
 * **Private rooms:** the first time a headset opens the site it gets its own room (e.g. `amber-fox-42`)
-  and a secret key kept in that browser. Only that headset can open portals and spend Orbis credits.
+  and a secret key kept in that browser. Only that headset can open the window and spend Orbis credits.
   Anyone else who opens the room's link is sent to the watch page instead; nobody can take it over.
 * **Console:** on a laptop open `/console.html` and enter the room + **console code** shown on the
   headset's start screen.
@@ -88,15 +86,14 @@ history, kept per `portal_id` in `server/core.js` (`state.threads`). Each window
 
 ### Watching live
 
-Friends on the watch page see the window the storyteller is focused on **live, with sound** (about a second
-behind), passed on peer to peer by the storyteller's own device (`src/app/livecast.js`): each window's video
+Friends on the watch page see the window **live, with sound** (about a second
+behind), passed on peer to peer by the storyteller's own device (`src/app/livecast.js`): the window's video
 is a private Reactor session, so that device is the only place a live copy can come from.
 
 - Up to **4 live viewers** at once (each one costs the storyteller's device a video encoder, on a Quest
   alongside VR). Everyone else, and anyone whose network blocks a direct connection, sees the window's
   picture refreshing about once a second instead (the headset snapshots faster while anyone is watching).
-- The live view follows the storyteller as they focus another window. Sound starts after a tap
-  (browsers require it).
+- Sound starts after a tap (browsers require it).
 - Some networks (phone carriers, VPNs, strict firewalls) block direct connections. Setting `TURN_URL`,
   `TURN_USERNAME` and `TURN_CREDENTIAL` (see `.env.example`) adds a TURN relay so those viewers get live
   video too; without it they get the pictures.
@@ -124,7 +121,7 @@ is a private Reactor session, so that device is the only place a live copy can c
   plays from their window, or all around you when you're inside it.
 * **Touch the world:** tap a window (quick trigger/pinch; hold to move it instead), or point at the world and pull
   the trigger when you're inside it. The frame with the touched spot marked goes to Claude, which works out what
-  you touched and makes it respond. On desktop: click the focused window.
+  you touched and makes it respond. On desktop: click the window.
 
 ## Bonnie, your companion
 
@@ -141,24 +138,21 @@ tumbling, bouncing off the floor, the open windows and a rough 8 m room box arou
 you and carries on (still following if it was). A quick pinch without moving is still the follow toggle. On desktop,
 drag Bonnie with the mouse and let go. The physics is a small hand-rolled integrator in `src/physics.js`
 (tests in `test/physics.test.js`). **Bonnie and the story director are the same mind:** everything you say goes to one
-Claude call that both steers the windows and decides what Bonnie says and does, so Bonnie sees what is in every
+Claude call that both steers the windows and decides what Bonnie says and does, so Bonnie sees what is in the
 window and "Bonnie, make it snow!" changes the world in the same breath as its answer. Say its name, or **look at
 Bonnie while you talk** (hand to mouth, A/X or Hold to talk), and it always answers out loud from where it sits (OpenAI TTS
 for the voice) with a matching gesture; while you're just narrating it mostly stays quiet and only chimes in now
 and then. Small talk ("hi Bonnie", "follow me") leaves the story untouched. Its lines appear in the watch feed and
 on the theater view.
 
-**Bonnie opens windows for you.** Say "Bonnie, go over there and open a window onto a misty pine forest" (or just
-"Bonnie, open a window"). You do not even have to say "window": proposing a new place or character to her is
-enough. "Bonnie, let's go with Santa Claus" opens a window with a Santa Claus world, "take us to the moon" one on
-the moon. A change inside the world you are already looking at ("make it snow") still steers that window instead
-(when it is unclear, the director changes the current one). She answers, walks to the place you named (left, right, ahead / over there, behind, or
-beside you if you named none: always relative to where you are looking) and opens a window just behind her, facing
-you. With a world in your words it starts that world; without one she asks "what world is behind this window?" like
-any new window. Other windows are left alone, and at the window limit she tells you to close one first. The
-director returns `open_window` (the world, or `""` to ask) and `place` next to its `companion` reply; the backup
-director (no API key) understands the same phrases. The walking is `Companion.goTo()`; the place maths is in
-`src/errand.js`.
+**Bonnie changes the world for you.** Say "Bonnie, take us to a misty pine forest" (or "Bonnie, I want a new
+landscape"). You do not have to say "window": proposing a new place or character to her is enough. "Bonnie,
+let's go with Santa Claus" gives the window a Santa Claus world, "take us to the moon" puts it on the moon. It
+works whether or not you are inside the window; with no window open yet, she opens it onto that world. A change
+inside the world you are already looking at ("make it snow") still steers it instead (when it is unclear, the
+director changes the current one). With a world in your words she changes it at once; without one she asks "what
+world is behind this window?". The director returns `world` (the world, or `""` to ask) next to its `companion`
+reply; the backup director (no API key) understands the same phrases.
 
 Add `?companion=pip` to the headset URL to get Pip, the robot, instead ("RobotExpressive" by Tomás Laulhé
 (Quaternius), modifications by Don McCurdy, CC0, from the three.js examples).
@@ -218,7 +212,7 @@ is in `src/portalresize.js`.
 ## Controls in the headset
 
 **How-to card:** a moment after you enter the headset, a card floats in front of you listing every action and
-the gesture for it (talk, open a window by drawing a square or by asking Bonnie, move / resize a window, pick up a window or the companion with both hands,
+the gesture for it (talk, open a window by drawing a circle or by asking Bonnie, move / resize a window, pick up a window or the companion with both hands,
 step in and out, close a window, call the companion, show the buttons). Pinch the ✕ in its top-right corner to close it; it also fades
 after a minute or when you step inside a world. The rows live in `src/gesturecard.js`.
 
@@ -234,7 +228,7 @@ to bring them back.
 | Action | Hands | Touch controllers |
 |---|---|---|
 | Open a portal | Pinch at empty space | Trigger at empty space |
-| Focus and move a portal | Pinch on it, drag, release | Trigger on it, drag, release |
+| Move the window | Pinch on it, drag, release | Trigger on it, drag, release |
 | Pick up and throw Bonnie | Pinch and hold on Bonnie (near her is enough: she glows when you can), swing, release | Trigger and hold on Bonnie, swing, release |
 | Resize a portal | Pinch it with both hands, then move the hands apart / together | n/a |
 | Talk | Raise a hand to your mouth (or press and hold **Hold to talk** on the panel) | Hold A or X |
@@ -242,8 +236,8 @@ to bring them back.
 | Step inside a portal | Part your hands like curtains, walk through it, or pinch it and pull it toward you | Walk through it, or press B / Y |
 | Step back out | Bring your hands together or shake them, walk back ~60 cm, or pinch the blue ring | Walk back, or press B / Y |
 
-**Drawing a window:** with your hands, pinch in empty space, draw a square or rectangle in the air, and let go: a
-window opens exactly where you drew it, projected onto the wall at the size it looked (`src/drawportal.js`). A trail
+**Drawing a window:** with your hands, pinch in empty space, draw a circle in the air with at least two full rounds (like a sorcerer's portal), and let go: a
+window opens where you drew it, projected onto the wall as wide as the circle looked (`src/drawportal.js`). A trail
 of gold dots follows your fingers and flashes when it counts. With a controller, a quick trigger tap still opens one
 straight ahead; a quick, still tap pointing at the ground in a 3D world teleports you. These are decided when you let go. Swinging to throw Bonnie, a pinch that slips off her, or pinching while she's in the
 air (and for 1.5 s after a grab or throw) never opens a window.
@@ -253,9 +247,8 @@ had (as if you stand exactly where it stood), so straight lines stay straight an
 stretching or warping. It fills your view ahead; past its edges a soft, blurred glow of the scene fills your
 peripheral vision. The director is told you're inside and asks Orbis for an eye-level 20 mm wide-angle view
 that matches, a light sharpen keeps the video crisp, and motes drift around you at arm's length. The buttons
-tuck away automatically while you're inside. Your lines keep steering it, and other portals float inside as
-doors (walk into one to switch).
-On desktop: double-click a portal (or press E) to go in, Esc to come out.
+tuck away automatically while you're inside. Your lines keep steering it.
+On desktop: double-click the window (or press E) to go in, Esc to come out.
 
 ## How it works
 
@@ -272,18 +265,18 @@ Director console (console.html) ── /ws ─────► └─────
 
 * `src/orbis.js` runs one Orbis session per portal: one JWT per session, retry with backoff on
   "no capacity" (429), auto-restart when generation completes, server-side cleanup on close.
-* `server/director.js` sends the focused window's own story bible, recent beats and prompt history to
+* `server/director.js` sends the window's own story bible, recent beats and prompt history to
   Claude and gets back `{narration, bible, updates[]}` as validated JSON (only that window can be updated). It follows the Orbis
   prompt guide: one continuous shot, and describe only what changes. Without a Claude key it falls
   back to a simple template so the demo still works.
-* Each portal plays its Orbis audio through three.js `PositionalAudio`, so the sound comes from
+* The window plays its Orbis audio through three.js `PositionalAudio`, so the sound comes from
   that wall.
 
 ## Code layout
 
 * `src/main.js` is only the entry point: it wires the server messages, the "Enter" button and the frame loop.
   The app itself lives in `src/app/`, one concern per file: `stage` (renderer, scene, camera), `state` (the
-  few values several files share), `room` (your room and the server link), `portals` (windows and stepping
+  few values several files share), `room` (your room and the server link), `portals` (the window and stepping
   inside), `wide`, `talk` (mic and voices), `story` (direction, ideas, the world question, reset), `guide`,
   `buddy`, `world` (Moon / Stanford), `buttons`, `xrinput` (controllers and hands), `desktop` (mouse, keys,
   touch, camera), `feedback` (toast, tones, haptics), `trail`, `config`.
