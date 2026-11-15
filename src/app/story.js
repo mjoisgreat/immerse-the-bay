@@ -1,5 +1,6 @@
 // app/story.js: direction, crowd mode, snapshots, touching the world, idea cards, the world question, reset / new story, prepare demo.
 import * as THREE from "three";
+import { stopSides } from "./wide.js";
 import { CameraView } from "../cameraview.js";
 import { credFor } from "../identity.js";
 import { LAYER } from "../layers.js";
@@ -291,6 +292,7 @@ export function resetLocal({ ask = false, open = false, seed = "" } = {}) {
   clearAsk();
   showChoices([]);
   for (const id of [...portals.keys()]) closePortal(id);
+  stopSides(); // the wide view's side streams too
   state.pendingSeed = seed;
   if (open) return openInFront(), flash(seed ? `A new story begins: ${seed}` : "A new story begins.", 6000);
   if (ask) return askWorld("story");
