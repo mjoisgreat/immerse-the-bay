@@ -469,6 +469,7 @@ export function autoTitle(s) {
 }
 
 /** What the gallery shows for a room. */
+const STORY_KINDS = new Set(["director", "speech", "voice", "guest", "crowd", "choice", "touch"]);
 export function summary(room, s, snap) {
   const lastLine = [...(s.log || [])].reverse().find((l) => l.kind === "director");
   return {
@@ -483,8 +484,14 @@ export function summary(room, s, snap) {
     ideas: (s.suggestions || []).length,
     // The newest ideas, shown on the card like the last lines of a stream chat.
     chat: [...(s.suggestions || [])]
-      .sort((a, b) => a.at - b.at)
-      .slice(-2)
+      .sort((a, b) => b.at - a.at) // newest first
+      .slice(0, 2)
       .map((x) => ({ by: x.by || "", text: x.text, votes: x.voters.length })),
+    // The story so far: its newest lines (the narrator, the storyteller, the crowd, the characters), newest first.
+    story: (s.log || [])
+      .filter((l) => STORY_KINDS.has(l.kind))
+      .slice(-3)
+      .reverse()
+      .map(({ kind, text, at }) => ({ kind, text: String(text).slice(0, 240), at })),
   };
 }

@@ -1,6 +1,6 @@
 import "./site.css";
 import { esc } from "./identity.js";
-import { hueOf } from "./chat.js";
+import { hueOf, describeLine } from "./chat.js";
 
 const ago = (t) => {
   const m = Math.round((Date.now() - t) / 60000);
@@ -14,6 +14,13 @@ function card(r) {
     .map((c) => `<div style="--hue:${hueOf(c.by || "Someone")}"><b>${esc(c.by || "Someone")}</b>: ${esc(c.text)}<span class="v">▲ ${c.votes}</span></div>`)
     .join("");
   const more = r.ideas > (r.chat || []).length ? `<div class="more">+${r.ideas - r.chat.length} more in chat</div>` : "";
+  // The story so far, like the watch page's log: badge, coloured name, the line; newest on top.
+  const story = (r.story || [])
+    .map((l) => {
+      const { who, chip, color, text, narr } = describeLine(l);
+      return `<div${narr ? ` class="narr"` : ""}><span class="chip">${chip}</span><b style="color:${color}">${esc(who)}</b>: <span>${esc(text)}</span></div>`;
+    })
+    .join("");
   return `<a class="card${r.live ? " live" : ""}" href="/watch.html?room=${encodeURIComponent(r.room)}" style="--hue:${hueOf(r.room)}">
     <div class="thumbWrap"><div class="thumb">${r.thumb ? `<img alt="" src="${esc(r.thumb)}">` : ""}
       ${r.live ? `<span class="tag-live">LIVE</span>` : `<span class="tag-ago">${ago(r.lastActive)}</span>`}
@@ -21,7 +28,7 @@ function card(r) {
     <div class="info"><div class="ava" aria-hidden="true">${esc((r.title || "?").trim()[0]?.toUpperCase() || "?")}</div>
       <div style="min-width:0"><h3 title="${esc(r.title)}">${esc(r.title)}</h3>
         <div class="channel">${esc(r.room)}</div>
-        <p class="line">${esc(r.line) || "A story is about to begin…"}</p>
+        ${story ? `<div class="peek story"><div class="peekHead">The story so far</div>${story}</div>` : `<p class="line">${esc(r.line) || "A story is about to begin…"}</p>`}
         <div class="tags">${r.crowd ? `<span>Crowd Mode</span>` : ""}${r.ideas ? `<span>${plural(r.ideas, "idea")}</span>` : ""}</div>
         ${chat ? `<div class="peek">${chat}${more}</div>` : ""}</div></div></a>`;
 }

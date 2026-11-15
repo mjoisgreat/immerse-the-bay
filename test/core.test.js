@@ -352,3 +352,15 @@ test("Crowd Mode's head start: a prepared answer is used only if the story hasn'
   reduce(s, { t: "utterance", text: "Then the moon goes out" }, owner);
   assert.equal(reduce(s, { t: "use_suggestion", id: id2 }, owner).director.ready, undefined);
 });
+
+test("community cards carry the story so far, newest first, without system lines", async () => {
+  const { summary } = await import("../server/core.js");
+  const s = initialState();
+  s.log = [
+    { kind: "window", text: "Window opened", at: 1 },
+    { kind: "voice", text: "A misty lake", at: 2 },
+    { kind: "director", text: "Mist rolls in. (812 ms, new prompt)", at: 3 },
+    { kind: "speech", text: "Mei: Hello", at: 4 },
+  ];
+  assert.deepEqual(summary("abc", s).story.map((l) => l.kind), ["speech", "director", "voice"]);
+});
