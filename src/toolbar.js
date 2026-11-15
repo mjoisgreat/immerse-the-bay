@@ -187,6 +187,8 @@ export class Toolbar {
 
   /** Sets the list's entries. Each row is redrawn only when its text or state changes. */
   setItems(items) {
+    if (items === this._items) return; // the same list as last frame: nothing to do (no per-frame garbage)
+    this._items = items;
     const sig = JSON.stringify(items.map(({ id, icon, label, state }) => [id, icon, label, state]));
     while (this.rows.length < items.length) this._addRow(this.rows.length);
     this.rows.forEach((row, i) => {

@@ -42,22 +42,30 @@ function openCommunity() {
   window.open("/community.html", "_blank", "noopener");
 }
 
+// What each menu entry does (made once; menuItems runs every frame in the headset).
+const MENU_ACTS = {
+  exitwin: stepOut,
+  reset: resetPressed,
+  stanford: () => void toggleWorld(STANFORD),
+  "exit-stanford": () => void toggleWorld(STANFORD),
+  moon: () => void toggleWorld("moon"),
+  "exit-moon": () => void toggleWorld("moon"),
+  wide: () => toggleWide(),
+  share: () => toggleShare(),
+  cheat: () => showCheatSheet(),
+  invite: () => showJoinCard(),
+  exitvr: () => renderer.xr.getSession()?.end(),
+};
+let menuKey = "", menuCache = [];
+/** The menu's entries; rebuilt only when something they show changes (no per-frame garbage in the headset). */
 function menuItems() {
-  const act = {
-    exitwin: stepOut,
-    reset: resetPressed,
-    stanford: () => void toggleWorld(STANFORD),
-    "exit-stanford": () => void toggleWorld(STANFORD),
-    moon: () => void toggleWorld("moon"),
-    "exit-moon": () => void toggleWorld("moon"),
-    wide: toggleWide,
-    share: toggleShare,
-    cheat: showCheatSheet,
-    invite: showJoinCard,
-    exitvr: () => renderer.xr.getSession()?.end(),
-  };
-  const entries = menuFor({ inside: immersion.inside, world: worldKey(), loading: backdrop.loading, armed: state.armed, wideOn: state.wideOn, shared: isShared() });
-  return entries.map((e) => ({ ...e, press: act[e.id] }));
+  const now = { inside: immersion.inside, world: worldKey(), loading: backdrop.loading, armed: state.armed, wideOn: state.wideOn, shared: isShared() };
+  const key = `${now.inside}|${now.world}|${now.loading}|${now.armed}|${now.wideOn}|${now.shared}`;
+  if (key !== menuKey) {
+    menuKey = key;
+    menuCache = menuFor(now).map((e) => ({ ...e, press: MENU_ACTS[e.id] }));
+  }
+  return menuCache;
 }
 // How close (metres) a ray must pass to a menu item to zone in on it.
 const MENU_ZONE = 0.03;
