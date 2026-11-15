@@ -3,7 +3,7 @@ import { createLink } from "./link.js";
 import { peopleSummary, startPresence } from "./people.js";
 import { PRESETS } from "./presets.js";
 import { urlRoom, cleanRoom, credFor, owned, consolePins, savePin, voterId, esc } from "./identity.js";
-import { hueOf, clock, topIdeaOf, nextIdeaOf, stickyLog, countdownHtml, countdownBar, startCountdowns } from "./chat.js";
+import { hueOf, clock, topIdeaOf, nextIdeaOf, stickyLog, storyFeed, countdownHtml, countdownBar, startCountdowns } from "./chat.js";
 
 const $ = (s) => document.querySelector(s);
 
@@ -86,13 +86,7 @@ function render(s) {
   $("#choices").innerHTML = (s.choices || [])
     .map((c, i) => `<button class="ghost" data-choose="${i}" style="font-style:italic">→ ${esc(c)}</button>`)
     .join("");
-  $("#log").innerHTML = s.log.length
-    ? s.log
-        .slice()
-        .reverse()
-        .map((l) => `<li><b>${esc(l.kind)}</b>${esc(l.text)}</li>`)
-        .join("")
-    : `<li class="muted">Nothing yet. Open a window in the headset and start telling the story.</li>`;
+  renderLog(s);
 
   renderChat(s);
 
@@ -115,6 +109,9 @@ function render(s) {
   const ta = box.querySelector("textarea");
   if (ta) ta.value = draft;
 }
+
+// ---------- Live log: everything that happens, as a stream chat (newest on top), with the director's timings ----------
+const renderLog = storyFeed($("#log"), $("#logJump"), { all: true, empty: "Nothing yet. Open a window in the headset and start telling the story." });
 
 // ---------- Audience ideas as a stream chat, with moderator buttons (Use / ✕) on each line ----------
 const seenIdeas = new Set();

@@ -137,6 +137,8 @@ ul.feed li.story { font: italic 1.02rem Georgia, serif; color: #ffe9c7; }
 .chat.storyFeed { position: static; height: 24rem; }
 .chip.role { background: #2f2f35; }
 .msg.narr .text { font: italic 1rem/1.45 Georgia, serif; color: #ffe9c7; }
+.msg.sys .text { color: var(--tw-muted); }
+.msg .note { margin-left: .4rem; font-size: .72rem; color: var(--tw-muted); white-space: nowrap; }
 
 /* ---------- Live view (watch page) ---------- */
 .liveview { position: relative; border-radius: 12px; overflow: hidden; background: #000; border: 1px solid var(--line); margin-bottom: .8rem; }

@@ -1,4 +1,6 @@
 // Shared bits of the Twitch-style audience chat (watch page and director console).
+// Kept free of browser-only imports (identity.js reads the page URL): the headset tests load this file in Node.
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 
 /** A steady colour per name, so the same person always looks the same. */
 export function hueOf(name) {
@@ -84,4 +86,66 @@ export function startCountdowns() {
     requestAnimationFrame(tick);
   };
   requestAnimationFrame(tick);
+}
+
+// ---------- The story log as a stream chat (the watch page's story feed and the console's live log) ----------
+// Each line gets a time, a badge and a coloured name; the newest is at the top and the log sticks there.
+const ROLES = {
+  director: { name: "Narrator", chip: "📖", color: "#ffb36b", title: "The narrator" },
+  voice: { name: "Storyteller", chip: "🎥", color: "#ff6b6b", title: "The storyteller (broadcaster)" },
+  guest: { name: "Co-narrator", chip: "🎙", color: "#3ddc6a", title: "A co-narrator" },
+  crowd: { name: "Crowd", chip: "👥", color: "#bf94ff", title: "The crowd's top idea" },
+  choice: { name: "Chosen", chip: "✓", color: "#5cb8ff", title: "A chosen option" },
+  touch: { name: "Storyteller", chip: "✋", color: "#ff6b6b", title: "The storyteller touched the world" },
+};
+// Only on the console: what happened to the window and the story, as system lines.
+const SYSTEM = {
+  world: { name: "World", chip: "🌍", color: "#4fd1c5", title: "The window's world" },
+  window: { name: "Window", chip: "🪟", color: "#adadb8", title: "The window" },
+  manual: { name: "Manual", chip: "✎", color: "#f6c453", title: "A prompt typed in the console" },
+  story: { name: "Story", chip: "📕", color: "#f687b3", title: "New story or reset" },
+};
+const OTHER = { name: "System", chip: "⚙", color: "#adadb8", title: "System" };
+
+/**
+ * A story log on `log` (with its jump button). `all` also shows the system lines and the director's
+ * timings (the console); without it, only the story itself (the watch page).
+ */
+export function storyFeed(log, jump, { all = false, empty = "Nothing yet." } = {}) {
+  const seen = new Set(), update = stickyLog(log, jump, { newestFirst: true });
+  const key = (l) => `${l.at}|${l.kind}|${l.text}`;
+  let first = true;
+  return function render(s) {
+    const lines = (s.log || []).filter((l) => l.kind === "speech" || ROLES[l.kind] || all);
+    const html = lines.length
+      ? [...lines]
+          .reverse() // newest at the top
+          .map((l) => {
+            let who, chip, color, title, text = l.text, cls = "", note = "";
+            if (l.kind === "speech") {
+              // A character speaking: "Mei: Hello". Characters get a steady colour per name.
+              const i = l.text.indexOf(": ");
+              who = i > 0 ? l.text.slice(0, i) : "Someone";
+              text = i > 0 ? l.text.slice(i + 2) : l.text;
+              (chip = "💬"), (title = "A character"), (color = `hsl(${hueOf(who)} 85% 66%)`);
+            } else {
+              ({ name: who, chip, color, title } = ROLES[l.kind] || SYSTEM[l.kind] || { ...OTHER, name: l.kind || OTHER.name });
+              if (l.kind === "director") {
+                const m = l.text.match(/\s*\((\d+ ms.*)\)$/);
+                text = m ? l.text.slice(0, m.index) : l.text;
+                if (m && all) note = `<span class="note">${esc(m[1])}</span>`; // how long the director took
+                cls = " narr";
+              }
+              if (!ROLES[l.kind]) cls = " sys";
+            }
+            const fresh = !first && !seen.has(key(l)) ? " fresh" : "";
+            return `<div class="msg${cls}${fresh}"><span class="ts">${l.at ? clock(l.at) : ""}</span><span class="chip role" title="${title}" style="background:color-mix(in srgb, ${color} 35%, #18181b)">${chip}</span><b class="who" style="color:${color}">${esc(who)}</b><span class="colon">:</span> <span class="text">${esc(text)}</span>${note}</div>`;
+          })
+          .join("")
+      : `<div class="chatWelcome">${esc(empty)}</div>`;
+    const hasNew = lines.some((l) => !seen.has(key(l)));
+    for (const l of lines) seen.add(key(l));
+    update(html, { hasNew });
+    first = false;
+  };
 }
