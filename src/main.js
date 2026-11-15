@@ -5,6 +5,7 @@ import { Portal, PORTAL_SIZE } from "./portal.js";
 import { resizedScale, carriedPosition } from "./portalresize.js";
 import { analyzeStroke, strokeHint } from "./drawportal.js";
 import { GestureCard } from "./gesturecard.js";
+import { spotFor, windowSpot } from "./errand.js";
 import { Immersion } from "./immersion.js";
 import { Toolbar } from "./toolbar.js";
 import { HandGestures } from "./gestures.js";
@@ -142,19 +143,24 @@ function placeInFront(obj, origin, dir, dist = 1.8) {
  * Opens a window. Every window is its own story, so unless a world was chosen ahead of time
  * (New story, Prepare demo, the console) it asks "what world is behind this window?".
  */
-/** Opens a window: in front along a pointing ray, or (`opts.at`, `opts.scale`) where you drew one. */
+/**
+ * opts.at: where it goes ([x, y, z] where you drew it, or {x, y, z} where the companion stands), facing you;
+ * opts.scale: its size (a drawn window); opts.world: the world its story starts in (no question asked).
+ */
 function openPortal(origin, dir, opts = {}) {
+  const { at = null, world = null, scale = 1 } = opts;
   if (portals.size >= maxPortals) return flash(`At most ${maxPortals} portals. Close one first.`);
   const hasWorld = Boolean(pendingSeed || roomState?.nextSeed);
   pendingSeed = "";
   if (roomState) roomState.nextSeed = "";
   const id = nextId();
   const portal = new Portal(id, listener);
-  if (opts.at) {
-    portal.group.position.fromArray(opts.at);
+  if (at) {
+    if (Array.isArray(at)) portal.group.position.fromArray(at);
+    else portal.group.position.set(at.x, at.y, at.z);
     const eye = camera.getWorldPosition(new THREE.Vector3());
     portal.group.lookAt(eye.x, portal.group.position.y, eye.z); // upright, facing you
-    portal.group.scale.setScalar(opts.scale || 1);
+    portal.group.scale.setScalar(scale);
   } else placeInFront(portal.group, origin, dir);
   scene.add(portal.group);
   const stream = new OrbisStream(id, ROOM);
@@ -170,7 +176,12 @@ function openPortal(origin, dir, opts = {}) {
   portals.set(id, { portal, stream });
   setFocus(id);
   send({ t: "portal_added", id }); // with a world chosen ahead, the server asks the director for its first scene
-  if (hasWorld) clearAsk();
+  if (world) {
+    // The companion was told which world: this window's own story starts there, no question needed.
+    clearAsk();
+    portal.setCaption("The world is forming…", "status");
+    send({ t: "set_seed", id, seed: world });
+  } else if (hasWorld) clearAsk();
   else askWorld("portal", id);
 }
 
@@ -328,8 +339,10 @@ function applyDirection({ portal_id, narration, updates, choices, speech, compan
   showChoices(choices || []);
   // The companion and the story are one mind: the same answer may carry its reply. One voice at a time.
   const replied = Boolean(companion?.reply && buddy.visible);
-  if (replied) buddyReply(companion, !narration);
-  else if (buddy.listening) buddyIdle();
+  if (replied) {
+    buddyReply(companion, !narration);
+    if (typeof companion.open_window === "string") buddyOpensWindow(companion);
+  } else if (buddy.listening) buddyIdle();
   if (speech?.line && !replied) playVoice(speech);
   for (const u of updates) {
     const p = portals.get(u.portal_id);
@@ -1149,6 +1162,27 @@ buddy.onPhysics = (event, amount) => {
     buddy.say(hard ? pick(["Oof. I'm okay!", "Bunnies bounce. Mostly."]) : pick(["Again! Again!", "Ta-da!", "Nice throw!"]), 3500);
   }
 };
+
+/**
+ * "Bonnie, go over there and open a window": she walks to the place (relative to where you look) and
+ * opens a window just behind her. `open_window` is the world behind it, or "" to ask you which.
+ */
+function buddyOpensWindow({ open_window: world, place }) {
+  if (portals.size >= maxPortals) return buddy.say(`I'm holding all ${maxPortals} windows already. Close one first!`, 5000);
+  const eye = camera.getWorldPosition(new THREE.Vector3());
+  const f = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.getWorldQuaternion(new THREE.Quaternion()));
+  const l = Math.hypot(f.x, f.z);
+  const fwd = l > 1e-3 ? { x: f.x / l, z: f.z / l } : { x: 0, z: -1 };
+  const spot = spotFor(place, eye, fwd, renderer.xr.isPresenting ? 2.0 : 3.0);
+  buddy.goTo(spot, () => {
+    if (!buddy.visible || portals.size >= maxPortals) return;
+    const now = camera.getWorldPosition(new THREE.Vector3());
+    const here = { x: buddy.root.position.x, z: buddy.root.position.z };
+    const y = Math.min(1.7, Math.max(1.1, now.y - 0.1));
+    openPortal(now, new THREE.Vector3(0, 0, -1), { at: windowSpot(here, now, y), world: world || null });
+    buddy.say(world ? "Ta-da! Here's your window." : "Ta-da! What world should it show?", 4000);
+  });
+}
 
 // A quick pinch / tap on the companion toggles following you around.
 function toggleBuddyFollow() {

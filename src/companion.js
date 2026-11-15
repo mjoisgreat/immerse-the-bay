@@ -409,6 +409,7 @@ export class Companion {
     this.range = [1.2, 2.4];
     this.comeDistance = 0.8;
     this.following = false; // walks beside you wherever you go
+    this.errand = null; // { point, done, until }: walking somewhere to do something (see goTo)
     this.returnAt = 0; // when to walk back to you after a throw (0 = not pending)
     this.strayT = 0; // ms spent too far away
     rig.onFinished = () => {
@@ -428,6 +429,14 @@ export class Companion {
     this.followUser = false;
     this.target = null;
     if (!on) (this.mode = "idle"), (this.idleUntil = performance.now() + 6000);
+  }
+
+  /**
+   * An errand: walk (run) to `point` on the floor, then call `done`. It waits while it is talking, gives
+   * up after `timeoutMs` (and still calls `done`), and is dropped if you pick it up or send it away.
+   */
+  goTo(point, done, timeoutMs = 15000) {
+    this.errand = { point: new THREE.Vector3(point.x, 0, point.z), done, until: performance.now() + timeoutMs };
   }
 
   /** Shows text above its head for `ms` (or until replaced). Empty text hides it. */
@@ -496,6 +505,7 @@ export class Companion {
   }
 
   dismiss() {
+    this.errand = null;
     this._endPhysics();
     this.root.visible = false;
     this.followUser = false;
@@ -597,6 +607,22 @@ export class Companion {
       this.mode = "talk";
       this._turnTowards(toUser, dt, 4);
       if (!this.emoting) this.rig.play("Idle");
+    } else if (this.errand) {
+      const e = this.errand;
+      const off = Math.hypot(e.point.x - pos.x, e.point.z - pos.z);
+      if (off < 0.2 || now > e.until) {
+        // Arrived (or gave up): do the thing, then carry on as before.
+        this.errand = null;
+        this.target = null;
+        this.mode = "idle";
+        this.idleUntil = now + 4000;
+        this.gesture("thumbs_up");
+        e.done?.();
+      } else {
+        this.target = e.point;
+        this.mode = "walk";
+        speed = RUN_SPEED;
+      }
     } else if (this.following) {
       // Walk beside you: a little ahead and to your left, so it stays in view as you move.
       const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(this.camera.getWorldQuaternion(new THREE.Quaternion())).setY(0);
@@ -683,6 +709,7 @@ export class Companion {
    */
   grab(holder, { reel = true } = {}) {
     if (!this.ready || !this.visible) return false;
+    this.errand = null; // picked up: the errand is off
     const from = { pos: this.root.position.clone(), quat: this.root.quaternion.clone(), fresh: !this.phys };
     // From here on the root only carries the position; the pivot carries the whole orientation.
     const q = this.pivot.getWorldQuaternion(new THREE.Quaternion());

@@ -118,6 +118,16 @@ You, in the room (the companion field):
   just ask you to come over or come closer; "stay" if they ask you to stay, wait or stop
   following; "wander" if they ask you to go explore, go away or give them space; "none"
   otherwise.
+- open_window / place: you can open a window for them. When they ask you to open a window (or
+  a portal, "make me a window", "go over there and open one"), set open_window to the world
+  they want behind it, as a short vivid description ("a misty pine forest at dawn"), or to an
+  empty string "" if they did not say which world (you will then ask them). Otherwise
+  open_window is null. place is where you walk to do it, relative to where they are looking:
+  "left", "right", "ahead" (over there, by the wall, in front), "behind", or "here" (nearby,
+  or no place was named). If you open a window, say so in your reply ("On it, opening a window
+  over there!") and leave the other windows alone: updates is an empty list and narration is
+  an empty string. If they only ask you to go somewhere (no window), use move "wander" and
+  null.
 - Just chatting: when their words are only for you and change nothing in the story ("hi
   Bonnie", "what's your favourite food?", "follow me"), leave the story alone: updates is an
   empty list, narration is an empty string, choices is an empty list, speech is null, and the
@@ -145,6 +155,8 @@ const Direction = z.object({
       reply: z.string(),
       gesture: z.enum(["wave", "yes", "no", "thumbs_up", "jump", "dance", "think", "none"]),
       move: z.enum(["follow", "come", "stay", "wander", "none"]),
+      open_window: z.string().nullable(),
+      place: z.enum(["here", "ahead", "left", "right", "behind"]),
     })
     .nullable(),
 });
@@ -394,6 +406,13 @@ const CHATTER = [
 let chatterTurn = 0;
 /** A reply if `text` is small talk (a greeting, a question, a move), or null if it asks for a story change. */
 function smallTalk(text) {
+  // "open a window onto a jungle", "go over there to the left and open a portal".
+  if (/\b(open|make|create)\b.*\b(window|portal)\b|\b(window|portal)\b.*\bopen\b/i.test(text)) {
+    const world = /\b(?:onto|into|of|with|showing|that shows|looking (?:at|onto))\s+(.+?)[.!?]*$/i.exec(text)?.[1] || "";
+    const place = /\bleft\b/i.test(text) ? "left" : /\bright\b/i.test(text) ? "right" : /\bbehind|\bback\b/i.test(text) ? "behind"
+      : /\b(there|over|ahead|front|wall)\b/i.test(text) ? "ahead" : "here";
+    return { reply: world ? "On it! Opening a window." : "Sure! Opening a window. Tell me which world.", gesture: "thumbs_up", move: "none", open_window: world, place };
+  }
   const follow = /follow|come along|with me/i.test(text);
   const stay = /\b(stay|wait|stop)\b/i.test(text);
   const come = /\b(come|here|closer)\b/i.test(text);
