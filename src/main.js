@@ -454,7 +454,7 @@ function targets() {
   const ui = immersion.inside ? [micOrb, exitOrb] : [micOrb];
   if (renderer.xr.isPresenting) ui.push(...toolbar.targets);
   if (buddy.visible) ui.push(buddy.hitbox);
-  if (gestureCard.visible) ui.push(gestureCard.mesh);
+  if (gestureCard.visible) ui.push(gestureCard.closeButton, gestureCard.mesh);
   return [...ui.filter((o) => o.visible || o === buddy.hitbox), ...[...portals.values()].filter((p) => p.portal.group.visible).map((p) => p.portal.screen)];
 }
 
@@ -500,7 +500,8 @@ function onSelectStart(ctrl) {
     return startTalking();
   }
   if (hit?.object.userData.exit) return stepOut();
-  if (hit?.object.userData.gestureCard) return hideGestureCard();
+  if (hit?.object.userData.cardClose) return hideGestureCard(), buzz(0.3, 30);
+  if (hit?.object.userData.gestureCard) return; // pinching the card itself does nothing; only its ✕ closes it
   if (hit?.object.userData.button) {
     ctrl.userData.button = hit.object.userData.button;
     if (ctrl.userData.button !== armed) disarm(); // any other button cancels a pending confirm
@@ -1465,8 +1466,10 @@ function updateToolbar() {
     hoverRay.ray.direction.set(0, 0, -1).applyMatrix4(tmpMat);
     const h = hoverRay.intersectObjects(panel, false)[0];
     if (h) hits.push(h.object);
+    if (gestureCard.visible && hoverRay.intersectObject(gestureCard.closeButton, false).length) hits.push(gestureCard.closeButton);
   }
   toolbar.hover(hits);
+  gestureCard.hoverClose(hits.includes(gestureCard.closeButton));
   syncButtons();
 }
 function syncButtons() {
