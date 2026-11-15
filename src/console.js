@@ -85,7 +85,7 @@ function render(s) {
   $("#choices").innerHTML = (s.choices || [])
     .map((c, i) => `<button class="ghost" data-choose="${i}" style="font-style:italic">→ ${esc(c)}</button>`)
     .join("");
-  renderLog(s);
+  renderLog((lastState = s));
 
   renderChat(s);
 
@@ -110,7 +110,23 @@ function render(s) {
 }
 
 // ---------- Live log: everything that happens, as a stream chat (newest on top), with the director's timings ----------
-const renderLog = storyFeed($("#log"), $("#logJump"), { all: true, empty: "Nothing yet. Open a window in the headset and start telling the story." });
+// Two tabs: Everything (the default) or just the story so far, the way the audience sees it. Remembered per browser.
+let logTab = "all";
+try { logTab = localStorage.getItem("lw.logTab") === "story" ? "story" : "all"; } catch {}
+const renderLog = storyFeed($("#log"), $("#logJump"), { all: () => logTab === "all", empty: "Nothing yet. Open a window in the headset and start telling the story." });
+let lastState = null;
+function showLogTab() {
+  for (const b of document.querySelectorAll("[data-logtab]")) b.setAttribute("aria-selected", String(b.dataset.logtab === logTab));
+  $("#log").setAttribute("aria-label", logTab === "all" ? "Live log: everything" : "Live log: the story so far");
+}
+for (const b of document.querySelectorAll("[data-logtab]"))
+  b.addEventListener("click", () => {
+    logTab = b.dataset.logtab;
+    try { localStorage.setItem("lw.logTab", logTab); } catch {}
+    showLogTab();
+    if (lastState) renderLog(lastState);
+  });
+showLogTab();
 
 // ---------- Audience ideas as a stream chat, with moderator buttons (Use / ✕) on each line ----------
 const seenIdeas = new Set();

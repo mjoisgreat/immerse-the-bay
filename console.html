@@ -4,6 +4,8 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Director Console</title>
+    <link rel="icon" href="/icons/icon-192.png" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
   </head>
   <body>
     <header class="top">
@@ -101,7 +103,12 @@
           <div id="bible" class="muted" style="white-space:pre-wrap"></div>
         </section>
         <section class="chat storyFeed">
-          <div class="chatHead"><h2>Live log</h2></div>
+          <div class="chatHead logHead"><h2>Live log</h2>
+            <div class="logTabs" role="tablist" aria-label="What the live log shows">
+              <button type="button" role="tab" data-logtab="all" aria-selected="true" title="Everything: the story, the window, the world and the director's timings">Everything</button>
+              <button type="button" role="tab" data-logtab="story" aria-selected="false" title="Only the story so far: narrator, storyteller, characters, crowd">Story so far</button>
+            </div>
+          </div>
           <div class="chatScroll">
             <div id="log" class="chatLog" role="log" aria-live="polite" aria-label="Live log"></div>
             <button type="button" class="jump" id="logJump" hidden>↑ New lines above</button>
