@@ -97,12 +97,16 @@ void main(){
   }
 
   // Wide view: the left and right streams. Only one can cover a given direction.
-  vec3 sl = sideUv(d, ${SIDE_YAW.toFixed(5)}), sr = sideUv(d, -${SIDE_YAW.toFixed(5)});
-  float wl = frameWeight(sl.xy, sl.z) * hasL, wr = frameWeight(sr.xy, sr.z) * hasR;
-  float ws = wl + wr;
+  // (Branches on uniforms are free: without Wide view, none of this runs.)
+  float ws = 0.0;
   vec3 sideCol = vec3(0.0);
-  if (wl > 0.0) sideCol = textureLod(mapL, sl.xy, 0.0).rgb * sideGain(mapL, ${OVERLAP_MAIN_X.toFixed(5)}, ${OVERLAP_SIDE_X.toFixed(5)});
-  else if (wr > 0.0) sideCol = textureLod(mapR, sr.xy, 0.0).rgb * sideGain(mapR, ${(1 - OVERLAP_MAIN_X).toFixed(5)}, ${(1 - OVERLAP_SIDE_X).toFixed(5)});
+  if (hasL + hasR > 0.0) {
+    vec3 sl = sideUv(d, ${SIDE_YAW.toFixed(5)}), sr = sideUv(d, -${SIDE_YAW.toFixed(5)});
+    float wl = frameWeight(sl.xy, sl.z) * hasL, wr = frameWeight(sr.xy, sr.z) * hasR;
+    ws = wl + wr;
+    if (wl > 0.0) sideCol = textureLod(mapL, sl.xy, 0.0).rgb * sideGain(mapL, ${OVERLAP_MAIN_X.toFixed(5)}, ${OVERLAP_SIDE_X.toFixed(5)});
+    else if (wr > 0.0) sideCol = textureLod(mapR, sr.xy, 0.0).rgb * sideGain(mapR, ${(1 - OVERLAP_MAIN_X).toFixed(5)}, ${(1 - OVERLAP_SIDE_X).toFixed(5)});
+  }
 
   // Beyond the frame: a soft, ever blurrier glow of the picture fading into the scene's colour.
   // Every pixel computes it (no branch) at a fixed blur level (textureLod): mip selection inside a
@@ -132,15 +136,21 @@ void main(){
   // (No film grain: noise that changes every frame made the whole view flicker, on a flat screen too.)
 
   // Before frames arrive: the same swirl the portal shows while a world forms.
-  float sw = noise(vec2(atan(d.x, -d.z) * 2.0 + time * 0.6, d.y * 3.0 - time * 0.4));
-  vec3 forming = mix(vec3(0.05,0.07,0.18), vec3(0.95,0.62,0.30), smoothstep(0.35, 0.9, sw));
-  vec3 col = mix(forming, video, hasVideo);
+  vec3 col = video;
+  if (hasVideo < 1.0) {
+    float sw = noise(vec2(atan(d.x, -d.z) * 2.0 + time * 0.6, d.y * 3.0 - time * 0.4));
+    vec3 forming = mix(vec3(0.05,0.07,0.18), vec3(0.95,0.62,0.30), smoothstep(0.35, 0.9, sw));
+    col = mix(forming, video, hasVideo);
+  }
   // Iris that opens from straight ahead on entry and closes on exit, with a warm rim.
-  float ang = acos(clamp(fwd, -1.0, 1.0));
-  float r = progress * 3.6; // fully open reaches all the way behind you (3.4 left a see-through spot there)
-  float iris = 1.0 - smoothstep(r - 0.35, r, ang);
-  float rim = smoothstep(r - 0.5, r - 0.2, ang) * iris * (1.0 - progress);
-  col += vec3(1.0, 0.7, 0.4) * rim * 1.5;
+  float iris = 1.0;
+  if (progress < 1.0) { // (fully open: nothing to compute)
+    float ang = acos(clamp(fwd, -1.0, 1.0));
+    float r = progress * 3.6; // fully open reaches all the way behind you (3.4 left a see-through spot there)
+    iris = 1.0 - smoothstep(r - 0.35, r, ang);
+    float rim = smoothstep(r - 0.5, r - 0.2, ang) * iris * (1.0 - progress);
+    col += vec3(1.0, 0.7, 0.4) * rim * 1.5;
+  }
   // In the headset it's drawn opaque and first (see update), writing premultiplied colour and alpha.
   gl_FragColor = premult > 0.5 ? vec4(col * iris, iris) : vec4(col, iris);
 }`;
@@ -168,6 +178,8 @@ void main() {
   float a = smoothstep(0.5, 0.0, d);
   gl_FragColor = vec4(color * (0.6 + vTw), a * a * opacity * vTw);
 }`;
+
+const _colour = new THREE.Color(), _hsl = {};
 
 export class Immersion {
   constructor(scene, camera, { onChange, audioContext } = {}) {
@@ -371,8 +383,8 @@ export class Immersion {
       let r = 0, gr = 0, b = 0;
       for (let i = 0; i < px.length; i += 4) r += px[i], gr += px[i + 1], b += px[i + 2];
       const n = px.length / 4;
-      const c = new THREE.Color(r / n / 255, gr / n / 255, b / n / 255);
-      const hsl = c.getHSL({});
+      const c = _colour.setRGB(r / n / 255, gr / n / 255, b / n / 255);
+      const hsl = c.getHSL(_hsl);
       c.setHSL(hsl.h, Math.min(1, hsl.s * 1.4 + 0.15), 0.72); // a glowing version of the scene's hue
       this.moteMat.uniforms.color.value.lerp(c, 0.3);
     } catch {

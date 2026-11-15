@@ -12,6 +12,8 @@ export const PHYSICS = {
   maxStep: 1 / 90, // s: longer frames are split up, so fast throws don't tunnel
 };
 
+const AXES = ["x", "y", "z"];
+const NO_RECTS = [];
 const dot = (a, b) => a.x * b.x + a.y * b.y + a.z * b.z;
 
 /** A short press that barely moved is a tap (toggle follow), anything else is a grab / throw. */
@@ -68,7 +70,7 @@ function bounceRect(body, r, e) {
   if (into <= 0) return 0; // already moving away
   const push = (body.radius - Math.abs(d)) * side;
   const k = (1 + e) * into * side;
-  for (const a of ["x", "y", "z"]) (body.pos[a] += r.normal[a] * push), (body.vel[a] += r.normal[a] * k);
+  for (const a of AXES) (body.pos[a] += r.normal[a] * push), (body.vel[a] += r.normal[a] * k);
   return into;
 }
 
@@ -79,13 +81,13 @@ function bounceRect(body, r, e) {
  * whether that was the floor, and whether it has come to rest on the floor.
  */
 export function stepBody(body, dt, env = {}, P = PHYSICS) {
-  const { floorY = 0, bounds = null, rects = [] } = env;
+  const { floorY = 0, bounds = null, rects = NO_RECTS } = env;
   const out = { impact: 0, floor: false, resting: false };
   const n = Math.max(1, Math.ceil(dt / P.maxStep));
   const h = dt / n;
   for (let i = 0; i < n; i++) {
     body.vel.y -= P.gravity * h;
-    for (const a of ["x", "y", "z"]) body.pos[a] += body.vel[a] * h;
+    for (const a of AXES) body.pos[a] += body.vel[a] * h;
 
     let grounded = false;
     if (body.pos.y - body.radius <= floorY) {
