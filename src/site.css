@@ -59,3 +59,39 @@ ul.feed li.story { font: italic 1.02rem Georgia, serif; color: #ffe9c7; }
 .chips button { padding: .4rem .8rem; font-size: .88rem; }
 @media (max-width: 520px) { .wrap { padding: .75rem; } section { padding: .85rem; } header.top h1 { font-size: 1.05rem; } }
 .cards > .empty, .snaps > .empty { grid-column: 1 / -1; }
+
+/* ---------- Ideas (watch page): the composer and the idea cards ---------- */
+.composer { display: grid; gap: .5rem; }
+.composer textarea { width: 100%; box-sizing: border-box; font: 1rem/1.4 Georgia, serif; resize: none; min-height: 3.2rem; }
+.composer #who { max-width: 14rem; }
+.composeFoot { display: flex; align-items: center; justify-content: space-between; gap: .75rem; }
+.composeFoot .near { color: var(--warm); }
+.composeFoot button:disabled { opacity: .45; cursor: default; }
+h2 .count { color: var(--warm2); letter-spacing: 0; }
+.ideas { display: grid; gap: .55rem; }
+.idea { position: relative; display: grid; grid-template-columns: auto 1fr auto; gap: .7rem; align-items: start; padding: .75rem .75rem .75rem .7rem;
+  background: var(--panel2); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+/* How this idea's votes compare with the top one: a faint bar along the bottom. */
+.idea::after { content: ""; position: absolute; left: 0; bottom: 0; height: 3px; width: var(--share); background: linear-gradient(90deg, var(--warm), var(--warm2));
+  opacity: .55; transition: width .4s ease; }
+.idea.is-top { border-color: color-mix(in srgb, var(--warm) 60%, var(--line)); box-shadow: 0 0 0 1px color-mix(in srgb, var(--warm) 25%, transparent), 0 6px 22px -12px var(--warm); }
+.idea.is-mine { background: color-mix(in srgb, var(--panel2) 85%, var(--warm) 6%); }
+.idea.fresh { animation: ideaIn .45s ease both; }
+@keyframes ideaIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.avatar { width: 2.1rem; height: 2.1rem; border-radius: 50%; display: grid; place-items: center; font-weight: 700; font-size: .95rem;
+  color: #fff; background: hsl(var(--hue) 55% 42%); box-shadow: inset 0 0 0 2px hsl(var(--hue) 60% 58% / .5); }
+.ideaBody { min-width: 0; }
+.ideaMeta { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem; font-size: .82rem; line-height: 1.3; }
+.ideaMeta b { color: var(--text); font-weight: 600; }
+.ideaText { margin: .25rem 0 0; font: 1.02rem/1.4 Georgia, serif; color: var(--text); overflow-wrap: anywhere; }
+.badge { font-size: .7rem; font-weight: 700; letter-spacing: .02em; padding: .1rem .45rem; border-radius: 999px; }
+.badge.top { background: var(--warm); color: #1b1206; }
+.badge.mine { background: transparent; color: var(--warm2); border: 1px solid color-mix(in srgb, var(--warm2) 50%, transparent); }
+.idea .vote { flex-direction: column; gap: 0; min-width: 2.9rem; padding: .35rem .5rem; border-radius: 10px; line-height: 1.1; }
+.idea .vote .arrow { font-size: .75rem; }
+.idea .vote .n { font-size: 1rem; font-weight: 700; }
+.idea .vote:active { transform: scale(.94); }
+.idea .vote:disabled { cursor: default; opacity: .85; }
+.ideasEmpty { text-align: center; color: var(--muted); padding: 1.2rem .5rem; }
+.ideasEmpty .big { font-size: 1.8rem; margin-bottom: .3rem; }
+.ideasEmpty p { margin: 0; }

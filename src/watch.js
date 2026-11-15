@@ -74,19 +74,52 @@ function render(s) {
         .join("")
     : `<li class="muted">Nothing yet.</li>`;
 
+  renderIdeas(s);
+  renderSnaps();
+}
+
+// ---------- Ideas: cards with who said it and when, the votes, and the top one called out ----------
+// Redrawn only when something changed (no flicker, no lost hover); new ideas fade in once.
+const seenIdeas = new Set();
+let ideasHtml = "", firstIdeas = true;
+const agoShort = (t) => {
+  const m = Math.round((Date.now() - t) / 60000);
+  return m < 1 ? "just now" : m < 60 ? `${m} min ago` : `${Math.round(m / 60)} h ago`;
+};
+/** A steady colour per name, so the same person always looks the same. */
+function hueOf(name) {
+  let h = 0;
+  for (const c of String(name)) h = (h * 31 + c.codePointAt(0)) % 360;
+  return h;
+}
+function renderIdeas(s) {
   const sug = [...(s.suggestions || [])].sort((a, b) => b.voters.length - a.voters.length || a.at - b.at);
-  $("#suggs").className = sug.length ? "" : "empty";
-  $("#suggs").innerHTML = sug.length
+  const top = sug[0]?.voters.length || 0;
+  $("#suggCount").textContent = sug.length ? `· ${sug.length}` : "";
+  const html = sug.length
     ? sug
-        .map((x) => {
-          const mine = x.voters.includes(voterId);
-          const by = x.by ? ` <span class="muted" style="font-style:normal">· ${esc(x.by)}</span>` : "";
-          return `<div class="sugg"><button class="vote ${mine ? "on" : ""}" data-vote="${esc(x.id)}" aria-pressed="${mine}">▲ ${x.voters.length}</button>
-            <span class="text">${esc(x.text)}${by}</span></div>`;
+        .map((x, i) => {
+          const votes = x.voters.length, voted = x.voters.includes(voterId), yours = x.voters[0] === voterId;
+          const name = x.by || "Someone";
+          const isTop = i === 0 && votes > 1 && votes > (sug[1]?.voters.length || 0);
+          const badge = isTop ? `<span class="badge top">${s.meta?.crowd ? "⏭ Up next" : "🔥 Top idea"}</span>` : "";
+          const fresh = !firstIdeas && !seenIdeas.has(x.id) ? " fresh" : "";
+          return `<article class="idea${isTop ? " is-top" : ""}${yours ? " is-mine" : ""}${fresh}" style="--hue:${hueOf(name)};--share:${top ? Math.round((votes / top) * 100) : 0}%">
+            <div class="avatar" aria-hidden="true">${esc((x.by || "?").trim()[0]?.toUpperCase() || "?")}</div>
+            <div class="ideaBody">
+              <div class="ideaMeta"><b>${esc(name)}</b>${yours ? `<span class="badge mine">Your idea</span>` : ""}${badge}<span class="muted">· ${agoShort(x.at)}</span></div>
+              <p class="ideaText">${esc(x.text)}</p>
+            </div>
+            <button class="vote${voted ? " on" : ""}" ${yours ? `disabled title="Your idea always keeps your vote"` : `data-vote="${esc(x.id)}"`} aria-pressed="${voted}" aria-label="${yours ? "Your idea keeps your vote" : voted ? "Remove your vote" : "Vote for this idea"} (${votes})">
+              <span class="arrow">▲</span><span class="n">${votes}</span></button>
+          </article>`;
         })
         .join("")
-    : "No ideas yet. Be the first.";
-  renderSnaps();
+    : `<div class="ideasEmpty"><div class="big">💡</div><p>No ideas yet. Be the first to say what happens next.</p></div>`;
+  for (const x of sug) seenIdeas.add(x.id);
+  firstIdeas = false;
+  if (html !== ideasHtml) $("#suggs").innerHTML = ideasHtml = html;
+  $("#suggs").className = sug.length ? "ideas" : "ideas empty";
 }
 
 // Portal snapshots (posted by the storyteller's headset every few seconds).
@@ -118,15 +151,25 @@ const NAME_KEY = "lw:name";
 try {
   $("#who").value = localStorage.getItem(NAME_KEY) || "";
 } catch {}
+const ideaCount = () => {
+  const n = $("#idea").value.length;
+  $("#ideaCount").textContent = `${n} / 140`;
+  $("#ideaCount").classList.toggle("near", n > 120);
+  $("#postIdea").disabled = !$("#idea").value.trim();
+};
+$("#idea").addEventListener("input", ideaCount);
+// Enter posts (an idea is one line); Shift+Enter still makes a new line.
+$("#idea").addEventListener("keydown", (e) => e.key === "Enter" && !e.shiftKey && (e.preventDefault(), $("#suggest").requestSubmit()));
 $("#suggest").addEventListener("submit", async (e) => {
   e.preventDefault();
-  const text = $("#idea").value.trim();
+  const text = $("#idea").value.replace(/\s+/g, " ").trim();
   if (!text) return;
   const name = $("#who").value.trim();
   try {
     localStorage.setItem(NAME_KEY, name);
   } catch {}
   $("#idea").value = "";
+  ideaCount();
   await link.request({ t: "suggest", text, name });
 });
 $("#choices").addEventListener("click", (e) => {

@@ -53,15 +53,15 @@
       <div>
         <section>
           <h2>Suggest what happens next</h2>
-          <form class="row" id="suggest">
-            <input id="who" placeholder="Your name" maxlength="20" autocomplete="nickname" aria-label="Your name (shown with your idea, optional)" style="flex:0 1 8.5rem;min-width:6rem" />
-            <input id="idea" placeholder="e.g. A whale rises out of the lake" maxlength="140" autocomplete="off" />
-            <button>Suggest</button>
+          <form id="suggest" class="composer">
+            <input id="who" placeholder="Your name (optional)" maxlength="20" autocomplete="nickname" aria-label="Your name, shown with your idea" />
+            <textarea id="idea" rows="2" maxlength="140" placeholder="What should happen next? e.g. A whale rises out of the lake" aria-label="Your idea"></textarea>
+            <div class="composeFoot"><span class="muted" id="ideaCount">0 / 140</span><button id="postIdea" disabled>Post idea</button></div>
           </form>
           <p class="muted" id="crowdNote" style="margin:.6rem 0 0"></p>
         </section>
         <section>
-          <h2>Vote on ideas</h2>
+          <h2>Vote on ideas <span class="count" id="suggCount"></span></h2>
           <div id="suggs" class="empty">No ideas yet. Be the first.</div>
         </section>
       </div>
